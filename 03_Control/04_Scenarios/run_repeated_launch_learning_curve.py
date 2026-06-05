@@ -82,7 +82,12 @@ from transition_labels import (
     transition_contract_row,
     transition_row_fields,
 )  # noqa: E402
-from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor_config_to_row  # noqa: E402
+from viability_governor import (  # noqa: E402
+    DEFAULT_GOVERNOR_CONFIG,
+    GovernorConfig,
+    calibrated_regime_risk_features,
+    governor_config_to_row,
+)
 
 
 PROJECT_TITLE_VERSION = "LQR-Stabilised Contextual Primitive v5.20"
@@ -2363,6 +2368,21 @@ def _candidate_path_belief_features(
     reference_state = _candidate_reference_state_vector(representative, outcome)
     path_speed_m_s = _candidate_path_speed_m_s(state=state, representative=representative, reference_state=reference_state)
     vertical_speed_m_s = _candidate_path_vertical_speed_m_s(state=state, reference_state=reference_state)
+    calibrated_regime = (
+        calibrated_regime_risk_features(
+            u_m_s=reference_state[STATE_INDEX["u"]],
+            w_m_s=reference_state[STATE_INDEX["w"]],
+            governor_config=cfg,
+            alpha_source="reference_state_vector",
+        )
+        if reference_state
+        else calibrated_regime_risk_features(
+            path_speed_m_s=path_speed_m_s,
+            vertical_speed_m_s=vertical_speed_m_s,
+            governor_config=cfg,
+            alpha_source="candidate_path_vertical_speed_over_speed",
+        )
+    )
     reference_bank_rad = _candidate_reference_bank_rad(representative=representative, reference_state=reference_state)
     heading_offset_rad = _candidate_path_heading_offset_rad(
         reference_bank_rad=reference_bank_rad,
@@ -2639,6 +2659,19 @@ def _candidate_path_belief_features(
         "belief_candidate_path_reference_bank_rad": float(reference_bank_rad),
         "belief_candidate_path_heading_offset_rad": float(heading_offset_rad),
         "belief_candidate_path_speed_m_s": float(path_speed_m_s),
+        "belief_candidate_path_vertical_speed_m_s": float(vertical_speed_m_s),
+        "belief_candidate_path_alpha_proxy_deg": float(calibrated_regime["calibrated_regime_alpha_proxy_deg"]),
+        "belief_candidate_path_alpha_abs_deg": float(calibrated_regime["calibrated_regime_alpha_abs_deg"]),
+        "belief_candidate_path_calibrated_regime_label": str(calibrated_regime["calibrated_regime_label"]),
+        "belief_candidate_path_calibrated_transition_activation": float(
+            calibrated_regime["calibrated_transition_activation"]
+        ),
+        "belief_candidate_path_calibrated_post_stall_activation": float(
+            calibrated_regime["calibrated_post_stall_activation"]
+        ),
+        "belief_candidate_path_calibrated_regime_mismatch_risk": float(
+            calibrated_regime["calibrated_regime_mismatch_risk"]
+        ),
         "belief_candidate_path_exit_x_w_m": float(exit_x),
         "belief_candidate_path_exit_y_w_m": float(exit_y),
         "belief_candidate_path_exit_z_w_m": float(exit_z),
@@ -3781,6 +3814,47 @@ def _schedule_identity_row(row: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _episode_memory_switch_fields(selector_rows: list[dict[str, object]]) -> dict[str, object]:
+    memory_policy_decision_count = 0
+    switch_available_count = 0
+    accepted_count = 0
+    rejected_count = 0
+    accepted_steps: list[str] = []
+    rejected_steps: list[str] = []
+    status_entries: list[str] = []
+    for row in selector_rows:
+        policy_id = str(row.get("policy_id", ""))
+        if MEMORY_POLICY_PREFIX not in policy_id:
+            continue
+        memory_policy_decision_count += 1
+        baseline_variant = str(row.get("selected_memory_shield_baseline_variant_id", ""))
+        memory_variant = str(row.get("selected_memory_shield_memory_variant_id", ""))
+        status = str(row.get("selected_memory_shield_status", ""))
+        if not baseline_variant or not memory_variant or baseline_variant == memory_variant:
+            continue
+        switch_available_count += 1
+        step = int(_float_value(row.get("primitive_step_index", 0)))
+        status_entries.append(f"{step}:{status}:{baseline_variant}->{memory_variant}")
+        accepted = status.startswith("accepted")
+        if accepted:
+            accepted_count += 1
+            accepted_steps.append(str(step))
+        elif status.startswith("rejected"):
+            rejected_count += 1
+            rejected_steps.append(str(step))
+    return {
+        "memory_policy_decision_count": int(memory_policy_decision_count),
+        "memory_switch_available_count": int(switch_available_count),
+        "accepted_memory_switch_count": int(accepted_count),
+        "rejected_memory_switch_count": int(rejected_count),
+        "memory_changed_selection": bool(accepted_count > 0),
+        "memory_changed_selection_source": "selector_memory_shield_accepted_switch",
+        "memory_switch_accepted_step_indices": ";".join(accepted_steps),
+        "memory_switch_rejected_step_indices": ";".join(rejected_steps),
+        "memory_switch_status_sequence": ";".join(status_entries),
+    }
+
+
 def _episode_row_from_sequence(
     *,
     scheduled: dict[str, object],
@@ -3829,6 +3903,7 @@ def _episode_row_from_sequence(
     floor_or_ceiling = bool(physical_floor_or_ceiling and not expected_low_energy_sink)
     safe_success = bool(sequence_compliant and last_continuation_or_terminal and not hard_failure and not floor_or_ceiling and not no_viable)
     comparison_only_policy = bool(policy.get("comparison_only", False))
+    memory_switch_fields = _episode_memory_switch_fields(selector_rows)
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
@@ -3877,7 +3952,7 @@ def _episode_row_from_sequence(
         ),
         "belief_observation_count": int(belief_after.update_count),
         "belief_uncertainty": float(max(0.0, 1.0 / math.sqrt(max(1, int(belief_after.update_count))))),
-        "memory_changed_selection": False,
+        **memory_switch_fields,
         "exploration_changed_selection": False,
         "environment_instance_id": str(context_row.get("environment_instance_id", "")),
         "claim_status": "simulation_only_repeated_launch_rollout_episode",
@@ -3986,7 +4061,7 @@ def _episode_row_from_rollout(
         "governor_rejection_count": int(selector_row.get("candidate_count", 0)) - int(selector_row.get("viable_count", 0)),
         "belief_observation_count": int(belief_after.update_count),
         "belief_uncertainty": float(max(0.0, 1.0 / math.sqrt(max(1, int(belief_after.update_count))))),
-        "memory_changed_selection": False,
+        **_episode_memory_switch_fields([selector_row]),
         "exploration_changed_selection": False,
         "environment_instance_id": str(context_row.get("environment_instance_id", "")),
         "claim_status": "simulation_only_repeated_launch_rollout_episode",
@@ -4062,7 +4137,7 @@ def _episode_row_from_blocked(
         "governor_rejection_count": 0,
         "belief_observation_count": 0,
         "belief_uncertainty": 1.0,
-        "memory_changed_selection": False,
+        **_episode_memory_switch_fields([]),
         "exploration_changed_selection": False,
         "environment_instance_id": str(context_row.get("environment_instance_id", "")),
         "claim_status": "simulation_only_repeated_launch_rollout_episode",
@@ -5179,6 +5254,14 @@ def _write_memory_opportunity_audit_from_partitions(
         "selected_memory_shield_route_information_gain",
         "selected_memory_shield_route_confidence",
         "selected_memory_shield_path_exit_margin_delta_m",
+        "selected_calibrated_regime_alpha_abs_deg",
+        "selected_calibrated_transition_activation",
+        "selected_calibrated_post_stall_activation",
+        "selected_calibrated_regime_mismatch_risk",
+        "selected_calibrated_regime_mismatch_score_component",
+        "selected_memory_shield_baseline_calibrated_regime_mismatch_risk",
+        "selected_memory_shield_memory_calibrated_regime_mismatch_risk",
+        "selected_memory_shield_calibrated_regime_mismatch_risk_delta",
         "selected_flow_map_grid_resolution_m",
         "selected_flow_map_query_radius_m",
         "selected_flow_map_reachable_attraction_m",
@@ -5248,6 +5331,13 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_memory_shield_route_information_gain",
             "selected_memory_shield_route_confidence",
             "selected_memory_shield_path_exit_margin_delta_m",
+            "selected_calibrated_regime_alpha_abs_deg",
+            "selected_calibrated_regime_label",
+            "selected_calibrated_regime_mismatch_risk",
+            "selected_calibrated_regime_mismatch_score_component",
+            "selected_memory_shield_baseline_calibrated_regime_mismatch_risk",
+            "selected_memory_shield_memory_calibrated_regime_mismatch_risk",
+            "selected_memory_shield_calibrated_regime_mismatch_risk_delta",
             "selected_flow_map_grid_resolution_m",
             "selected_flow_map_query_radius_m",
             "selected_flow_map_reachable_attraction_m",
@@ -5335,6 +5425,11 @@ def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> di
     route_exploitation = frame.get("selected_flow_map_route_exploitation_m", pd.Series(0.0, index=frame.index))
     route_information_gain = frame.get("selected_flow_map_route_information_gain", pd.Series(0.0, index=frame.index))
     route_confidence = frame.get("selected_flow_map_route_confidence", pd.Series(0.0, index=frame.index))
+    selected_regime_risk = frame.get("selected_calibrated_regime_mismatch_risk", pd.Series(0.0, index=frame.index))
+    regime_risk_delta = frame.get(
+        "selected_memory_shield_calibrated_regime_mismatch_risk_delta",
+        pd.Series(0.0, index=frame.index),
+    )
     cost_benefit_benefit = frame.get(
         "selected_memory_cost_benefit_total_benefit",
         pd.Series(0.0, index=frame.index),
@@ -5372,6 +5467,9 @@ def _memory_opportunity_summary_row(audit_scope: str, frame: pd.DataFrame) -> di
         "mean_route_flow_exploitation_m": float(route_exploitation.mean()) if count else 0.0,
         "mean_route_flow_information_gain": float(route_information_gain.mean()) if count else 0.0,
         "mean_route_flow_confidence": float(route_confidence.mean()) if count else 0.0,
+        "mean_selected_calibrated_regime_mismatch_risk": float(selected_regime_risk.mean()) if count else 0.0,
+        "mean_memory_switch_calibrated_regime_risk_delta": float(regime_risk_delta.mean()) if count else 0.0,
+        "memory_switch_regime_risk_regression_count": int((regime_risk_delta > 0.0).sum()) if count else 0,
         "mean_memory_cost_benefit_total_benefit": float(cost_benefit_benefit.mean()) if count else 0.0,
         "mean_memory_cost_benefit_total_cost": float(cost_benefit_cost.mean()) if count else 0.0,
         "mean_memory_cost_benefit_net_value": float(cost_benefit_net.mean()) if count else 0.0,
@@ -5593,6 +5691,7 @@ def _launch_condition_success_summary(final: pd.DataFrame, group_columns: list[s
         "terminal_useful",
         "lift_capture",
         "memory_changed_selection",
+        "baseline_vs_policy_selection_changed",
         "exploration_changed_selection",
     ]
     for column in bool_columns:
@@ -5641,7 +5740,7 @@ def _paired_score_delta_group_summary(delta_rows: pd.DataFrame, group_columns: l
             frame[column] = "not_applicable"
     frame["win"] = pd.to_numeric(frame["paired_delta_launch_score"], errors="coerce").fillna(0.0) > 0.0
     frame["loss"] = pd.to_numeric(frame["paired_delta_launch_score"], errors="coerce").fillna(0.0) < 0.0
-    for column in ("memory_changed_selection", "exploration_changed_selection", "safety_regression"):
+    for column in ("memory_changed_selection", "baseline_vs_policy_selection_changed", "exploration_changed_selection", "safety_regression"):
         if column in frame.columns:
             frame[column] = frame[column].map(_truthy).astype(float)
     numeric_columns = [
@@ -5681,6 +5780,7 @@ def _paired_score_delta_group_summary(delta_rows: pd.DataFrame, group_columns: l
             floor_or_ceiling_violation_delta_mean=("floor_or_ceiling_violation_delta", "mean"),
             no_viable_primitive_delta_mean=("no_viable_primitive_delta", "mean"),
             memory_changed_selection_rate=("memory_changed_selection", "mean"),
+            baseline_vs_policy_selection_changed_rate=("baseline_vs_policy_selection_changed", "mean"),
             exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
             mean_net_specific_energy_delta_m_delta=("net_specific_energy_delta_m_delta", "mean"),
             mean_positive_specific_energy_gain_m_delta=("positive_specific_energy_gain_m_delta", "mean"),
@@ -5771,6 +5871,7 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
                 belief_observation_count=("belief_observation_count", "max"),
                 belief_uncertainty=("belief_uncertainty", "mean"),
                 memory_changed_selection_rate=("memory_changed_selection", "mean"),
+                baseline_vs_policy_selection_changed_rate=("baseline_vs_policy_selection_changed", "mean"),
                 exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
             )
             .reset_index()
@@ -6021,6 +6122,7 @@ def _paired_score_delta_row(row: dict[str, object], baseline_row: dict[str, obje
         "episode_flight_time_s_delta": _float_value(row.get("episode_flight_time_s", 0.0))
         - _float_value(baseline_row.get("episode_flight_time_s", 0.0)),
         "memory_changed_selection": bool(row.get("memory_changed_selection", False)),
+        "baseline_vs_policy_selection_changed": bool(row.get("baseline_vs_policy_selection_changed", False)),
         "exploration_changed_selection": bool(row.get("exploration_changed_selection", False)),
         "safety_regression": safety_regression,
         "claim_status": "simulation_only_paired_launch_score_audit",
@@ -6046,6 +6148,7 @@ def _paired_score_delta_summary(delta_rows: pd.DataFrame) -> pd.DataFrame:
             front_wall_terminal_success_delta_mean=("front_wall_terminal_success_delta", "mean"),
             wrong_wall_exit_delta_mean=("wrong_wall_exit_delta", "mean"),
             memory_changed_selection_rate=("memory_changed_selection", "mean"),
+            baseline_vs_policy_selection_changed_rate=("baseline_vs_policy_selection_changed", "mean"),
             exploration_changed_selection_rate=("exploration_changed_selection", "mean"),
             mean_net_specific_energy_delta_m_delta=("net_specific_energy_delta_m_delta", "mean"),
             mean_positive_specific_energy_gain_m_delta=("positive_specific_energy_gain_m_delta", "mean"),
@@ -6062,7 +6165,12 @@ def _paired_score_delta_summary(delta_rows: pd.DataFrame) -> pd.DataFrame:
 def _with_selection_change_flags(final: pd.DataFrame) -> pd.DataFrame:
     out = final.copy()
     out["selection_signature"] = out["selected_primitive_variant_id"].fillna("").astype(str)
-    out["memory_changed_selection"] = False
+    if "memory_changed_selection" not in out.columns:
+        out["memory_changed_selection"] = False
+    out["memory_changed_selection"] = out["memory_changed_selection"].map(_truthy).astype(bool)
+    if "memory_changed_selection_source" not in out.columns:
+        out["memory_changed_selection_source"] = "missing_selector_memory_shield_fallback_false"
+    out["baseline_vs_policy_selection_changed"] = False
     out["exploration_changed_selection"] = False
     baseline = out[out["policy_id"].astype(str) == "no_memory_baseline"]
     baseline_map = {
@@ -6078,7 +6186,7 @@ def _with_selection_change_flags(final: pd.DataFrame) -> pd.DataFrame:
         key = (str(row["library_size_case_id"]), int(row["outer_case_index"]))
         signature = str(row["selection_signature"])
         if policy_id.startswith(MEMORY_POLICY_PREFIX) or policy_id == EMPTY_FROZEN_PRIOR_BASELINE_ID:
-            out.at[index, "memory_changed_selection"] = signature != baseline_map.get(key, signature)
+            out.at[index, "baseline_vs_policy_selection_changed"] = signature != baseline_map.get(key, signature)
         if policy_id.startswith(SAFE_EXPLORE_POLICY_PREFIX):
             memory_key = (str(row["library_size_case_id"]), int(row["outer_case_index"]), int(row["history_length"]))
             out.at[index, "exploration_changed_selection"] = signature != memory_signatures.get(memory_key, signature)

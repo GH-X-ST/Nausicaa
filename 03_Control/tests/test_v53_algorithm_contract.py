@@ -53,6 +53,7 @@ from run_repeated_launch_learning_curve import (
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     _fan_position_policy_for_outer_case,
     _context_payload,
+    _episode_row_from_sequence,
     _history_row_for_final,
     _launch_score_fields,
     _launch_score_fields_for_role,
@@ -65,6 +66,7 @@ from run_repeated_launch_learning_curve import (
     _selected_set,
     _tuned_governor_config_from_metrics,
     _uses_full_w3_randomisation_block,
+    _with_selection_change_flags,
     REAL_TIME_HARD_DECISION_BUDGET_S,
     REAL_TIME_OUTER_LOOP_SCHEDULER_VERSION,
     REAL_TIME_PREFERRED_DECISION_BUDGET_S,
@@ -88,7 +90,55 @@ from plant_instance import (
     ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
     RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
 )
-from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row, governor_config_from_row
+from viability_governor import (
+    DEFAULT_GOVERNOR_CONFIG,
+    REJECTION_REASONS,
+    governor_candidate_row,
+    governor_config_from_row,
+    governor_score,
+)
+
+
+def _v53_timing_payload() -> dict[str, object]:
+    return {
+        "finite_horizon_s": 0.1,
+        "controller_input_slots_per_primitive": 5,
+        "controller_input_update_period_s": 0.02,
+        "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    }
+
+
+def _v53_reference_state_vector(alpha_deg: float, *, u_m_s: float = 5.0) -> list[float]:
+    state = [0.0] * (max(STATE_INDEX.values()) + 1)
+    state[STATE_INDEX["u"]] = float(u_m_s)
+    state[STATE_INDEX["w"]] = float(u_m_s) * float(np.tan(np.deg2rad(alpha_deg)))
+    return state
+
+
+class _V53BeliefStub:
+    update_count = 0
+
+
+def _v53_successful_primitive_row(variant_id: str = "memory_variant") -> dict[str, object]:
+    return {
+        "primitive_variant_id": variant_id,
+        "primitive_id": "glide",
+        "controller_id": f"ctrl_{variant_id}",
+        "selected_entry_role": "transition_object",
+        "transition_entry_class": "launch_gate",
+        "start_state_family": "launch_gate",
+        "route_required_entry_role": "transition_object",
+        "route_required_entry_class": "launch_gate",
+        "route_reason": "state_class_transition_entry",
+        "continuation_valid": True,
+        "episode_terminal_useful": False,
+        "failure_label": "success",
+        "boundary_use_class": "continuation",
+        "lift_dwell_time_s": 0.0,
+        "energy_residual_m": 0.0,
+        "rollout_duration_s": 0.10,
+        "minimum_wall_margin_m": 0.5,
+    }
 
 
 def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal() -> None:
@@ -443,10 +493,14 @@ def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:
             "config_id": "r10_handoff",
             "memory_switch_min_confidence": "0.35",
             "exploration_switch_allow_cross_family": "false",
+            "calibrated_regime_mismatch_risk_weight": "0.14",
+            "memory_switch_max_calibrated_regime_risk_increase": "0.01",
         }
     )
     assert parsed.memory_switch_min_confidence == pytest.approx(0.35)
     assert parsed.exploration_switch_allow_cross_family is False
+    assert parsed.calibrated_regime_mismatch_risk_weight == pytest.approx(0.14)
+    assert parsed.memory_switch_max_calibrated_regime_risk_increase == pytest.approx(0.01)
 
     timing_payload = {
         "finite_horizon_s": 0.1,
@@ -484,6 +538,86 @@ def test_v53_governor_has_no_speed_boundary_and_wall_guard_is_0p10cm() -> None:
     )
     assert row["viable"] is True
     assert row["rejection_reason"] == ""
+
+
+def test_v53_calibrated_regime_risk_score_is_backward_compatible_and_bounded() -> None:
+    base_kwargs = {
+        "governor_mode": "continuation_mode",
+        "continuation_probability": 0.7,
+        "terminal_useful_probability": 0.1,
+        "hard_failure_risk": 0.05,
+        "expected_updraft_gain_proxy_m": 0.0,
+        "expected_lift_dwell_time_s": 0.0,
+        "wall_margin_m": 0.5,
+    }
+    nominal = governor_score(**base_kwargs)
+    zero_risk = governor_score(**base_kwargs, calibrated_regime_mismatch_risk=0.0)
+    full_risk = governor_score(**base_kwargs, calibrated_regime_mismatch_risk=1.0)
+    assert zero_risk == pytest.approx(nominal)
+    assert full_risk == pytest.approx(nominal - DEFAULT_GOVERNOR_CONFIG.calibrated_regime_mismatch_risk_weight)
+
+    capped_cfg = governor_config_from_row(
+        {
+            "config_id": "capped_regime_risk_test",
+            "calibrated_regime_mismatch_risk_weight": 0.50,
+            "calibrated_regime_mismatch_score_cap": 0.18,
+        }
+    )
+    capped_nominal = governor_score(**base_kwargs, calibrated_regime_mismatch_risk=0.0, governor_config=capped_cfg)
+    capped_full = governor_score(**base_kwargs, calibrated_regime_mismatch_risk=1.0, governor_config=capped_cfg)
+    assert capped_full == pytest.approx(capped_nominal - 0.18)
+
+
+def test_v53_candidate_rows_classify_calibrated_regime_from_reference_alpha() -> None:
+    timing_payload = _v53_timing_payload()
+    base_representative = {
+        "compact_library_id": "launch",
+        "primitive_variant_id": "candidate",
+        "primitive_id": "glide",
+        "entry_role": "transition_object",
+        "transition_entry_class": "launch_gate",
+        "controller_id": "ctrl_candidate",
+        "K_gain_checksum": "k",
+        "augmented_A_checksum": "a",
+        "augmented_B_checksum": "b",
+        "augmented_gain_checksum": "g",
+        **timing_payload,
+    }
+    outcome = {
+        "continuation_probability": 0.8,
+        "transition_success_probability": 0.8,
+        "transition_exit_classes_seen": "post_launch_degraded",
+        "terminal_useful_probability": 0.1,
+        "hard_failure_risk": 0.1,
+    }
+    context = {
+        "context_id": "calibrated_regime_classification",
+        "start_state_family": "launch_gate",
+        "governor_wall_margin_m": 0.5,
+        "wall_margin_m": 0.5,
+        "floor_margin_m": 1.0,
+        "ceiling_margin_m": 1.0,
+        "latency_case": "nominal",
+    }
+
+    def row(alpha_deg: float) -> dict[str, object]:
+        return governor_candidate_row(
+            representative={**base_representative, "reference_state_vector": _v53_reference_state_vector(alpha_deg)},
+            outcome=outcome,
+            context=context,
+            governor_mode="continuation_mode",
+        )
+
+    normal = row(5.0)
+    transition = row(17.0)
+    post_stall = row(25.0)
+    assert normal["calibrated_regime_label"] == "normal"
+    assert normal["calibrated_regime_mismatch_risk"] == pytest.approx(0.0)
+    assert transition["calibrated_regime_label"] == "transition"
+    assert 0.0 < float(transition["calibrated_regime_mismatch_risk"]) < 1.0
+    assert post_stall["calibrated_regime_label"] == "post_stall"
+    assert post_stall["calibrated_regime_mismatch_risk"] == pytest.approx(1.0)
+    assert post_stall["calibrated_regime_mismatch_score_component"] == pytest.approx(-0.12)
 
 
 def test_v53_governor_soft_score_tracks_front_wall_mission_utility() -> None:
@@ -748,6 +882,182 @@ def test_v53_memory_is_bounded_objective_after_viability_not_near_tie_only() -> 
     assert by_variant["memory_objective"]["memory_shield_status"] == (
         "accepted_cost_benefit_spatial_flow_memory_switch"
     )
+
+
+def test_v53_memory_shield_rejects_only_calibrated_regime_risk_regression() -> None:
+    timing_payload = _v53_timing_payload()
+    representatives = []
+    outcomes = {}
+    for variant_id in ("baseline", "memory"):
+        representatives.append(
+            {
+                "compact_library_id": "launch",
+                "primitive_variant_id": variant_id,
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "launch_gate",
+                "controller_id": f"ctrl_{variant_id}",
+                "K_gain_checksum": "k",
+                "augmented_A_checksum": "a",
+                "augmented_B_checksum": "b",
+                "augmented_gain_checksum": "g",
+                **timing_payload,
+            }
+        )
+        outcomes[variant_id] = {
+            "continuation_probability": 0.5,
+            "transition_success_probability": 0.5,
+            "transition_exit_classes_seen": "post_launch_degraded",
+            "terminal_useful_probability": 0.0,
+            "hard_failure_risk": 0.1,
+        }
+
+    context = {
+        "context_id": "regime_risk_memory_contract",
+        "start_state_family": "launch_gate",
+        "current_x_w_m": 1.3,
+        "current_y_w_m": 2.2,
+        "current_z_w_m": 1.1,
+        "mission_x_min_w_m": 1.2,
+        "front_wall_target_x_w_m": 6.6,
+        "mission_terminal_y_min_m": 0.0,
+        "mission_terminal_y_max_m": 4.4,
+        "mission_terminal_z_min_m": 0.4,
+        "mission_terminal_z_max_m": 3.5,
+        "governor_wall_margin_m": 0.5,
+        "wall_margin_m": 0.5,
+        "floor_margin_m": 0.7,
+        "ceiling_margin_m": 2.4,
+        "latency_case": "nominal",
+    }
+    governor_config = governor_config_from_row(
+        {
+            "config_id": "regime_risk_memory_shield_test",
+            "belief_weight": 0.0,
+            "memory_switch_min_score_margin": 0.0,
+            "memory_switch_max_calibrated_regime_risk_increase": 0.0,
+            "memory_cost_benefit_score_cap": 0.35,
+            "memory_cost_benefit_progress_cost_weight": 0.0,
+        }
+    )
+
+    def run(memory_alpha_deg: float) -> tuple[dict[str, object] | None, dict[str, dict[str, object]]]:
+        def candidate_path_features(representative: dict[str, object], outcome: dict[str, object]) -> dict[str, object]:
+            del outcome
+            variant_id = str(representative["primitive_variant_id"])
+            return {
+                "belief_candidate_path_residual_memory_active": True,
+                "belief_candidate_path_exit_x_w_m": 5.0 if variant_id == "baseline" else 4.85,
+                "belief_candidate_path_exit_y_w_m": 2.2,
+                "belief_candidate_path_exit_z_w_m": 1.4,
+                "belief_candidate_path_speed_m_s": 5.0,
+                "belief_candidate_path_vertical_speed_m_s": 0.0,
+                "belief_candidate_path_alpha_proxy_deg": 0.0 if variant_id == "baseline" else memory_alpha_deg,
+                "belief_candidate_path_memory_utility_m": 0.0 if variant_id == "baseline" else 0.7,
+                "belief_candidate_path_memory_utility_without_attraction_m": 0.0 if variant_id == "baseline" else 0.7,
+                "belief_local_specific_energy_residual_m": 0.0,
+                "belief_candidate_path_confidence": 1.0,
+                "belief_candidate_path_exit_wall_margin_m": 0.5,
+                "belief_candidate_path_exit_min_margin_m": 0.5,
+                "belief_uncertainty": 0.0,
+            }
+
+        selected, rows = select_compact_representative(
+            representatives=representatives,
+            outcome_rows_by_variant_id=outcomes,
+            context=context,
+            governor_mode="continuation_mode",
+            candidate_belief_features=candidate_path_features,
+            adaptive_memory_active=True,
+            governor_config=governor_config,
+        )
+        return selected, {str(row["primitive_variant_id"]): row for row in rows}
+
+    risky_selected, risky_rows = run(25.0)
+    assert risky_selected is not None
+    assert risky_selected["primitive_variant_id"] == "baseline"
+    assert risky_rows["memory"]["calibrated_regime_mismatch_risk"] == pytest.approx(1.0)
+    assert risky_selected["memory_shield_status"] == "rejected_calibrated_regime_mismatch_risk_regression"
+    assert risky_selected["memory_shield_calibrated_regime_mismatch_risk_delta"] > 0.0
+
+    safe_selected, safe_rows = run(0.0)
+    assert safe_selected is not None
+    assert safe_selected["primitive_variant_id"] == "memory"
+    assert safe_rows["memory"]["calibrated_regime_mismatch_risk"] == pytest.approx(0.0)
+    assert safe_selected["memory_shield_status"] == "accepted_cost_benefit_spatial_flow_memory_switch"
+
+
+def test_v53_episode_summary_memory_changed_selection_uses_selector_shield_acceptance() -> None:
+    belief = _V53BeliefStub()
+    row = _episode_row_from_sequence(
+        scheduled={
+            "launch_role": "final_heldout",
+            "library_size_case_id": "balanced_cluster",
+            "policy_id": "spatial_flow_belief_memory_h3",
+            "history_length": 3,
+            "outer_case_index": 1,
+            "environment_block_id": "block",
+            "common_final_launch_key": "launch_001",
+            "episode_id": "episode_001",
+        },
+        policy={"policy_family": "memory", "safe_explore": False},
+        primitive_rows=[_v53_successful_primitive_row()],
+        selector_rows=[
+            {
+                "policy_id": "spatial_flow_belief_memory_h3",
+                "primitive_step_index": 0,
+                "candidate_count": 2,
+                "viable_count": 2,
+                "selected_memory_shield_status": "accepted_cost_benefit_spatial_flow_memory_switch",
+                "selected_memory_shield_baseline_variant_id": "baseline_variant",
+                "selected_memory_shield_memory_variant_id": "memory_variant",
+            }
+        ],
+        context_row={"environment_instance_id": "env"},
+        belief_before=belief,
+        belief_after=belief,
+    )
+
+    assert row["memory_policy_decision_count"] == 1
+    assert row["memory_switch_available_count"] == 1
+    assert row["accepted_memory_switch_count"] == 1
+    assert row["rejected_memory_switch_count"] == 0
+    assert row["memory_changed_selection"] is True
+    assert row["memory_changed_selection_source"] == "selector_memory_shield_accepted_switch"
+    assert row["memory_switch_accepted_step_indices"] == "0"
+    assert row["memory_switch_status_sequence"] == (
+        "0:accepted_cost_benefit_spatial_flow_memory_switch:baseline_variant->memory_variant"
+    )
+
+
+def test_v53_selection_change_flags_preserve_memory_switch_audit_column() -> None:
+    final = pd.DataFrame(
+        [
+            {
+                "library_size_case_id": "balanced_cluster",
+                "outer_case_index": 1,
+                "history_length": 0,
+                "policy_id": "no_memory_baseline",
+                "selected_primitive_variant_id": "baseline_variant",
+                "memory_changed_selection": False,
+            },
+            {
+                "library_size_case_id": "balanced_cluster",
+                "outer_case_index": 1,
+                "history_length": 3,
+                "policy_id": "spatial_flow_belief_memory_h3",
+                "selected_primitive_variant_id": "memory_variant",
+                "memory_changed_selection": True,
+                "memory_changed_selection_source": "selector_memory_shield_accepted_switch",
+            },
+        ]
+    )
+
+    flagged = _with_selection_change_flags(final)
+    memory_row = flagged[flagged["policy_id"] == "spatial_flow_belief_memory_h3"].iloc[0]
+    assert bool(memory_row["memory_changed_selection"]) is True
+    assert str(memory_row["memory_changed_selection_source"]) == "selector_memory_shield_accepted_switch"
+    assert bool(memory_row["baseline_vs_policy_selection_changed"]) is True
 
 
 def test_v53_flow_region_attraction_can_shape_safe_mission_compatible_candidate_band() -> None:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import json
 import math
 
 from lqr_linearisation import lqr_speed_bin_id
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
+from state_contract import STATE_INDEX
 from transition_labels import classify_state, entry_classes_for_state_class, transition_is_chain_compatible
 
 
@@ -49,6 +51,9 @@ class GovernorConfig:
     mission_front_terminal_weight: float = 0.70
     mission_terminal_energy_weight: float = 0.035
     mission_wrong_boundary_penalty_weight: float = 0.35
+    calibrated_regime_mismatch_risk_weight: float = 0.12
+    calibrated_regime_mismatch_score_cap: float = 0.18
+    memory_switch_max_calibrated_regime_risk_increase: float = 0.0
     memory_switch_min_confidence: float = 0.15
     memory_switch_min_score_margin: float = 0.001
     memory_switch_max_base_score_drop: float = 0.12
@@ -136,6 +141,9 @@ MISSION_FRONT_WALL_TOL_M = 0.05
 MISSION_BOUNDARY_TOL_M = 0.02
 MISSION_TERMINAL_ENERGY_PROXY_CAP_M = 3.0
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
+CALIBRATED_REGIME_POLICY_VERSION = "active_calibrated_regime_mismatch_risk_v1"
+CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG = 12.0
+CALIBRATED_REGIME_POST_STALL_ALPHA_DEG = 22.0
 
 
 @dataclass(frozen=True)
@@ -162,6 +170,108 @@ def governor_config_from_row(row: dict[str, object]) -> GovernorConfig:
         if key != "config_id":
             values[key] = _bool_value(value) if key in BOOL_GOVERNOR_CONFIG_FIELDS else float(value)
     return GovernorConfig(**values)
+
+
+def calibrated_regime_mismatch_score_component(
+    calibrated_regime_mismatch_risk: float,
+    *,
+    governor_config: GovernorConfig | None = None,
+) -> float:
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    risk = _clip(float(calibrated_regime_mismatch_risk), 0.0, 1.0)
+    return -min(
+        float(cfg.calibrated_regime_mismatch_score_cap),
+        float(cfg.calibrated_regime_mismatch_risk_weight) * risk,
+    )
+
+
+def calibrated_regime_risk_features(
+    *,
+    alpha_proxy_deg: float | None = None,
+    u_m_s: float | None = None,
+    w_m_s: float | None = None,
+    path_speed_m_s: float | None = None,
+    vertical_speed_m_s: float | None = None,
+    governor_config: GovernorConfig | None = None,
+    alpha_source: str = "",
+) -> dict[str, object]:
+    """Return calibrated aero-regime exposure used as model-mismatch risk."""
+
+    cfg = governor_config or DEFAULT_GOVERNOR_CONFIG
+    source = str(alpha_source or "")
+    alpha_deg = _finite_optional_float(alpha_proxy_deg)
+    if alpha_deg is None:
+        u = _finite_optional_float(u_m_s)
+        w = _finite_optional_float(w_m_s)
+        if u is not None and w is not None and abs(float(u)) > 1e-9:
+            alpha_deg = math.degrees(math.atan2(float(w), float(u)))
+            source = source or "reference_state_vector_u_w"
+    if alpha_deg is None:
+        speed = _finite_optional_float(path_speed_m_s)
+        vertical_speed = _finite_optional_float(vertical_speed_m_s)
+        if speed is not None and vertical_speed is not None and float(speed) > 1e-9:
+            horizontal_speed = math.sqrt(max(float(speed) * float(speed) - float(vertical_speed) * float(vertical_speed), 1e-9))
+            alpha_deg = math.degrees(math.atan2(float(vertical_speed), horizontal_speed))
+            source = source or "candidate_path_vertical_speed_over_speed"
+    if alpha_deg is None:
+        alpha_deg = 0.0
+        source = source or "unavailable_assumed_attached"
+
+    alpha_abs = abs(float(alpha_deg))
+    transition_start = float(CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG)
+    post_stall = float(CALIBRATED_REGIME_POST_STALL_ALPHA_DEG)
+    transition_fraction = _clip(
+        (float(alpha_abs) - transition_start) / max(1e-9, post_stall - transition_start),
+        0.0,
+        1.0,
+    )
+    risk = _smoothstep(transition_fraction)
+    label = "normal" if alpha_abs < transition_start else "transition" if alpha_abs < post_stall else "post_stall"
+    return {
+        "calibrated_regime_policy_version": CALIBRATED_REGIME_POLICY_VERSION,
+        "calibrated_regime_alpha_source": source,
+        "calibrated_regime_alpha_proxy_deg": float(alpha_deg),
+        "calibrated_regime_alpha_abs_deg": float(alpha_abs),
+        "calibrated_regime_label": label,
+        "calibrated_transition_activation": float(risk),
+        "calibrated_post_stall_activation": 1.0 if alpha_abs >= post_stall else 0.0,
+        "calibrated_regime_mismatch_risk": float(risk),
+        "calibrated_regime_mismatch_score_component": calibrated_regime_mismatch_score_component(
+            risk,
+            governor_config=cfg,
+        ),
+    }
+
+
+def _candidate_calibrated_regime_risk_features(
+    *,
+    representative: dict[str, object],
+    outcome: dict[str, object],
+    belief_features: dict[str, object],
+    governor_config: GovernorConfig,
+) -> dict[str, object]:
+    reference_state = _candidate_reference_state_vector(representative=representative, outcome=outcome)
+    if reference_state:
+        return calibrated_regime_risk_features(
+            u_m_s=reference_state[STATE_INDEX["u"]],
+            w_m_s=reference_state[STATE_INDEX["w"]],
+            governor_config=governor_config,
+            alpha_source="reference_state_vector",
+        )
+    for key in ("calibrated_regime_alpha_proxy_deg", "belief_candidate_path_alpha_proxy_deg"):
+        alpha = _finite_optional_float(belief_features.get(key))
+        if alpha is not None:
+            return calibrated_regime_risk_features(
+                alpha_proxy_deg=alpha,
+                governor_config=governor_config,
+                alpha_source=key,
+            )
+    return calibrated_regime_risk_features(
+        path_speed_m_s=belief_features.get("belief_candidate_path_speed_m_s"),
+        vertical_speed_m_s=belief_features.get("belief_candidate_path_vertical_speed_m_s"),
+        governor_config=governor_config,
+        alpha_source="candidate_path_geometry",
+    )
 
 
 def governor_candidate_row(
@@ -242,6 +352,13 @@ def governor_candidate_row(
     belief_observation_count = int(_float(belief_features.get("belief_observation_count", 0.0)))
     history_length = int(_float(context.get("history_length", belief_features.get("history_length", belief_observation_count))))
     mission = _candidate_mission_alignment_features(context=context, belief_features=belief_features)
+    calibrated_regime = _candidate_calibrated_regime_risk_features(
+        representative=representative,
+        outcome=outcome,
+        belief_features=belief_features,
+        governor_config=cfg,
+    )
+    calibrated_regime_mismatch_risk = float(calibrated_regime["calibrated_regime_mismatch_risk"])
     base_score = governor_score(
         governor_mode=governor_mode,
         continuation_probability=continuation_probability,
@@ -255,6 +372,7 @@ def governor_candidate_row(
         mission_front_terminal_proxy=mission["mission_front_wall_terminal_proxy"],
         mission_terminal_energy_proxy_m=mission["mission_terminal_energy_progress_proxy_m"],
         mission_wrong_boundary_proxy=mission["mission_wrong_boundary_proxy"],
+        calibrated_regime_mismatch_risk=calibrated_regime_mismatch_risk,
         governor_config=cfg,
     )
     score_with_memory = governor_score(
@@ -270,6 +388,7 @@ def governor_candidate_row(
         mission_front_terminal_proxy=mission["mission_front_wall_terminal_proxy"],
         mission_terminal_energy_proxy_m=mission["mission_terminal_energy_progress_proxy_m"],
         mission_wrong_boundary_proxy=mission["mission_wrong_boundary_proxy"],
+        calibrated_regime_mismatch_risk=calibrated_regime_mismatch_risk,
         governor_config=cfg,
     )
     memory_component = float(score_with_memory) - float(base_score)
@@ -334,6 +453,7 @@ def governor_candidate_row(
             "memory_score_component": float(memory_component if viable else 0.0),
             "memory_residual_score_component": float(memory_component if viable else 0.0),
             "mission_score_component": float(mission_score_component if viable else 0.0),
+            **calibrated_regime,
             **mission,
             "exploration_score_component": float(exploration_component if viable else 0.0),
             "score_with_memory": float(score_with_memory if rejection_reason == "" else float("-inf")),
@@ -426,6 +546,7 @@ def governor_candidate_row(
         "memory_score_component": float(memory_component if viable else 0.0),
         "memory_residual_score_component": float(memory_component if viable else 0.0),
         "mission_score_component": float(mission_score_component if viable else 0.0),
+        **calibrated_regime,
         **mission,
         "exploration_score_component": float(exploration_component if viable else 0.0),
         "score_with_memory": float(score_with_memory if rejection_reason == "" else float("-inf")),
@@ -606,6 +727,18 @@ def governor_candidate_row(
         "belief_candidate_path_reference_bank_rad": _float(belief_features.get("belief_candidate_path_reference_bank_rad", 0.0)),
         "belief_candidate_path_heading_offset_rad": _float(belief_features.get("belief_candidate_path_heading_offset_rad", 0.0)),
         "belief_candidate_path_speed_m_s": _float(belief_features.get("belief_candidate_path_speed_m_s", 0.0)),
+        "belief_candidate_path_vertical_speed_m_s": _float(
+            belief_features.get("belief_candidate_path_vertical_speed_m_s", 0.0)
+        ),
+        "belief_candidate_path_alpha_proxy_deg": _float(
+            belief_features.get("belief_candidate_path_alpha_proxy_deg", calibrated_regime["calibrated_regime_alpha_proxy_deg"])
+        ),
+        "belief_candidate_path_alpha_abs_deg": _float(
+            belief_features.get("belief_candidate_path_alpha_abs_deg", calibrated_regime["calibrated_regime_alpha_abs_deg"])
+        ),
+        "belief_candidate_path_calibrated_regime_label": str(
+            belief_features.get("belief_candidate_path_calibrated_regime_label", calibrated_regime["calibrated_regime_label"])
+        ),
         "belief_candidate_path_exit_x_w_m": _float(belief_features.get("belief_candidate_path_exit_x_w_m", 0.0)),
         "belief_candidate_path_exit_y_w_m": _float(belief_features.get("belief_candidate_path_exit_y_w_m", 0.0)),
         "belief_candidate_path_exit_z_w_m": _float(belief_features.get("belief_candidate_path_exit_z_w_m", 0.0)),
@@ -715,6 +848,7 @@ def governor_score(
     mission_front_terminal_proxy: float = 0.0,
     mission_terminal_energy_proxy_m: float = 0.0,
     mission_wrong_boundary_proxy: float = 0.0,
+    calibrated_regime_mismatch_risk: float = 0.0,
     governor_config: GovernorConfig | None = None,
 ) -> float:
     """Return an interpretable deterministic selector score."""
@@ -727,6 +861,10 @@ def governor_score(
         mission_wrong_boundary_proxy=mission_wrong_boundary_proxy,
         governor_config=cfg,
     )
+    calibrated_regime_component = calibrated_regime_mismatch_score_component(
+        calibrated_regime_mismatch_risk,
+        governor_config=cfg,
+    )
     if governor_mode == "terminal_episode_mode":
         return (
             cfg.terminal_mode_bias
@@ -737,6 +875,7 @@ def governor_score(
             + cfg.terminal_lift_dwell_weight * float(expected_lift_dwell_time_s)
             + cfg.belief_weight * float(belief_local_lift_m_s)
             + mission_component
+            + calibrated_regime_component
         )
     return (
         cfg.continuation_mode_bias
@@ -747,6 +886,7 @@ def governor_score(
         + cfg.lift_dwell_weight * float(expected_lift_dwell_time_s)
         + cfg.belief_weight * float(belief_local_lift_m_s)
         + mission_component
+        + calibrated_regime_component
     )
 
 
@@ -856,6 +996,18 @@ def _clip(value: float, lower: float, upper: float) -> float:
     return float(min(max(float(value), float(lower)), float(upper)))
 
 
+def _smoothstep(value: float) -> float:
+    x = _clip(float(value), 0.0, 1.0)
+    return float(x * x * (3.0 - 2.0 * x))
+
+
+def _finite_optional_float(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    result = _float(value, default=float("nan"))
+    return float(result) if math.isfinite(float(result)) else None
+
+
 def _finite_float(value: object, default: float) -> float:
     result = _float(value, default)
     return float(result) if math.isfinite(float(result)) else float(default)
@@ -903,6 +1055,28 @@ def _candidate_entry_class(*, representative: dict[str, object], outcome: dict[s
         if "->" in pair:
             return pair.split("->", 1)[0].strip()
     return ""
+
+
+def _candidate_reference_state_vector(
+    *,
+    representative: dict[str, object],
+    outcome: dict[str, object],
+) -> list[float]:
+    for source in (representative, outcome):
+        raw = source.get("reference_state_vector", "")
+        if raw in ("", None):
+            continue
+        try:
+            values = json.loads(str(raw)) if isinstance(raw, str) else list(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        try:
+            vector = [float(value) for value in values]
+        except (TypeError, ValueError):
+            continue
+        if len(vector) > max(STATE_INDEX["u"], STATE_INDEX["w"]):
+            return vector
+    return []
 
 
 def _candidate_speed_bin(*, representative: dict[str, object], outcome: dict[str, object]) -> str:

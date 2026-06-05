@@ -286,6 +286,17 @@ def _baseline_shielded_memory_selection(
     for candidate in memory_ranked:
         memory_variant_id = str(candidate.get("primitive_variant_id", ""))
         if memory_variant_id == baseline_variant_id:
+            if first_rejected is not None:
+                rejected_candidate, rejected_status = first_rejected
+                _mark_memory_shield_rows(
+                    viable_rows,
+                    baseline_selected=baseline_selected,
+                    memory_selected=rejected_candidate,
+                    accepted=False,
+                    status=rejected_status,
+                    governor_config=cfg,
+                )
+                return baseline_selected
             _mark_memory_shield_rows(
                 viable_rows,
                 baseline_selected=baseline_selected,
@@ -544,6 +555,9 @@ def _memory_switch_acceptance_status(
     hard_failure_delta = _float(memory_selected.get("hard_failure_risk", 1.0)) - _float(
         baseline_selected.get("hard_failure_risk", 1.0)
     )
+    calibrated_regime_risk_delta = _float(memory_selected.get("calibrated_regime_mismatch_risk", 0.0)) - _float(
+        baseline_selected.get("calibrated_regime_mismatch_risk", 0.0)
+    )
     path_margin_non_regressive = _candidate_path_margin_non_regressive(
         baseline_selected=baseline_selected,
         memory_selected=memory_selected,
@@ -554,6 +568,7 @@ def _memory_switch_acceptance_status(
         and score_margin >= float(cfg.memory_switch_min_score_margin)
         and transition_delta >= -float(cfg.memory_switch_max_transition_success_drop)
         and hard_failure_delta <= float(cfg.memory_switch_max_hard_failure_risk_increase)
+        and calibrated_regime_risk_delta <= float(cfg.memory_switch_max_calibrated_regime_risk_increase) + 1e-12
         and path_margin_non_regressive
     ):
         return True, "accepted_cost_benefit_spatial_flow_memory_switch"
@@ -565,6 +580,8 @@ def _memory_switch_acceptance_status(
         return False, "rejected_transition_success_regression"
     if hard_failure_delta > float(cfg.memory_switch_max_hard_failure_risk_increase):
         return False, "rejected_hard_failure_risk_regression"
+    if calibrated_regime_risk_delta > float(cfg.memory_switch_max_calibrated_regime_risk_increase) + 1e-12:
+        return False, "rejected_calibrated_regime_mismatch_risk_regression"
     if not path_margin_non_regressive:
         return False, "rejected_candidate_path_exit_margin_regression"
     return False, "rejected_adaptive_switch_guard_not_satisfied"
@@ -596,6 +613,9 @@ def _mark_memory_shield_rows(
     hard_failure_delta = _float(memory_selected.get("hard_failure_risk", 1.0)) - _float(
         baseline_selected.get("hard_failure_risk", 1.0)
     )
+    baseline_calibrated_regime_risk = _float(baseline_selected.get("calibrated_regime_mismatch_risk", 0.0))
+    memory_calibrated_regime_risk = _float(memory_selected.get("calibrated_regime_mismatch_risk", 0.0))
+    calibrated_regime_risk_delta = memory_calibrated_regime_risk - baseline_calibrated_regime_risk
     baseline_path_margin = _candidate_path_exit_margin(baseline_selected)
     memory_path_margin = _candidate_path_exit_margin(memory_selected)
     path_margin_delta = memory_path_margin - baseline_path_margin
@@ -636,6 +656,12 @@ def _mark_memory_shield_rows(
         row["memory_shield_base_score_delta"] = float(base_score_delta)
         row["memory_shield_transition_success_delta"] = float(transition_delta)
         row["memory_shield_hard_failure_risk_delta"] = float(hard_failure_delta)
+        row["memory_shield_baseline_calibrated_regime_mismatch_risk"] = float(baseline_calibrated_regime_risk)
+        row["memory_shield_memory_calibrated_regime_mismatch_risk"] = float(memory_calibrated_regime_risk)
+        row["memory_shield_calibrated_regime_mismatch_risk_delta"] = float(calibrated_regime_risk_delta)
+        row["memory_shield_memory_max_calibrated_regime_risk_increase"] = float(
+            cfg.memory_switch_max_calibrated_regime_risk_increase
+        )
         row["memory_shield_baseline_path_exit_margin_m"] = float(baseline_path_margin)
         row["memory_shield_memory_path_exit_margin_m"] = float(memory_path_margin)
         row["memory_shield_path_exit_margin_delta_m"] = float(path_margin_delta)
@@ -928,6 +954,11 @@ def selector_decision_row(
         "governor_config_id": cfg.config_id,
         "governor_belief_weight": float(cfg.belief_weight),
         "governor_maximum_hard_failure_risk": float(cfg.maximum_hard_failure_risk),
+        "governor_calibrated_regime_mismatch_risk_weight": float(cfg.calibrated_regime_mismatch_risk_weight),
+        "governor_calibrated_regime_mismatch_score_cap": float(cfg.calibrated_regime_mismatch_score_cap),
+        "governor_memory_switch_max_calibrated_regime_risk_increase": float(
+            cfg.memory_switch_max_calibrated_regime_risk_increase
+        ),
         "governor_memory_switch_min_confidence": float(cfg.memory_switch_min_confidence),
         "governor_memory_switch_min_score_margin": float(cfg.memory_switch_min_score_margin),
         "governor_exploration_switch_min_uncertainty": float(cfg.exploration_switch_min_uncertainty),
@@ -1001,6 +1032,24 @@ def selector_decision_row(
         "selected_transition_entry_class": "" if selected is None else str(selected.get("transition_entry_class", "")),
         "selected_controller_id": "" if selected is None else str(selected.get("controller_id", "")),
         "selected_score": float("-inf") if selected is None else float(selected.get("score", float("-inf"))),
+        "selected_calibrated_regime_alpha_abs_deg": (
+            0.0 if selected is None else float(selected.get("calibrated_regime_alpha_abs_deg", 0.0))
+        ),
+        "selected_calibrated_regime_label": (
+            "" if selected is None else str(selected.get("calibrated_regime_label", ""))
+        ),
+        "selected_calibrated_transition_activation": (
+            0.0 if selected is None else float(selected.get("calibrated_transition_activation", 0.0))
+        ),
+        "selected_calibrated_post_stall_activation": (
+            0.0 if selected is None else float(selected.get("calibrated_post_stall_activation", 0.0))
+        ),
+        "selected_calibrated_regime_mismatch_risk": (
+            0.0 if selected is None else float(selected.get("calibrated_regime_mismatch_risk", 0.0))
+        ),
+        "selected_calibrated_regime_mismatch_score_component": (
+            0.0 if selected is None else float(selected.get("calibrated_regime_mismatch_score_component", 0.0))
+        ),
         "selected_memory_shield_policy_version": "" if selected is None else str(selected.get("memory_shield_policy_version", "")),
         "selected_memory_shield_status": "" if selected is None else str(selected.get("memory_shield_status", "")),
         "selected_memory_shield_accepted": False if selected is None else bool(selected.get("memory_shield_accepted", False)),
@@ -1086,6 +1135,21 @@ def selector_decision_row(
         ),
         "selected_memory_shield_hard_failure_risk_delta": (
             0.0 if selected is None else float(selected.get("memory_shield_hard_failure_risk_delta", 0.0))
+        ),
+        "selected_memory_shield_baseline_calibrated_regime_mismatch_risk": (
+            0.0
+            if selected is None
+            else float(selected.get("memory_shield_baseline_calibrated_regime_mismatch_risk", 0.0))
+        ),
+        "selected_memory_shield_memory_calibrated_regime_mismatch_risk": (
+            0.0
+            if selected is None
+            else float(selected.get("memory_shield_memory_calibrated_regime_mismatch_risk", 0.0))
+        ),
+        "selected_memory_shield_calibrated_regime_mismatch_risk_delta": (
+            0.0
+            if selected is None
+            else float(selected.get("memory_shield_calibrated_regime_mismatch_risk_delta", 0.0))
         ),
         "selected_memory_shield_path_exit_margin_delta_m": (
             0.0 if selected is None else float(selected.get("memory_shield_path_exit_margin_delta_m", 0.0))
