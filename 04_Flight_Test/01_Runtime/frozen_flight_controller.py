@@ -70,6 +70,7 @@ class FrozenFlightController:
         self._command_fifo_by_controller_id: dict[str, list[np.ndarray]] = {}
         self._active_payload: dict[str, Any] | None = None
         self._active_variant_id = ""
+        self._prepared_launch_decision: dict[str, Any] | None = None
         self._last_command_norm = np.zeros(3, dtype=float)
         self.sequence = 0
         self.memory_state = RealFlightMemoryState(enabled=bool(config.experiment_memory_enabled))
@@ -77,6 +78,98 @@ class FrozenFlightController:
     def decide(self, state_vector: np.ndarray, *, primitive_step_index: int) -> FlightControllerDecision:
         started = time.perf_counter()
         state = as_state_vector(state_vector)
+        prepared = self._select_payload_for_state(
+            state,
+            primitive_step_index=primitive_step_index,
+            started=started,
+        )
+        if prepared.get("payload") is None:
+            return self._neutral_decision(
+                reason=str(prepared["reason"]),
+                started=started,
+                route=dict(prepared["route"]),
+                governor_mode=str(prepared["governor_mode"]),
+                candidate_count=int(prepared["candidate_count"]),
+                viable_count=int(prepared["viable_count"]),
+            )
+        return self._emit_selected_decision(
+            prepared=prepared,
+            command_state=state,
+            started=started,
+        )
+
+    def prepare_launch_handoff_decision(
+        self,
+        state_vector: np.ndarray,
+        *,
+        primitive_step_index: int = 0,
+    ) -> dict[str, object]:
+        """Select the first launch primitive without emitting a command packet."""
+
+        started = time.perf_counter()
+        state = as_state_vector(state_vector)
+        prepared = self._select_payload_for_state(
+            state,
+            primitive_step_index=primitive_step_index,
+            started=started,
+        )
+        prepared["selection_state"] = state.copy()
+        prepared["prepared_decision_time_s"] = time.perf_counter() - started
+        if prepared.get("payload") is None:
+            self._prepared_launch_decision = None
+            return {
+                "ready": False,
+                "reason": str(prepared["reason"]),
+                "decision_time_s": float(prepared["prepared_decision_time_s"]),
+                "candidate_count": int(prepared["candidate_count"]),
+                "viable_count": int(prepared["viable_count"]),
+                "primitive_variant_id": "",
+            }
+        self._prepared_launch_decision = prepared
+        return {
+            "ready": True,
+            "reason": "selected",
+            "decision_time_s": float(prepared["prepared_decision_time_s"]),
+            "candidate_count": int(prepared["candidate_count"]),
+            "viable_count": int(prepared["viable_count"]),
+            "primitive_variant_id": str(prepared["variant_id"]),
+            "primitive_id": str(prepared["primitive_id"]),
+            "controller_id": str(prepared["controller_id"]),
+            "expected_energy_residual_m": float(prepared["expected_energy_residual_m"]),
+        }
+
+    def commit_prepared_launch_handoff_decision(self, state_vector: np.ndarray) -> FlightControllerDecision:
+        """Emit the already selected launch primitive from the latest post-handoff state."""
+
+        commit_started = time.perf_counter()
+        prepared = self._prepared_launch_decision
+        self._prepared_launch_decision = None
+        state = as_state_vector(state_vector)
+        if prepared is None or prepared.get("payload") is None:
+            route = _validation_route_for_primitive_step(0, state=state)
+            return self._neutral_decision(
+                reason="first_launch_decision_missed_handoff_budget",
+                started=commit_started,
+                route=route,
+                governor_mode=_governor_mode_for_route(route),
+                candidate_count=0,
+                viable_count=0,
+            )
+        prepared_time_s = float(prepared.get("prepared_decision_time_s", 0.0))
+        return self._emit_selected_decision(
+            prepared=prepared,
+            command_state=state,
+            started=commit_started,
+            prepared_decision_time_s=prepared_time_s,
+        )
+
+    def _select_payload_for_state(
+        self,
+        state: np.ndarray,
+        *,
+        primitive_step_index: int,
+        started: float,
+    ) -> dict[str, Any]:
         route = _validation_route_for_primitive_step(primitive_step_index, state=state)
         governor_mode = _governor_mode_for_route(route)
         context = _live_context_row(
@@ -107,26 +200,59 @@ class FrozenFlightController:
             governor_config=self.governor_config,
             candidate_row_mode="controller",
         )
+        viable_count = sum(1 for row in candidate_rows if bool(row.get("viable", False)))
         if selected is None:
-            return self._neutral_decision(
-                reason="no_viable_primitive",
-                started=started,
-                route=route,
-                governor_mode=governor_mode,
-                candidate_count=len(candidate_rows),
-                viable_count=0,
-            )
+            return {
+                "reason": "no_viable_primitive",
+                "route": route,
+                "governor_mode": governor_mode,
+                "candidate_count": len(candidate_rows),
+                "viable_count": viable_count,
+                "selected": None,
+                "payload": None,
+            }
         variant_id = str(selected.get("primitive_variant_id", ""))
         payload = self.controllers.get(variant_id)
         if payload is None:
-            return self._neutral_decision(
-                reason=f"missing_frozen_controller_payload:{variant_id}",
-                started=started,
-                route=route,
-                governor_mode=governor_mode,
-                candidate_count=len(candidate_rows),
-                viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
-            )
+            return {
+                "reason": f"missing_frozen_controller_payload:{variant_id}",
+                "route": route,
+                "governor_mode": governor_mode,
+                "candidate_count": len(candidate_rows),
+                "viable_count": viable_count,
+                "selected": selected,
+                "payload": None,
+            }
+        return {
+            "reason": "selected",
+            "route": route,
+            "governor_mode": governor_mode,
+            "candidate_count": len(candidate_rows),
+            "viable_count": viable_count,
+            "selected": selected,
+            "payload": payload,
+            "variant_id": variant_id,
+            "primitive_id": str(selected.get("primitive_id", payload.get("primitive_id", ""))),
+            "controller_id": str(payload.get("controller_id", "")),
+            "expected_energy_residual_m": _safe_float(selected.get("expected_energy_residual_m", 0.0)),
+            "expected_updraft_gain_proxy_m": _safe_float(selected.get("expected_updraft_gain_proxy_m", 0.0)),
+            "expected_lift_dwell_time_s": _safe_float(selected.get("expected_lift_dwell_time_s", 0.0)),
+        }
+
+    def _emit_selected_decision(
+        self,
+        *,
+        prepared: dict[str, Any],
+        command_state: np.ndarray,
+        started: float,
+        prepared_decision_time_s: float = 0.0,
+    ) -> FlightControllerDecision:
+        state = as_state_vector(command_state)
+        payload = dict(prepared["payload"])
+        selected = dict(prepared["selected"])
+        route = dict(prepared["route"])
+        governor_mode = str(prepared["governor_mode"])
+        variant_id = str(prepared["variant_id"])
         self._active_payload = payload
         self._active_variant_id = variant_id
         command_norm, command_rad = self._command_for_payload(payload, state)
@@ -139,19 +265,19 @@ class FrozenFlightController:
             command_norm=tuple(float(value) for value in packet.aggregate_command_norm),
             command_rad=tuple(float(value) for value in command_rad),
             primitive_variant_id=variant_id,
-            primitive_id=str(selected.get("primitive_id", payload.get("primitive_id", ""))),
-            controller_id=str(payload.get("controller_id", "")),
+            primitive_id=str(prepared.get("primitive_id", selected.get("primitive_id", payload.get("primitive_id", "")))),
+            controller_id=str(prepared.get("controller_id", payload.get("controller_id", ""))),
             governor_mode=governor_mode,
             start_state_family=str(route["start_state_family"]),
             current_state_class=str(route["current_state_class"]),
-            candidate_count=len(candidate_rows),
-            viable_count=sum(1 for row in candidate_rows if bool(row.get("viable", False))),
-            expected_energy_residual_m=_safe_float(selected.get("expected_energy_residual_m", 0.0)),
-            expected_updraft_gain_proxy_m=_safe_float(selected.get("expected_updraft_gain_proxy_m", 0.0)),
-            expected_lift_dwell_time_s=_safe_float(selected.get("expected_lift_dwell_time_s", 0.0)),
+            candidate_count=int(prepared["candidate_count"]),
+            viable_count=int(prepared["viable_count"]),
+            expected_energy_residual_m=float(prepared["expected_energy_residual_m"]),
+            expected_updraft_gain_proxy_m=float(prepared["expected_updraft_gain_proxy_m"]),
+            expected_lift_dwell_time_s=float(prepared["expected_lift_dwell_time_s"]),
             memory_enabled=bool(self.memory_state.enabled),
             memory_cell_count=int(self.memory_state.cell_count()),
-            decision_time_s=time.perf_counter() - started,
+            decision_time_s=float(prepared_decision_time_s) + (time.perf_counter() - started),
             packet_bytes=packet.packet_bytes,
         )
 

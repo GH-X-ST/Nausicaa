@@ -41,6 +41,7 @@ from implementation_instance import implementation_instance_for_layer  # noqa: E
 from plant_instance import plant_instance_for_layer  # noqa: E402
 from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
+from primitive_timing_contract import LAUNCH_HANDOFF_DURATION_S  # noqa: E402
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, GovernorConfig, governor_config_from_row, governor_config_to_row  # noqa: E402
 from run_outcome_model_build import (  # noqa: E402
     DEFAULT_COMPACT_LIBRARY,
@@ -481,6 +482,9 @@ def _run_episode(
                 preserve_command_timing_state=True,
                 initial_command_history_times_s_json=episode_command_history_times_s_json,
                 initial_command_norm_history_json=episode_command_norm_history_json,
+                launch_handoff_duration_s=(
+                    LAUNCH_HANDOFF_DURATION_S if primitive_step_index == 0 else 0.0
+                ),
             ),
             wind_field=context_payload["wind_field"],
             implementation_instance=context_payload["implementation_instance"],

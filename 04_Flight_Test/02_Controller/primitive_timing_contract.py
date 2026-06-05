@@ -8,6 +8,8 @@ PRIMITIVE_FINITE_HORIZON_S = 0.100
 CONTROLLER_INPUT_SLOTS_PER_PRIMITIVE = 5
 CONTROLLER_INPUT_UPDATE_PERIOD_S = 0.020
 PRIMITIVE_TIMING_CONTRACT_VERSION = "v411_0p10s_5slot_20ms"
+LAUNCH_HANDOFF_DURATION_S = 0.040
+LAUNCH_HANDOFF_POLICY_VERSION = "launch_gate_neutral_handoff_0p040s_v1"
 
 
 @dataclass(frozen=True)
@@ -24,7 +26,14 @@ V411_PRIMITIVE_TIMING_CONTRACT = PrimitiveTimingContract()
 def primitive_timing_contract_row() -> dict[str, object]:
     """Return the v4.11 timing contract as CSV/JSON-ready metadata."""
 
-    return asdict(V411_PRIMITIVE_TIMING_CONTRACT)
+    row = asdict(V411_PRIMITIVE_TIMING_CONTRACT)
+    row.update(
+        {
+            "launch_handoff_duration_s": LAUNCH_HANDOFF_DURATION_S,
+            "launch_handoff_policy_version": LAUNCH_HANDOFF_POLICY_VERSION,
+        }
+    )
+    return row
 
 
 def primitive_step_count(
@@ -94,4 +103,3 @@ def primitive_timing_contract_status(
     except Exception as exc:
         return "noncompliant", str(exc)
     return "compliant", ""
-

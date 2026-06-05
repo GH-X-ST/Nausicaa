@@ -67,6 +67,7 @@ from prim_cat import primitive_by_id  # noqa: E402
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout  # noqa: E402
 from primitive_timing_contract import (  # noqa: E402
     CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    LAUNCH_HANDOFF_DURATION_S,
     PRIMITIVE_FINITE_HORIZON_S,
     primitive_timing_contract_row,
 )
@@ -1558,12 +1559,17 @@ def _paired_start_condition_index(
     outer_case_index: int,
 ) -> int:
     if str(protocol.stage_id) == "R11":
+        block_count = max(1, int(protocol.outer_cases_per_condition) // max(1, len(protocol.blocks)))
+        if block_count < 50:
+            return int(round(float(environment_block_local_index) * 49.0 / float(max(1, block_count - 1))))
         return int(environment_block_local_index)
     return int(outer_case_index)
 
 
 def _paired_start_condition_policy(*, protocol: ValidationProtocol) -> str:
     if str(protocol.stage_id) == "R11":
+        if int(protocol.outer_cases_per_condition) // max(1, len(protocol.blocks)) < 50:
+            return "stratified_local_case_index_spread_over_50_launch_seed_grid_reused_across_l0_l7_library_tiers_and_memory_policies"
         return "same_local_case_index_launch_seed_reused_across_l0_l7_library_tiers_and_memory_policies"
     return "outer_case_unique_launch_seed"
 
@@ -1886,6 +1892,9 @@ def _run_one_launch(
                 preserve_command_timing_state=True,
                 initial_command_history_times_s_json=episode_command_history_times_s_json,
                 initial_command_norm_history_json=episode_command_norm_history_json,
+                launch_handoff_duration_s=(
+                    LAUNCH_HANDOFF_DURATION_S if primitive_step_index == 0 else 0.0
+                ),
             ),
             wind_field=context_payload["wind_field"],
             implementation_instance=context_payload["implementation_instance"],

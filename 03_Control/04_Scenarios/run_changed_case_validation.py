@@ -44,9 +44,9 @@ from viability_governor import GovernorConfig, governor_config_from_row  # noqa:
 
 
 R10_VALIDATION_VERSION = "full_domain_randomisation_governor_tuning_v8"
-R11_VALIDATION_VERSION = "heldout_fidelity_ladder_validation_v3_paired_50_per_ladder"
+R11_VALIDATION_VERSION = "heldout_fidelity_ladder_validation_v3_paired_20_per_ladder"
 R10_OUTER_CASES_PER_CONDITION = 50
-R11_OUTER_CASES_PER_LADDER = 50
+R11_OUTER_CASES_PER_LADDER = 20
 R11_OUTER_CASES_PER_CONDITION = len(R11_FIDELITY_LADDER_BLOCK_IDS) * R11_OUTER_CASES_PER_LADDER
 R10_REDUCED_OUTER_CASES_PER_CONDITION = 10
 R10_EXPECTED_FINAL_HELDOUT_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION
@@ -250,7 +250,7 @@ def run_heldout_changed_case_validation(config: HeldoutChangedCaseValidationConf
 
 
 def _r11_protocol_for_outer_cases_per_ladder(outer_cases_per_ladder: int) -> ValidationProtocol:
-    """Return the R11 protocol, preserving the 50-case default and allowing richer validation repeats."""
+    """Return the R11 protocol, preserving the full clean R11 structure."""
 
     cases_per_ladder = int(outer_cases_per_ladder)
     if cases_per_ladder <= 0:

@@ -19,7 +19,7 @@ for path in (RUNTIME, CONTROLLER, SCENARIOS):
 
 from calibration_profile import ACTIVE_CALIBRATION_PROFILE  # noqa: E402
 from command_contract import normalised_command_to_surface_rad  # noqa: E402
-from flight_config import DEFAULT_REAL_FLIGHT_LIBRARY_TIER, FlightRuntimeConfig  # noqa: E402
+from flight_config import DEFAULT_REAL_FLIGHT_LIBRARY_TIER, LAUNCH_HANDOFF_DURATION_S, FlightRuntimeConfig  # noqa: E402
 from frozen_flight_controller import FrozenFlightController  # noqa: E402
 from frozen_flight_controller import (  # noqa: E402
     _governor_mode_for_route,
@@ -693,8 +693,35 @@ def test_dry_run_writes_local_result_tree(tmp_path: Path) -> None:
     summary = run_real_flight(config, mode="dry-run")
 
     assert summary["completed"] is True
+    assert summary["launch_handoff_duration_s"] == pytest.approx(LAUNCH_HANDOFF_DURATION_S)
+    assert summary["launch_handoff_completed"] is True
     assert (tmp_path / "T01" / "manifests" / "real_flight_runtime_manifest.json").exists()
     assert (tmp_path / "T01" / "metrics" / "state_samples.csv").exists()
+
+
+def test_closed_loop_dry_run_holds_neutral_during_launch_handoff(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_handoff",
+        output_root=tmp_path,
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+    )
+
+    summary = run_real_flight(config, mode="dry-run")
+
+    assert summary["launch_handoff_completed"] is True
+    assert summary["launch_handoff_neutral_packet_count"] == 2
+    assert summary["first_launch_decision_ready_before_handoff"] is True
+    assert summary["controller_decision_count"] >= 1
+    assert float(summary["first_active_command_elapsed_s"]) >= LAUNCH_HANDOFF_DURATION_S
+    events_path = tmp_path / "T_handoff" / "metrics" / "runtime_events.csv"
+    with events_path.open(newline="") as handle:
+        events = [row["event"] for row in csv.DictReader(handle)]
+
+    assert "launch_handoff_start" in events
+    assert "first_launch_decision_prepared" in events
+    assert "launch_handoff_complete" in events
+    assert "first_active_command" in events
 
 
 def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tmp_path: Path) -> None:
@@ -713,6 +740,7 @@ def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tm
     assert summary["completed"] is True
     assert summary["valid_throw"] is True
     assert summary["controller_mode"] == "open_loop_neutral"
+    assert summary["launch_handoff_completed"] is True
     assert summary["controller_decision_count"] == 0
     assert summary["open_loop_neutral_packet_count"] > 0
     assert summary["memory_update_observation_count"] == 0

@@ -57,6 +57,7 @@ from primitive_variant_registry import (  # noqa: E402
 )
 from primitive_timing_contract import (  # noqa: E402
     CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    LAUNCH_HANDOFF_DURATION_S,
     PRIMITIVE_TIMING_CONTRACT_VERSION,
     primitive_timing_contract_row,
 )
@@ -701,6 +702,7 @@ def _row_for_index(
         dt_s=float(config.rollout_dt_s),
         rollout_backend="model_backed_lqr",
         wind_mode="none" if environment_layer == "W0" else "panel",
+        launch_handoff_duration_s=LAUNCH_HANDOFF_DURATION_S if start_family == "launch_gate" else 0.0,
     )
     if not compatible or binding.surrogate_binding_status != "ready":
         failure_label = ENTRY_ROLE_REJECTION_LABEL if not compatible else "w3_surrogate_binding_blocked"
@@ -716,6 +718,7 @@ def _row_for_index(
                 dt_s=float(config.rollout_dt_s),
                 rollout_backend="blocked_lqr",
                 wind_mode="none" if environment_layer == "W0" else "panel",
+                launch_handoff_duration_s=LAUNCH_HANDOFF_DURATION_S if start_family == "launch_gate" else 0.0,
             ),
             failure_label=failure_label,
             controller=record.controller,

@@ -1487,8 +1487,8 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         R11_L6_ENVIRONMENT_ONLY_FULL_UNCERTAINTY_BLOCK_ID,
         R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     )
-    assert R11_PROTOCOL.outer_cases_per_condition == 8 * 50
-    assert all(int(block.case_count) == 50 for block in R11_PROTOCOL.blocks)
+    assert R11_PROTOCOL.outer_cases_per_condition == 8 * 20
+    assert all(int(block.case_count) == 20 for block in R11_PROTOCOL.blocks)
     assert R11_PROTOCOL.policy_history_conditions == R11_POLICY_HISTORY_CONDITIONS
     assert R11_POLICY_HISTORY_CONDITIONS == (
         OPEN_LOOP_COMPARISON_POLICY_ID,
@@ -1497,8 +1497,36 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
         "spatial_flow_belief_memory_h10",
         "spatial_flow_belief_memory_h30",
     )
-    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R11_POLICY_HISTORY_CONDITIONS) * 400
-    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 400 * (3 + 10 + 30)
+    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R11_POLICY_HISTORY_CONDITIONS) * 160
+    assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 160 * (3 + 10 + 30)
+
+    l0_cases = [
+        row
+        for row in _outer_case_schedule(protocol=R11_PROTOCOL, seed=110)
+        if row["environment_block_id"] == R11_L0_DRY_AIR_FIXED_BLOCK_ID
+    ]
+    assert [int(row["paired_start_condition_index"]) for row in l0_cases] == [
+        0,
+        3,
+        5,
+        8,
+        10,
+        13,
+        15,
+        18,
+        21,
+        23,
+        26,
+        28,
+        31,
+        34,
+        36,
+        39,
+        41,
+        44,
+        46,
+        49,
+    ]
 
     assert _scheduled_active_fan_count_for_outer_case(
         protocol=R11_PROTOCOL,
@@ -1618,8 +1646,9 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
     by_local_index: dict[int, list[dict[str, object]]] = {}
     for row in r11_schedule:
         by_local_index.setdefault(int(row["environment_block_local_index"]), []).append(row)
-    assert set(by_local_index) == set(range(50))
+    assert set(by_local_index) == set(range(20))
     for local_index, rows in by_local_index.items():
+        paired_start_index = int(rows[0]["paired_start_condition_index"])
         assert len(rows) == 8
         assert {row["environment_block_id"] for row in rows} == {
             R11_L0_DRY_AIR_FIXED_BLOCK_ID,
@@ -1632,18 +1661,18 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
             R11_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
         }
         assert {row["launch_state_seed"] for row in rows} == {
-            110 * 100000 + local_index * 37 + 11
+            110 * 100000 + paired_start_index * 37 + 11
         }
-        assert {row["paired_start_condition_index"] for row in rows} == {local_index}
+        assert {row["paired_start_condition_index"] for row in rows} == {paired_start_index}
         assert {row["paired_start_condition_key"] for row in rows} == {
-            f"r11_heldout_paired_start_{local_index:04d}"
+            f"r11_heldout_paired_start_{paired_start_index:04d}"
         }
         history_rows = [
             _history_row_for_final({**row, "episode_id": "paired_contract", "launch_role": "final_heldout"}, 7)
             for row in rows
         ]
         assert {row["launch_state_seed"] for row in history_rows} == {
-            110 * 100000 + local_index * 37 + 11 + 1000000 + 7 * 101
+            110 * 100000 + paired_start_index * 37 + 11 + 1000000 + 7 * 101
         }
 
 

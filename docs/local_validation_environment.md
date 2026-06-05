@@ -80,7 +80,11 @@ The R9/R10/R11 governor uses the same candidate-path geometry for no-memory and
 memory policies: forward progress to `x_w = 6.6 m`, front-wall terminal proxy,
 progress-gated terminal total specific-energy proxy, wrong-boundary avoidance,
 and then updraft/lift plus optional spatial-memory correction after unchanged
-safety and transition-entry filters.
+safety and transition-entry filters. The current governor also applies calibrated
+normal / transition / post-stall regime-mismatch risk as a bounded score penalty
+and memory-shield non-regression diagnostic, so high-AoA lift exploitation remains
+possible only when it earns enough mission value to justify the active-model
+mismatch exposure.
 R9/R10/R11 final launch scoring uses the current front-wall mission score:
 front-wall terminal success at `x_w = 6.6 m` with y/z inside the true safe
 bounds is the main success component, updraft-gain and lift-dwell terms remain
@@ -90,8 +94,14 @@ remain audit-only fields.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, memory query, and compact-library selection are measured against
 a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary
-budget, with next decisions prepared before primitive-boundary commit where
-possible. This is an offline wall-clock audit, not a hardware real-time claim. The current compact controller-row selector timing boundary matches the active code path: full spatial-belief query plus compact controller-row library selection is in the timed controller path, while full candidate-row expansion, table flushing, and post-hoc diagnostics are outside it. Latest targeted C16 sanity check: 40 final launches, 430 history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory switches, and required heavy/balanced in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full R10/R11 validation.
+budget. Launch-gate step 0 is the physical-duration exception: simulation and
+real flight share `launch_gate_neutral_handoff_0p040s_v1`, so both hold
+neutral/open-loop for exactly 0.040 s (two 20 ms slots), prepare the first
+primitive from the approved launch-gate state, then start the unchanged 0.100 s
+active primitive from the latest post-handoff state; step-0 evidence reports
+0.140 s physical duration. Later in-flight decisions are prepared before
+primitive-boundary commit where possible. This is an offline wall-clock audit,
+not a hardware real-time claim. The current compact controller-row selector timing boundary matches the active code path: full spatial-belief query plus compact controller-row library selection is in the timed controller path, while full candidate-row expansion, table flushing, and post-hoc diagnostics are outside it. Latest targeted C16 sanity check: 40 final launches, 430 history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory switches, and required heavy/balanced in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full R10/R11 validation.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

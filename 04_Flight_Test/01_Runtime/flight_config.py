@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,11 @@ RUNTIME_ROOT = FLIGHT_TEST_ROOT / "01_Runtime"
 CONTROLLER_ROOT = FLIGHT_TEST_ROOT / "02_Controller"
 FROZEN_INPUT_ROOT = FLIGHT_TEST_ROOT / "03_Frozen_Inputs"
 RESULT_ROOT = FLIGHT_TEST_ROOT / "05_Results"
+if str(CONTROLLER_ROOT) not in sys.path:
+    sys.path.insert(0, str(CONTROLLER_ROOT))
+
+from primitive_timing_contract import LAUNCH_HANDOFF_DURATION_S, LAUNCH_HANDOFF_POLICY_VERSION  # noqa: E402
+
 OPERATIONAL_REGION_CENTER_M = (3.9, 2.2, 1.95)
 DEFAULT_VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m
 DEFAULT_VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
@@ -42,6 +48,8 @@ class FlightRuntimeConfig:
     governor_period_s: float = 0.100
     serial_period_s: float = 0.020
     vicon_poll_period_s: float = 0.005
+    launch_handoff_duration_s: float = LAUNCH_HANDOFF_DURATION_S
+    launch_handoff_policy_version: str = LAUNCH_HANDOFF_POLICY_VERSION
     max_duration_s: float = 20.0
     launch_wait_timeout_s: float = 8.0
     launch_gate_required_consecutive_frames: int = 2

@@ -45,12 +45,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional diagnostic primitive-count cap. Use 0 to disable the cap for full held-out validation.",
     )
     parser.add_argument("--max-episode-time-s", type=float, default=DEFAULT_VALIDATION_MAX_EPISODE_TIME_S)
-    parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
     parser.add_argument(
         "--outer-cases-per-ladder",
         type=int,
         default=R11_OUTER_CASES_PER_LADDER,
-        help="Held-out R11 paired local cases per ladder. Default 50 reproduces D01; use 70 for a richer D02 repeat.",
+        help="Held-out R11 paired local cases per ladder. Default 20 is the clean full R11 unit; repeat with different seeds for richer evidence.",
     )
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--workers", type=int, default=1)
@@ -76,7 +75,6 @@ def main(argv: list[str] | None = None) -> int:
             dry_run_schedule=args.dry_run_schedule,
             max_primitives_per_launch=args.max_primitives_per_launch,
             max_episode_time_s=args.max_episode_time_s,
-            smoke_outer_cases_per_block=args.smoke_outer_cases_per_block,
             outer_cases_per_ladder=args.outer_cases_per_ladder,
             workers=args.workers,
             max_workers=args.max_workers,
@@ -87,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     print(result)
-    return 0 if result.get("status") in {"complete", "dry_run_schedule", "smoke_run"} else 2
+    return 0 if result.get("status") in {"complete", "dry_run_schedule"} else 2
 
 
 if __name__ == "__main__":

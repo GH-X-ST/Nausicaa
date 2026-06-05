@@ -13,6 +13,7 @@ from lqr_controller import lqr_controller_for_primitive_id
 from plant_instance import plant_instance_for_layer
 from prim_cat import primitive_by_id
 from prim_roll import RolloutConfig, rollout_evidence_row, simulate_primitive_rollout
+from primitive_timing_contract import LAUNCH_HANDOFF_DURATION_S, LAUNCH_HANDOFF_POLICY_VERSION
 from state_contract import STATE_INDEX, STATE_SIZE
 
 
@@ -97,6 +98,46 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
     assert np.isfinite(evidence.energy_residual_m)
     assert np.isfinite(evidence.floor_margin_m)
     assert np.isfinite(evidence.ceiling_margin_m)
+    assert evidence.launch_handoff_enabled is False
+    assert evidence.rollout_duration_s == pytest.approx(0.100)
+
+
+def test_launch_handoff_prefix_is_two_neutral_slots_before_active_primitive() -> None:
+    state = _state(x_w_m=1.3, u_m_s=6.0)
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="launch_handoff_rollout",
+        episode_id="episode_launch_handoff",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(
+            W_layer="W1",
+            rollout_backend="model_backed_lqr",
+            launch_handoff_duration_s=LAUNCH_HANDOFF_DURATION_S,
+        ),
+        wind_field=wind,
+        controller=_controller("glide"),
+    )
+    row = rollout_evidence_row(evidence)
+    command_times = np.asarray(json.loads(str(row["command_history_times_s_json"])), dtype=float)
+    commands = np.asarray(json.loads(str(row["command_norm_history_json"])), dtype=float)
+
+    assert evidence.launch_handoff_enabled is True
+    assert evidence.launch_handoff_duration_s == pytest.approx(0.040)
+    assert evidence.launch_handoff_policy_version == LAUNCH_HANDOFF_POLICY_VERSION
+    assert evidence.launch_handoff_step_count == 2
+    assert evidence.launch_handoff_active_start_time_s == pytest.approx(0.040)
+    assert evidence.launch_handoff_termination_reason == "completed_launch_handoff"
+    assert evidence.finite_horizon_s == pytest.approx(0.100)
+    assert evidence.rollout_duration_s == pytest.approx(0.140)
+    assert float(command_times.min()) <= 1e-12
+    assert np.any(np.isclose(command_times, 0.0))
+    assert np.any(np.isclose(command_times, 0.02))
+    assert np.any(np.isclose(command_times, 0.04))
+    for command in commands[command_times < 0.04 - 1e-12]:
+        np.testing.assert_allclose(command, [0.0, 0.0, 0.0])
 
 
 def test_model_backed_open_loop_zero_command_rollout_is_comparison_only_backend() -> None:

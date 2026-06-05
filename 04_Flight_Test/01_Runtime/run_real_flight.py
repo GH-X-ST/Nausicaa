@@ -18,6 +18,7 @@ from flight_config import (
     DEFAULT_VICON_POSITION_OFFSET_M,
     REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON,
     FlightRuntimeConfig,
+    LAUNCH_HANDOFF_DURATION_S,
     default_run_label,
 )
 from flight_logger import FlightLogger
@@ -54,6 +55,11 @@ def run_real_flight(
     logger = FlightLogger(Path(run_root) if run_root is not None else config.run_root)
     if config.controller_mode not in {"closed_loop", "open_loop_neutral"}:
         raise ValueError("controller_mode must be 'closed_loop' or 'open_loop_neutral'.")
+    if not np.isclose(float(config.launch_handoff_duration_s), LAUNCH_HANDOFF_DURATION_S, rtol=0.0, atol=1e-12):
+        raise ValueError("launch_handoff_duration_s_not_0p040s")
+    handoff_slots = float(config.launch_handoff_duration_s) / float(config.serial_period_s)
+    if not np.isclose(handoff_slots, round(handoff_slots), rtol=0.0, atol=1e-9):
+        raise ValueError("launch_handoff_duration_s_must_be_integer_serial_slots")
     controller = controller or FrozenFlightController(config)
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=config.derivative_cutoff_hz,
@@ -110,6 +116,17 @@ def run_real_flight(
             "latency_quantification_enabled": False,
             "servo_command_limit_norm": [-1.0, 1.0],
             "launch_trigger_policy": "wait_for_r5_launch_gate_before_active_record",
+            "launch_handoff_policy": {
+                "policy_version": str(config.launch_handoff_policy_version),
+                "duration_s": float(config.launch_handoff_duration_s),
+                "neutral_slots": int(round(float(config.launch_handoff_duration_s) / float(config.serial_period_s))),
+                "active_primitive_finite_horizon_s": float(config.governor_period_s),
+                "description": (
+                    "after launch gate approval, hold neutral for the fixed handoff duration, "
+                    "prepare the first primitive from the approved state, then emit the first "
+                    "active command from the latest post-handoff Vicon state"
+                ),
+            },
             "launch_gate_bounds": launch_gate_bounds_manifest(
                 body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s
             ),
@@ -123,6 +140,7 @@ def run_real_flight(
                 "serial_command_repeat_hz": float(1.0 / config.serial_period_s),
                 "governor_decision_hz": float(1.0 / config.governor_period_s),
                 "closed_loop_slot_command_hz": float(1.0 / config.serial_period_s),
+                "launch_handoff_duration_s": float(config.launch_handoff_duration_s),
                 "derivative_cutoff_hz": float(config.derivative_cutoff_hz),
                 "body_rate_limit_rad_s": float(config.body_rate_limit_rad_s),
                 "body_rate_observer_window_frames": int(config.body_rate_observer_window_frames),
@@ -174,6 +192,13 @@ def run_real_flight(
         "max_decision_time_s": 0.0,
         "launch_speed_m_s": 0.0,
         "launch_gate_approved": False,
+        "launch_handoff_enabled": bool(float(config.launch_handoff_duration_s) > 0.0),
+        "launch_handoff_policy_version": str(config.launch_handoff_policy_version),
+        "launch_handoff_duration_s": float(config.launch_handoff_duration_s),
+        "launch_handoff_completed": False,
+        "launch_handoff_neutral_packet_count": 0,
+        "first_active_command_elapsed_s": 0.0,
+        "first_launch_decision_ready_before_handoff": False,
         "flight_cancelled": False,
         "cancellation_reason": "",
         "exit_gate_triggered": False,
@@ -233,6 +258,205 @@ def run_real_flight(
         started = time.perf_counter()
         next_governor_s = 0.0
         next_serial_s = 0.0
+        launch_handoff_duration_s = float(config.launch_handoff_duration_s)
+        _append_runtime_event(
+            logger,
+            "launch_handoff_start",
+            launch_handoff_policy_version=str(config.launch_handoff_policy_version),
+            launch_handoff_duration_s=launch_handoff_duration_s,
+        )
+        if config.controller_mode == "closed_loop":
+            _append_runtime_event(
+                logger,
+                "first_decision_uses_approved_launch_state",
+                source="launch_gate_interpolated_or_window_state",
+            )
+            prepared = controller.prepare_launch_handoff_decision(
+                pending_launch_decision_state,
+                primitive_step_index=0,
+            )
+            summary["first_launch_decision_ready_before_handoff"] = bool(
+                prepared.get("ready", False)
+                and float(prepared.get("decision_time_s", float("inf"))) <= launch_handoff_duration_s + 1e-12
+            )
+            _append_runtime_event(
+                logger,
+                "first_launch_decision_prepared",
+                **prepared,
+                launch_handoff_duration_s=launch_handoff_duration_s,
+            )
+            if not bool(summary["first_launch_decision_ready_before_handoff"]):
+                reason = "first_launch_decision_missed_handoff_budget"
+                summary["flight_cancelled"] = True
+                summary["cancellation_reason"] = reason
+                _append_runtime_event(
+                    logger,
+                    "launch_handoff_abort",
+                    reason=reason,
+                    prepared_decision=prepared,
+                )
+                _write_packet_safe(
+                    tx,
+                    controller.neutral_packet(),
+                    logger=logger,
+                    summary=summary,
+                    event="launch_handoff_abort_neutral_packet",
+                )
+                summary["completed"] = False
+                return summary
+
+        handoff_sample_count = max(
+            1,
+            int(np.ceil(launch_handoff_duration_s / float(config.vicon_poll_period_s))),
+        )
+        for handoff_sample_index in range(handoff_sample_count):
+            handoff_elapsed_s = min(
+                launch_handoff_duration_s,
+                float(handoff_sample_index) * float(config.vicon_poll_period_s),
+            )
+            while next_serial_s < launch_handoff_duration_s - 1e-12 and handoff_elapsed_s + 1e-12 >= next_serial_s:
+                if _write_packet_safe(
+                    tx,
+                    controller.neutral_packet(),
+                    logger=logger,
+                    summary=summary,
+                    event="launch_handoff_neutral_packet",
+                ):
+                    summary["launch_handoff_neutral_packet_count"] = (
+                        int(summary["launch_handoff_neutral_packet_count"]) + 1
+                    )
+                next_serial_s += float(config.serial_period_s)
+
+            sample, status = vicon.read_latest()
+            if sample is None or not status.valid:
+                reason = f"launch_handoff_abort:vicon_invalid:{status.reason}"
+                summary["flight_cancelled"] = True
+                summary["cancellation_reason"] = reason
+                _append_runtime_event(
+                    logger,
+                    "launch_handoff_abort",
+                    reason=reason,
+                    handoff_elapsed_s=handoff_elapsed_s,
+                )
+                _write_packet_safe(
+                    tx,
+                    controller.neutral_packet(),
+                    logger=logger,
+                    summary=summary,
+                    event="launch_handoff_abort_neutral_packet",
+                )
+                summary["completed"] = False
+                return summary
+
+            latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
+            estimator = adapter.estimator_status()
+            _append_fan_positions(
+                logger=logger,
+                vicon=vicon,
+                adapter=adapter,
+                phase="launch_handoff",
+                expected_visible_fan_range=expected_visible_fan_range,
+                summary=summary,
+            )
+            safety = evaluate_safety(latest_state)
+            exit_gate = evaluate_exit_gate(latest_state)
+            summary["state_sample_count"] += 1
+            logger.append_metric_row(
+                "state_samples.csv",
+                {
+                    "t_host_s": time.perf_counter(),
+                    "frame_number": status.frame_number,
+                    "vicon_frame_rate_hz": status.frame_rate_hz,
+                    "vicon_latency_s": status.vicon_latency_s,
+                    **{f"estimator_{key}": value for key, value in estimator.items()},
+                    **state_dataframe_row(latest_state),
+                    **asdict(safety),
+                    **{f"exit_gate_{key}": value for key, value in asdict(exit_gate).items()},
+                },
+            )
+            if not safety.safe or not exit_gate.inside:
+                reason = (
+                    f"launch_handoff_abort:{safety.reason}"
+                    if not safety.safe
+                    else f"launch_handoff_abort:{exit_gate.reason}"
+                )
+                summary["flight_cancelled"] = True
+                summary["cancellation_reason"] = reason
+                _append_runtime_event(
+                    logger,
+                    "launch_handoff_abort",
+                    reason=reason,
+                    handoff_elapsed_s=handoff_elapsed_s,
+                    **asdict(safety),
+                    **{f"exit_gate_{key}": value for key, value in asdict(exit_gate).items()},
+                )
+                _write_packet_safe(
+                    tx,
+                    controller.neutral_packet(),
+                    logger=logger,
+                    summary=summary,
+                    event="launch_handoff_abort_neutral_packet",
+                )
+                summary["completed"] = False
+                return summary
+            if mode in {"armed", "vicon-smoke"}:
+                time.sleep(float(config.vicon_poll_period_s))
+
+        summary["launch_handoff_completed"] = True
+        _append_runtime_event(
+            logger,
+            "launch_handoff_complete",
+            launch_handoff_duration_s=launch_handoff_duration_s,
+            neutral_packet_count=int(summary["launch_handoff_neutral_packet_count"]),
+        )
+        started = time.perf_counter() - launch_handoff_duration_s
+        next_serial_s = launch_handoff_duration_s
+        next_governor_s = launch_handoff_duration_s
+        if config.controller_mode == "closed_loop":
+            latest_decision = controller.commit_prepared_launch_handoff_decision(latest_state)
+            if not latest_decision.selected:
+                reason = "first_launch_decision_missed_handoff_budget"
+                summary["flight_cancelled"] = True
+                summary["cancellation_reason"] = reason
+                _append_runtime_event(
+                    logger,
+                    "launch_handoff_abort",
+                    reason=reason,
+                    latest_decision=asdict(latest_decision),
+                )
+                _write_packet_safe(
+                    tx,
+                    controller.neutral_packet(),
+                    logger=logger,
+                    summary=summary,
+                    event="launch_handoff_abort_neutral_packet",
+                )
+                summary["completed"] = False
+                return summary
+            pending_slot_packet = latest_decision.packet_bytes
+            decision_records.append(
+                {
+                    "t_s": 0.0,
+                    "state": pending_launch_decision_state.copy(),
+                    "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
+                    "primitive_variant_id": latest_decision.primitive_variant_id,
+                }
+            )
+            pending_launch_decision_state = None
+            primitive_step_index = 1
+            next_governor_s = launch_handoff_duration_s + float(config.governor_period_s)
+            summary["controller_decision_count"] += 1
+            summary["max_decision_time_s"] = max(
+                float(summary["max_decision_time_s"]),
+                float(latest_decision.decision_time_s),
+            )
+            logger.append_metric_row(
+                "controller_decisions.csv",
+                {
+                    "t_host_s": time.perf_counter(),
+                    **asdict(latest_decision),
+                },
+            )
 
         while (time.perf_counter() - started) <= float(config.max_duration_s):
             loop_elapsed_s = time.perf_counter() - started
@@ -370,6 +594,15 @@ def run_real_flight(
                         packet = controller.packet_for_active_slot_command(latest_state)
                         event = "active_command_packet_slot_update"
                     summary["slot_command_update_count"] = int(summary["slot_command_update_count"]) + 1
+                if float(summary.get("first_active_command_elapsed_s", 0.0)) <= 0.0:
+                    summary["first_active_command_elapsed_s"] = float(loop_elapsed_s)
+                    _append_runtime_event(
+                        logger,
+                        "first_active_command",
+                        elapsed_s=float(loop_elapsed_s),
+                        source_event=event,
+                        controller_mode=config.controller_mode,
+                    )
                 _write_packet_safe(
                     tx,
                     packet,
@@ -436,6 +669,11 @@ def run_real_flight(
                 f"- Controller mode: `{summary['controller_mode']}`",
                 f"- Valid throw: `{summary['valid_throw']}`",
                 f"- Launch gate approved: `{summary['launch_gate_approved']}`",
+                f"- Launch handoff policy: `{summary['launch_handoff_policy_version']}`",
+                f"- Launch handoff duration (s): `{float(summary['launch_handoff_duration_s']):.3f}`",
+                f"- Launch handoff completed: `{summary['launch_handoff_completed']}`",
+                f"- Launch handoff neutral packets: `{summary['launch_handoff_neutral_packet_count']}`",
+                f"- First active command elapsed (s): `{float(summary['first_active_command_elapsed_s']):.3f}`",
                 f"- Launch speed (m/s): `{float(summary['launch_speed_m_s']):.3f}`",
                 f"- Flight cancelled: `{summary['flight_cancelled']}`",
                 f"- Cancellation reason: `{summary['cancellation_reason']}`",

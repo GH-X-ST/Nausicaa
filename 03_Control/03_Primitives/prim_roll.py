@@ -40,6 +40,8 @@ from plant_instance import PlantInstance, apply_plant_instance_to_aircraft, plan
 from prim_cat import PrimitiveDefinition, primitive_parameters_json
 from primitive_timing_contract import (
     CONTROLLER_INPUT_UPDATE_PERIOD_S,
+    LAUNCH_HANDOFF_DURATION_S,
+    LAUNCH_HANDOFF_POLICY_VERSION,
     assert_primitive_timing_contract,
     primitive_step_count,
     primitive_timing_contract_status,
@@ -180,6 +182,15 @@ ROLLOUT_EVIDENCE_COLUMNS = (
     "primitive_timing_state_continuity_status",
     "command_history_times_s_json",
     "command_norm_history_json",
+    "launch_handoff_enabled",
+    "launch_handoff_duration_s",
+    "launch_handoff_policy_version",
+    "launch_handoff_step_count",
+    "launch_handoff_approved_state_vector",
+    "launch_handoff_post_active_start_state_vector",
+    "launch_handoff_active_start_time_s",
+    "launch_handoff_active_absolute_start_time_s",
+    "launch_handoff_termination_reason",
     "rollout_backend",
     "evidence_role",
     "surrogate_binding_status",
@@ -235,6 +246,7 @@ class RolloutConfig:
     preserve_command_timing_state: bool = False
     initial_command_history_times_s_json: str = ""
     initial_command_norm_history_json: str = ""
+    launch_handoff_duration_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -322,6 +334,15 @@ class RolloutEvidence:
     primitive_timing_state_continuity_status: str
     command_history_times_s_json: str
     command_norm_history_json: str
+    launch_handoff_enabled: bool
+    launch_handoff_duration_s: float
+    launch_handoff_policy_version: str
+    launch_handoff_step_count: int
+    launch_handoff_approved_state_vector: str
+    launch_handoff_post_active_start_state_vector: str
+    launch_handoff_active_start_time_s: float
+    launch_handoff_active_absolute_start_time_s: float
+    launch_handoff_termination_reason: str
     rollout_backend: str
     evidence_role: str
     surrogate_binding_status: str
@@ -393,6 +414,13 @@ def simulate_primitive_rollout(
     )
     if not np.isclose(float(cfg.dt_s), CONTROLLER_INPUT_UPDATE_PERIOD_S, rtol=0.0, atol=1e-12):
         raise ValueError("rollout_dt_s_not_v411_0p020s")
+    handoff_duration_s = float(cfg.launch_handoff_duration_s)
+    if handoff_duration_s < 0.0:
+        raise ValueError("launch_handoff_duration_s_must_be_nonnegative")
+    if handoff_duration_s > 0.0:
+        handoff_steps = handoff_duration_s / float(cfg.dt_s)
+        if not np.isclose(handoff_steps, round(handoff_steps), rtol=0.0, atol=1e-9):
+            raise ValueError("launch_handoff_duration_s_must_be_integer_rollout_steps")
     if cfg.rollout_backend not in ROLLOUT_BACKENDS:
         raise ValueError("rollout_backend must be one of the retained rollout backends.")
     if cfg.rollout_backend == "smoke_only":
@@ -513,6 +541,11 @@ def blocked_rollout_evidence(
             config=cfg,
             rollout_duration_s=0.0,
             continuity_status="blocked_before_rollout",
+        ),
+        **_launch_handoff_evidence_fields(
+            config=cfg,
+            approved_state=state,
+            termination_reason="not_started_blocked_before_rollout",
         ),
         rollout_backend="blocked_lqr",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["blocked_lqr"],
@@ -644,6 +677,12 @@ def _simulate_smoke_rollout(
             config=config,
             rollout_duration_s=float(primitive.finite_horizon_s),
             continuity_status="smoke_only_not_integrated",
+        ),
+        **_launch_handoff_evidence_fields(
+            config=config,
+            approved_state=state,
+            post_active_start_state=state,
+            termination_reason="not_evaluated_smoke_only",
         ),
         rollout_backend="smoke_only",
         evidence_role=EVIDENCE_ROLE_BY_BACKEND["smoke_only"],
@@ -857,29 +896,52 @@ def _simulate_dynamics_rollout(
         controller_input_update_period_s=float(config.dt_s),
     )
     absolute_start_time_s = float(config.absolute_start_time_s)
+    launch_handoff_steps = _launch_handoff_step_count(config)
+    launch_handoff_duration_s = float(launch_handoff_steps) * float(config.dt_s)
+    active_start_time_s = launch_handoff_duration_s
+    launch_handoff_post_state = x.copy()
+    launch_handoff_termination_reason = (
+        "completed_launch_handoff" if launch_handoff_steps > 0 else "not_requested"
+    )
     times_s = [0.0]
     states = [x.copy()]
     command_delay_s = float(latency.command_onset_delay_s + latency.command_transport_delay_s)
     timing_state_source = "not_evaluated_before_first_command"
     timing_state_continuity_status = "command_timing_state_reset_at_primitive_start"
+    zero_command_norm = np.zeros(3, dtype=float)
     if config.rollout_backend == "model_backed_lqr":
-        initial_command = primitive_lqr_command(
-            primitive,
-            PrimitiveControlContext(
-                state_vector=x,
-                environment_context=context,
-                time_in_primitive_s=0.0,
-                timing_state=initialised_timing_state_for_controller(resolved_controller, x),
-            ),
-            resolved_controller,
-        )
         reference_command_norm = quantise_normalised_command_vector(
             surface_rad_to_normalised_command(
                 np.asarray(resolved_controller.reference_command_vector, dtype=float)
             )
         )
         restored_times_s, restored_command_norm_history = _initial_command_history_from_config(config)
-        if (
+        if launch_handoff_steps > 0:
+            if (
+                bool(config.preserve_command_timing_state)
+                and restored_times_s
+                and restored_command_norm_history
+            ):
+                command_times_s = restored_times_s
+                command_norm_history = restored_command_norm_history
+                timing_state_continuity_status = "continued_with_launch_handoff_neutral_prefix"
+            elif mechanism_flags["command_delay_applied"]:
+                command_times_s = [absolute_start_time_s - (command_delay_s + 1e-9)]
+                command_norm_history = [zero_command_norm.copy()]
+                timing_state_continuity_status = "launch_handoff_neutral_prefix"
+            else:
+                command_times_s = []
+                command_norm_history = []
+                timing_state_continuity_status = "launch_handoff_neutral_prefix"
+            if not command_times_s or absolute_start_time_s > command_times_s[-1]:
+                command_times_s.append(absolute_start_time_s)
+                command_norm_history.append(zero_command_norm.copy())
+            else:
+                command_norm_history[-1] = zero_command_norm.copy()
+            saturation_count = 0
+            max_abs_command_norm = 0.0
+            max_abs_surface_rad = 0.0
+        elif (
             bool(config.preserve_command_timing_state)
             and restored_times_s
             and restored_command_norm_history
@@ -891,11 +953,32 @@ def _simulate_dynamics_rollout(
             command_times_s = [absolute_start_time_s - (command_delay_s + 1e-9)]
             command_norm_history = [reference_command_norm.copy()]
         else:
+            initial_command = primitive_lqr_command(
+                primitive,
+                PrimitiveControlContext(
+                    state_vector=x,
+                    environment_context=context,
+                    time_in_primitive_s=0.0,
+                    timing_state=initialised_timing_state_for_controller(resolved_controller, x),
+                ),
+                resolved_controller,
+            )
             command_times_s = [absolute_start_time_s]
             command_norm_history = [
                 quantise_normalised_command_vector(initial_command.command_norm)
             ]
-        saturation_count = int(initial_command.saturation_applied)
+        if launch_handoff_steps <= 0:
+            initial_command = primitive_lqr_command(
+                primitive,
+                PrimitiveControlContext(
+                    state_vector=x,
+                    environment_context=context,
+                    time_in_primitive_s=0.0,
+                    timing_state=initialised_timing_state_for_controller(resolved_controller, x),
+                ),
+                resolved_controller,
+            )
+            saturation_count = int(initial_command.saturation_applied)
         max_abs_command_norm = float(np.max(np.abs(command_norm_history[-1])))
         max_abs_surface_rad = float(
             np.max(
@@ -905,7 +988,6 @@ def _simulate_dynamics_rollout(
             )
         )
     elif config.rollout_backend == "model_backed_open_loop_zero_command":
-        zero_command_norm = np.zeros(3, dtype=float)
         restored_times_s, restored_command_norm_history = _initial_command_history_from_config(config)
         if (
             bool(config.preserve_command_timing_state)
@@ -929,8 +1011,96 @@ def _simulate_dynamics_rollout(
     else:
         raise ValueError("model-backed rollout requires model_backed_lqr or model_backed_open_loop_zero_command.")
 
-    for step_index in range(steps):
-        time_s = float(step_index) * float(config.dt_s)
+    for handoff_step_index in range(launch_handoff_steps):
+        time_s = float(handoff_step_index) * float(config.dt_s)
+        absolute_time_s = absolute_start_time_s + time_s
+        margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
+        min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
+        min_floor_margin_m = min(min_floor_margin_m, float(margins["floor_margin_m"]))
+        min_ceiling_margin_m = min(min_ceiling_margin_m, float(margins["ceiling_margin_m"]))
+        min_speed_m_s = min(min_speed_m_s, float(np.linalg.norm(x[6:9])))
+        if min_floor_margin_m < 0.0:
+            termination_cause = "floor_margin_stop"
+            failure_label = "floor_violation"
+            launch_handoff_termination_reason = "floor_margin_stop_before_active_start"
+            break
+        if min_ceiling_margin_m < 0.0:
+            termination_cause = "ceiling_margin_stop"
+            failure_label = "ceiling_violation"
+            launch_handoff_termination_reason = "ceiling_margin_stop_before_active_start"
+            break
+        if min_wall_margin_m < 0.0:
+            termination_cause = "wall_boundary_exit_retained"
+            failure_label = "wall_violation"
+            launch_handoff_termination_reason = "wall_boundary_exit_before_active_start"
+            break
+        w_wing_step_m_s, w_wing_status = _trajectory_w_wing_mean_m_s(
+            state=x,
+            wind_field=wind_field,
+        )
+        if w_wing_status != "available":
+            updraft_integration_status = w_wing_status
+        trajectory_wing_sample_count += int(w_wing_status == "available")
+        if w_wing_step_m_s > 0.0:
+            trajectory_integrated_updraft_gain_m += float(w_wing_step_m_s) * float(config.dt_s)
+            trajectory_positive_wing_sample_count += 1
+        if w_wing_step_m_s > 0.05:
+            lift_dwell_time_s += float(config.dt_s)
+        desired_command_norm = zero_command_norm
+        if absolute_time_s > command_times_s[-1]:
+            command_times_s.append(absolute_time_s)
+            command_norm_history.append(desired_command_norm.copy())
+        else:
+            command_norm_history[-1] = desired_command_norm.copy()
+        if mechanism_flags["command_delay_applied"]:
+            applied_norm = latency_adjusted_command_sample(
+                np.asarray(command_times_s, dtype=float),
+                np.asarray(command_norm_history, dtype=float),
+                absolute_time_s,
+                latency,
+            )
+        else:
+            applied_norm = desired_command_norm
+        command = apply_surface_implementation(
+            normalised_command_to_surface_rad(applied_norm),
+            implementation,
+        )
+        max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
+        max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command))))
+        if not mechanism_flags["actuator_lag_applied"]:
+            x[12:15] = command
+        x = _rk4_step(
+            x=x,
+            command=command,
+            aircraft=aircraft,
+            wind_field=wind_field,
+            wind_mode=wind_mode,
+            actuator_tau_s=tau_s,
+            dt_s=float(config.dt_s),
+        )
+        if not np.all(np.isfinite(x)):
+            trajectory_status = "nonfinite_model_backed"
+            termination_cause = "nonfinite_trajectory"
+            failure_label = "nonfinite_trajectory"
+            launch_handoff_termination_reason = "nonfinite_handoff_trajectory"
+            x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+            break
+        next_time_s = time_s + float(config.dt_s)
+        if next_time_s > times_s[-1]:
+            times_s.append(next_time_s)
+            states.append(x.copy())
+
+    if launch_handoff_steps > 0:
+        launch_handoff_post_state = x.copy()
+
+    active_steps = (
+        steps
+        if trajectory_status == "finite_model_backed" and failure_label == "success"
+        else 0
+    )
+    for step_index in range(active_steps):
+        active_time_s = float(step_index) * float(config.dt_s)
+        time_s = active_start_time_s + active_time_s
         absolute_time_s = absolute_start_time_s + time_s
         margins = position_margin_m(x[:3], TRUE_SAFE_BOUNDS)
         min_wall_margin_m = min(min_wall_margin_m, float(margins["min_wall_margin_m"]))
@@ -975,7 +1145,7 @@ def _simulate_dynamics_rollout(
                 PrimitiveControlContext(
                     state_vector=x_control,
                     environment_context=context,
-                    time_in_primitive_s=time_s,
+                    time_in_primitive_s=active_time_s,
                     timing_state=_timing_state_from_command_history(
                         controller=resolved_controller,
                         state_vector=x_control,
@@ -1146,6 +1316,12 @@ def _simulate_dynamics_rollout(
             command_times_s=command_times_s,
             command_norm_history=command_norm_history,
         ),
+        **_launch_handoff_evidence_fields(
+            config=config,
+            approved_state=state,
+            post_active_start_state=launch_handoff_post_state,
+            termination_reason=launch_handoff_termination_reason,
+        ),
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
         surrogate_binding_status=context.surrogate_binding_status,
@@ -1261,6 +1437,11 @@ def _blocked_from_state(
             config=config,
             rollout_duration_s=0.0,
             continuity_status="blocked_before_rollout",
+        ),
+        **_launch_handoff_evidence_fields(
+            config=config,
+            approved_state=state,
+            termination_reason="not_started_blocked_before_rollout",
         ),
         rollout_backend=config.rollout_backend,
         evidence_role=_evidence_role_for_backend(config.rollout_backend),
@@ -1837,6 +2018,40 @@ def _rollout_timing_continuity_fields(
         "primitive_timing_state_continuity_status": str(continuity_status),
         "command_history_times_s_json": _float_list_json(times),
         "command_norm_history_json": _command_norm_history_json(commands),
+    }
+
+
+def _launch_handoff_requested(config: RolloutConfig) -> bool:
+    return float(config.launch_handoff_duration_s) > 0.0
+
+
+def _launch_handoff_step_count(config: RolloutConfig) -> int:
+    if not _launch_handoff_requested(config):
+        return 0
+    return int(round(float(config.launch_handoff_duration_s) / float(config.dt_s)))
+
+
+def _launch_handoff_evidence_fields(
+    *,
+    config: RolloutConfig,
+    approved_state: np.ndarray,
+    post_active_start_state: np.ndarray | None = None,
+    termination_reason: str,
+) -> dict[str, object]:
+    enabled = _launch_handoff_requested(config)
+    duration_s = float(config.launch_handoff_duration_s) if enabled else 0.0
+    active_start_time_s = duration_s if enabled else 0.0
+    post_state = approved_state if post_active_start_state is None else post_active_start_state
+    return {
+        "launch_handoff_enabled": bool(enabled),
+        "launch_handoff_duration_s": duration_s,
+        "launch_handoff_policy_version": LAUNCH_HANDOFF_POLICY_VERSION if enabled else "",
+        "launch_handoff_step_count": _launch_handoff_step_count(config),
+        "launch_handoff_approved_state_vector": _vector_json(np.asarray(approved_state, dtype=float)),
+        "launch_handoff_post_active_start_state_vector": _vector_json(np.asarray(post_state, dtype=float)),
+        "launch_handoff_active_start_time_s": float(active_start_time_s),
+        "launch_handoff_active_absolute_start_time_s": float(config.absolute_start_time_s) + float(active_start_time_s),
+        "launch_handoff_termination_reason": str(termination_reason),
     }
 
 
