@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -23,6 +24,8 @@ LAUNCH_GATE_Z_W_M = (1.3, 1.8)
 LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S = 1.8
+LAUNCH_GATE_RATE_STRESS_ENV = "NAUSICAA_LAUNCH_GATE_RATE_STRESS"
+LAUNCH_GATE_RATE_STRESS_FRACTION_ENV = "NAUSICAA_LAUNCH_GATE_RATE_STRESS_FRACTION"
 RECOVERY_EDGE_ROLL_LIMIT_DEG = 42.0
 RECOVERY_EDGE_PITCH_MIN_DEG = -35.0
 RECOVERY_EDGE_PITCH_MAX_DEG = 25.0
@@ -267,16 +270,62 @@ def _launch_gate_state(rng: np.random.Generator) -> np.ndarray:
     state[STATE_INDEX["u"]] = u_body
     state[STATE_INDEX["v"]] = v_side
     state[STATE_INDEX["w"]] = w_body
-    state[STATE_INDEX["p"]] = float(
-        rng.uniform(-LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S, LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S)
-    )
-    state[STATE_INDEX["q"]] = float(
-        rng.uniform(-LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S, LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S)
-    )
-    state[STATE_INDEX["r"]] = float(
-        rng.uniform(-LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S, LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S)
-    )
+    if _launch_gate_rate_stress_mode() == "high":
+        state[STATE_INDEX["p"]] = _sample_high_magnitude_signed(
+            rng,
+            LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S,
+            lower_fraction=_launch_gate_rate_stress_lower_fraction(),
+        )
+        state[STATE_INDEX["q"]] = _sample_high_magnitude_signed(
+            rng,
+            LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S,
+            lower_fraction=_launch_gate_rate_stress_lower_fraction(),
+        )
+        state[STATE_INDEX["r"]] = _sample_high_magnitude_signed(
+            rng,
+            LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S,
+            lower_fraction=_launch_gate_rate_stress_lower_fraction(),
+        )
+    else:
+        state[STATE_INDEX["p"]] = float(
+            rng.uniform(-LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S, LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S)
+        )
+        state[STATE_INDEX["q"]] = float(
+            rng.uniform(-LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S, LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S)
+        )
+        state[STATE_INDEX["r"]] = float(
+            rng.uniform(-LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S, LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S)
+        )
     return state
+
+
+def _launch_gate_rate_stress_mode() -> str:
+    mode = os.environ.get(LAUNCH_GATE_RATE_STRESS_ENV, "").strip().lower()
+    if mode in {"", "nominal", "default"}:
+        return "nominal"
+    if mode in {"high", "high_abs", "high_magnitude"}:
+        return "high"
+    raise ValueError(
+        f"{LAUNCH_GATE_RATE_STRESS_ENV} must be empty, nominal, or high; got {mode!r}"
+    )
+
+
+def _launch_gate_rate_stress_lower_fraction() -> float:
+    raw = os.environ.get(LAUNCH_GATE_RATE_STRESS_FRACTION_ENV, "").strip()
+    if not raw:
+        return 0.75
+    return float(np.clip(float(raw), 0.0, 1.0))
+
+
+def _sample_high_magnitude_signed(
+    rng: np.random.Generator,
+    limit: float,
+    *,
+    lower_fraction: float,
+) -> float:
+    sign = -1.0 if float(rng.uniform(0.0, 1.0)) < 0.5 else 1.0
+    magnitude = float(rng.uniform(float(lower_fraction) * float(limit), float(limit)))
+    return sign * magnitude
 
 
 def _local_envelope_state(rng: np.random.Generator) -> np.ndarray:

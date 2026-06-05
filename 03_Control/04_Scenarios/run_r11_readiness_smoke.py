@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +67,8 @@ def _write_readiness_manifest(
     final_count: int,
     history_count: int,
     dry_run_schedule: bool,
+    launch_rate_stress: str,
+    launch_rate_stress_fraction: float,
 ) -> None:
     run_root_text = str(result.get("run_root", ""))
     if not run_root_text:
@@ -82,6 +85,8 @@ def _write_readiness_manifest(
         "expected_final_launches": int(final_count),
         "expected_history_launches": int(history_count),
         "dry_run_schedule": bool(dry_run_schedule),
+        "launch_rate_stress": str(launch_rate_stress),
+        "launch_rate_stress_fraction": float(launch_rate_stress_fraction),
         "purpose": "engineering_readiness_check_after_r10_before_real_flight",
         "claim_status": "not_final_thesis_or_journal_validation_evidence",
         "full_r11_required_for": [
@@ -125,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     parser.add_argument("--history-log-mode", choices=("auto", "plot_summary", "sampled_debug", "full_debug"), default="auto")
     parser.add_argument("--history-debug-sample-stride", type=int, default=10)
+    parser.add_argument("--launch-rate-stress", choices=("nominal", "high"), default="nominal")
+    parser.add_argument("--launch-rate-stress-fraction", type=float, default=0.75)
     parser.add_argument("--dry-run-schedule", action="store_true")
     args = parser.parse_args(argv)
 
@@ -137,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[R11_SMOKE] outer_cases_per_ladder={int(args.outer_cases_per_ladder)}")
     print(f"[R11_SMOKE] expected_final_launches={final_count}")
     print(f"[R11_SMOKE] expected_history_launches={history_count}")
+    print(f"[R11_SMOKE] launch_rate_stress={args.launch_rate_stress}")
+    if str(args.launch_rate_stress) == "high":
+        os.environ["NAUSICAA_LAUNCH_GATE_RATE_STRESS"] = "high"
+        os.environ["NAUSICAA_LAUNCH_GATE_RATE_STRESS_FRACTION"] = f"{float(args.launch_rate_stress_fraction):.12g}"
+    else:
+        os.environ.pop("NAUSICAA_LAUNCH_GATE_RATE_STRESS", None)
+        os.environ.pop("NAUSICAA_LAUNCH_GATE_RATE_STRESS_FRACTION", None)
 
     result = run_heldout_changed_case_validation(
         HeldoutChangedCaseValidationConfig(
@@ -167,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
         final_count=final_count,
         history_count=history_count,
         dry_run_schedule=bool(args.dry_run_schedule),
+        launch_rate_stress=str(args.launch_rate_stress),
+        launch_rate_stress_fraction=float(args.launch_rate_stress_fraction),
     )
     print(result)
     return 0 if result.get("status") in {"complete", "dry_run_schedule", "smoke_run"} else 2

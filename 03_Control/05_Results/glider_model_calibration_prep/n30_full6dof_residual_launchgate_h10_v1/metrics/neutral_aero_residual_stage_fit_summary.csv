@@ -1,9 +1,0 @@
-split,stage_fit_group,count,alpha_min_deg,alpha_max_deg,cm_residual_mean,cm_residual_mae,cm_fit_residual_mae,cd_residual_mean,cl_residual_mean,cy_residual_mean,cl_roll_residual_mean,cn_yaw_residual_mean,q_hat_mean
-train,attached,0,,,,,,,,,,,
-train,transition_before_post_stall,0,,,,,,,,,,,
-train,transition_after_post_stall,0,,,,,,,,,,,
-train,post_stall,0,,,,,,,,,,,
-heldout,attached,0,,,,,,,,,,,
-heldout,transition_before_post_stall,0,,,,,,,,,,,
-heldout,transition_after_post_stall,0,,,,,,,,,,,
-heldout,post_stall,0,,,,,,,,,,,
