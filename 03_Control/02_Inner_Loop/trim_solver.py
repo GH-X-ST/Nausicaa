@@ -12,6 +12,11 @@ from flight_dynamics import (
 )
 
 
+STRAIGHT_TRIM_ALPHA_BOUNDS_DEG = (-6.0, 12.0)
+STRAIGHT_TRIM_THETA_BOUNDS_DEG = (-25.0, 15.0)
+STRAIGHT_TRIM_DELTA_E_BOUNDS_DEG = (-30.0, 30.0)
+
+
 # =============================================================================
 # SECTION MAP
 # =============================================================================
@@ -151,16 +156,16 @@ def solve_straight_trim(
         x0=ca.DM([alpha0, theta0, delta_e0]),
         lbx=ca.DM(
             [
-                np.deg2rad(-6.0),
-                np.deg2rad(-15.0),
-                np.deg2rad(-30.0),
+                np.deg2rad(STRAIGHT_TRIM_ALPHA_BOUNDS_DEG[0]),
+                np.deg2rad(STRAIGHT_TRIM_THETA_BOUNDS_DEG[0]),
+                np.deg2rad(STRAIGHT_TRIM_DELTA_E_BOUNDS_DEG[0]),
             ]
         ),
         ubx=ca.DM(
             [
-                np.deg2rad(12.0),
-                np.deg2rad(15.0),
-                np.deg2rad(30.0),
+                np.deg2rad(STRAIGHT_TRIM_ALPHA_BOUNDS_DEG[1]),
+                np.deg2rad(STRAIGHT_TRIM_THETA_BOUNDS_DEG[1]),
+                np.deg2rad(STRAIGHT_TRIM_DELTA_E_BOUNDS_DEG[1]),
             ]
         ),
         lbg=ca.DM.zeros(3, 1),
