@@ -1,0 +1,66 @@
+{
+  "task": "Real-Flight Control Surface Effectiveness Study v3.0",
+  "generated_at": "2026-06-05T07:41:39",
+  "git_commit_hash": "d2c880743b8819f1b3c11250f6b3ea610fa3bed0",
+  "input_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal",
+  "input_data_roots": [
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pa30",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pe30",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pr30"
+  ],
+  "output_dir": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0",
+  "current_neutral_model_coefficient_source": "03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py",
+  "current_neutral_model_calibration_id": "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1",
+  "current_neutral_model_claim_boundary": "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms",
+  "replay_script": "03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
+  "replay_policy": "frozen active neutral model, measured launch state, logged command schedule, existing command delay and actuator lag",
+  "replay_dt_s": 0.005,
+  "filtering_thresholds": {
+    "min_response_window_s": 0.25,
+    "response_window_s": 0.65,
+    "u0_range_m_s": [
+      3.0,
+      8.0
+    ],
+    "abs_v0_max_m_s": 1.5,
+    "abs_w0_max_m_s": 0.9,
+    "max_response_spike_fraction": 0.2,
+    "deep_post_stall_alpha_deg": 30.0
+  },
+  "train_heldout_split_method": "launch-level one held-out launch per sign within each surface/magnitude ladder pair when available",
+  "heldout_seed": 606,
+  "throw_counts": {
+    "inventoried": 214,
+    "kept": 174,
+    "filtered": 40,
+    "train": 144,
+    "heldout": 30,
+    "successful_replays": 174
+  },
+  "output_files": {
+    "inventory": "control_surface_inventory.csv",
+    "filtering_summary": "control_surface_filtering_summary.csv",
+    "replay_metrics": "control_surface_replay_metrics.csv",
+    "effectiveness_summary": "control_surface_effectiveness_summary.csv",
+    "symmetric_contamination_summary": "control_surface_symmetric_contamination_summary.csv",
+    "optional_surface_fit_candidates": "optional_surface_fit_candidates.csv",
+    "optional_surface_fit_heldout_summary": "optional_surface_fit_heldout_summary.csv",
+    "report": "control_surface_effectiveness_report.md",
+    "figures": [
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/command_ladder_inventory.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/aileron_effectiveness.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/elevator_effectiveness.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/rudder_effectiveness.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/symmetric_contamination.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/heldout_optional_surface_candidate.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/aileron_representative_replay.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/elevator_representative_replay.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/rudder_representative_replay.png"
+    ]
+  },
+  "promotion_decision": "not_promoted",
+  "claim_boundary": "control-surface effectiveness diagnostics and residual-calibrated replay alignment only; no broad aero SysID",
+  "filtering_summary_groups": 19,
+  "effectiveness_summary_rows": 225,
+  "optional_heldout_rows": 75
+}
