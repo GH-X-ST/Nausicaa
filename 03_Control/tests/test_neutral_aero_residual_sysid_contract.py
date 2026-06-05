@@ -27,12 +27,72 @@ def test_default_neutral_sysid_is_longitudinal_primary_with_lateral_diagnostic()
     assert sysid.DEFAULT_FIT_LATERAL_SURFACES is False
     assert sysid.DEFAULT_FIT_POST_STALL_SURFACES is False
     assert sysid.DEFAULT_FIT_SECONDARY_LATERAL_DIAGNOSTIC is True
+    assert sysid.DEFAULT_ALIGNMENT_WINDOW_S == pytest.approx(0.040)
+    assert sysid.DEFAULT_SENSITIVITY_ALIGNMENT_WINDOWS_S == ()
+    assert sysid.prep.DEFAULT_ALIGNMENT_WINDOW_S == pytest.approx(0.040)
+    assert sysid.replay_fit.DEFAULT_ALIGNMENT_WINDOW_S == pytest.approx(0.040)
+    assert sysid.DEFAULT_JOINT_PARETO_AUDIT is True
+    assert sysid.DEFAULT_JOINT_PARETO_AUDIT_ALIGNMENT_WINDOW_S == pytest.approx(0.040)
     assert sysid.DEFAULT_ALIGNED_U_MIN_M_S == pytest.approx(3.0)
     assert sysid.DEFAULT_ALIGNED_U_MAX_M_S == pytest.approx(8.0)
     parser = sysid.build_arg_parser()
     args = parser.parse_args(["--fit-workflow", "compact_joint_sweep", "--workers", "8"])
     assert args.fit_workflow == "compact_joint_sweep"
     assert args.workers == 8
+
+
+def test_alignment_sensitivity_is_opt_in_after_40ms_becomes_primary_default() -> None:
+    parser = sysid.build_arg_parser()
+    args = parser.parse_args([])
+    requested = (
+        ()
+        if args.no_sensitivity_alignment
+        else tuple(args.sensitivity_alignment_window_s or sysid.DEFAULT_SENSITIVITY_ALIGNMENT_WINDOWS_S)
+    )
+    assert requested == ()
+    assert sysid.normalized_sensitivity_alignment_windows(0.040, requested) == ()
+    assert sysid.normalized_sensitivity_alignment_windows(0.040, (0.040,)) == ()
+    assert sysid.normalized_sensitivity_alignment_windows(0.040, (0.100, 0.040, 0.100)) == pytest.approx((0.100,))
+
+
+def test_joint_pareto_audit_parser_defaults_to_40ms_diagnostic() -> None:
+    parser = sysid.build_arg_parser()
+    args = parser.parse_args([])
+    assert args.joint_pareto_audit is True
+    assert args.joint_pareto_audit_alignment_window_s == pytest.approx(0.040)
+
+    disabled = parser.parse_args(["--no-joint-pareto-audit"])
+    assert disabled.joint_pareto_audit is False
+
+
+def test_replay_alignment_accepts_synchronized_40ms_handoff_window() -> None:
+    def sample(t_s: float) -> dict[str, float]:
+        return {
+            "t_s": t_s,
+            "x_w": t_s,
+            "y_w": 0.0,
+            "z_w": 1.0,
+            "phi": 0.0,
+            "theta": 0.0,
+            "psi": 0.0,
+            "u": 1.0,
+            "v": 0.0,
+            "w": 0.0,
+            "p": 0.0,
+            "q": 0.0,
+            "r": 0.0,
+            "delta_a": 0.0,
+            "delta_e": 0.0,
+            "delta_r": 0.0,
+        }
+
+    rows = [sample(0.0), sample(0.02), sample(0.04)]
+    aligned = sysid.prep._aligned_state_from_sample_rows(rows, 0.040)
+    assert aligned["status"] == "ok"
+    assert aligned["alignment_elapsed_s"] == pytest.approx(0.040)
+
+    too_short = sysid.prep._aligned_state_from_sample_rows(rows, 0.020)
+    assert too_short["status"] == "alignment_window_too_short"
 
 
 def test_pitch_moment_regime_weights_are_normalized_and_localized() -> None:
@@ -152,6 +212,63 @@ def test_compact_joint_sweep_selected_rows_have_required_classes() -> None:
     classes = {row["selection_class"] for row in rows}
     assert {"strict_best", "balanced_best", "diagnostic_best"} <= classes
     assert {name for name, _ in models} == classes
+
+
+def test_joint_pareto_combination_overlays_only_lateral_terms() -> None:
+    base = sysid.active_parameter_dict()
+    longitudinal = dict(base)
+    longitudinal["attached_pitch_moment_bias_coeff"] = base["attached_pitch_moment_bias_coeff"] + 0.05
+    lateral = dict(base)
+    lateral["side_force_beta_coeff"] = base["side_force_beta_coeff"] - 0.25
+    lateral["transition_yaw_moment_p_hat_coeff"] = base["transition_yaw_moment_p_hat_coeff"] - 0.10
+    lateral["post_stall_pitch_moment_coeff"] = base["post_stall_pitch_moment_coeff"] + 0.40
+
+    combined = sysid.joint_pareto_combined_parameters(
+        longitudinal,
+        base_parameters=base,
+        lateral_parameters=lateral,
+    )
+
+    assert combined["attached_pitch_moment_bias_coeff"] == pytest.approx(longitudinal["attached_pitch_moment_bias_coeff"])
+    assert combined["side_force_beta_coeff"] == pytest.approx(lateral["side_force_beta_coeff"])
+    assert combined["transition_yaw_moment_p_hat_coeff"] == pytest.approx(lateral["transition_yaw_moment_p_hat_coeff"])
+    assert combined["post_stall_pitch_moment_coeff"] == pytest.approx(longitudinal["post_stall_pitch_moment_coeff"])
+
+
+def test_joint_pareto_acceptance_requires_lateral_improvement_with_longitudinal_tolerance() -> None:
+    reference = {
+        "dx_mae_m": 0.20,
+        "altitude_loss_mae_m": 0.08,
+        "sink_mae_m_s": 0.07,
+        "final_theta_mae_deg": 5.0,
+        "dy_mae_m": 0.45,
+        "final_phi_mae_deg": 10.0,
+        "final_psi_mae_deg": 12.0,
+    }
+    accepted_candidate = {
+        "dx_mae_m": 0.24,
+        "altitude_loss_mae_m": 0.10,
+        "sink_mae_m_s": 0.09,
+        "final_theta_mae_deg": 5.8,
+        "dy_mae_m": 0.40,
+        "final_phi_mae_deg": 9.5,
+        "final_psi_mae_deg": 11.5,
+    }
+    accepted, reason = sysid.joint_pareto_audit_acceptance(reference, accepted_candidate)
+    assert accepted is True
+    assert reason == "accepted_lateral_metrics_improved_with_longitudinal_tolerance"
+
+    lateral_regression = dict(accepted_candidate)
+    lateral_regression["final_psi_mae_deg"] = reference["final_psi_mae_deg"]
+    accepted, reason = sysid.joint_pareto_audit_acceptance(reference, lateral_regression)
+    assert accepted is False
+    assert reason.startswith("rejected_lateral_metrics_not_all_improved")
+
+    longitudinal_regression = dict(accepted_candidate)
+    longitudinal_regression["dx_mae_m"] = reference["dx_mae_m"] + 0.10
+    accepted, reason = sysid.joint_pareto_audit_acceptance(reference, longitudinal_regression)
+    assert accepted is False
+    assert reason.startswith("rejected_longitudinal_metrics_degraded")
 
 
 def test_compact_joint_sweep_replay_path_does_not_hardcode_single_worker() -> None:

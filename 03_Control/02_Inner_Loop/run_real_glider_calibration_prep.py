@@ -62,7 +62,8 @@ DEFAULT_OUTPUT_ROOT = REPO_ROOT / "03_Control" / "05_Results" / "glider_model_ca
 DEFAULT_HELDOUT_COUNT = 5
 DEFAULT_HELDOUT_SEED = 603
 DEFAULT_REPLAY_DT_S = 0.005
-DEFAULT_ALIGNMENT_WINDOW_S = 0.10
+DEFAULT_ALIGNMENT_WINDOW_S = 0.040
+MIN_REPLAY_ALIGNMENT_WINDOW_S = 0.040
 DEFAULT_REPLAY_COMMAND_ONSET_DELAY_S = float(latency_case_config("nominal").command_onset_delay_s)
 DEFAULT_WORKERS = 8
 RIDGE_ALPHA = 1.0e-6
@@ -1288,7 +1289,7 @@ def _aligned_state_from_sample_rows(sample_rows: list[dict[str, Any]], alignment
     else:
         target_index = len(sample_rows) - 1
     alignment_elapsed_s = float(rel_times[target_index])
-    if alignment_elapsed_s < 0.05:
+    if alignment_elapsed_s < MIN_REPLAY_ALIGNMENT_WINDOW_S:
         return {"status": "alignment_window_too_short"}
     window_indices = np.where((rel_times >= -1e-12) & (rel_times <= alignment_elapsed_s + 1e-12))[0]
     if len(window_indices) < 3:

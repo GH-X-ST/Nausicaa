@@ -1,0 +1,13 @@
+model_id,split,regime,sample_count,throw_count,dx_mae_m,dy_mae_m,altitude_loss_mae_m,sink_rate_mae_m_s,roll_mae_deg,pitch_mae_deg,yaw_mae_deg
+reference_active_040,train,attached,0,0,,,,,,,
+reference_active_040,train,transition,0,0,,,,,,,
+reference_active_040,train,post_stall,0,0,,,,,,,
+reference_active_040,heldout,attached,496,11,0.06331218967,0.1417733353,0.1762069522,0.2984693946,5.475492787,9.040874917,1.563793806
+reference_active_040,heldout,transition,1260,11,0.1501765006,0.2366674206,0.2738802359,0.4337832324,10.69463976,11.25168712,3.827967047
+reference_active_040,heldout,post_stall,251,5,0.2826402495,0.2896500039,0.562629079,0.7723423894,18.79065329,17.43455739,5.89186266
+jp040_L00_active_baseline_X03_ablation_post_stall_CY_r,train,attached,0,0,,,,,,,
+jp040_L00_active_baseline_X03_ablation_post_stall_CY_r,train,transition,0,0,,,,,,,
+jp040_L00_active_baseline_X03_ablation_post_stall_CY_r,train,post_stall,0,0,,,,,,,
+jp040_L00_active_baseline_X03_ablation_post_stall_CY_r,heldout,attached,496,11,0.06458772151,0.1282889121,0.1740226217,0.2966053729,5.443485731,9.084007292,1.440257663
+jp040_L00_active_baseline_X03_ablation_post_stall_CY_r,heldout,transition,1260,11,0.1515237067,0.2296392955,0.2711465231,0.4306425348,10.75420963,11.33604039,3.57017016
+jp040_L00_active_baseline_X03_ablation_post_stall_CY_r,heldout,post_stall,251,5,0.2795722083,0.2693835745,0.560189422,0.7689705051,18.69571699,17.52102509,6.21705415
