@@ -561,7 +561,10 @@ def build_nausicaa_glider() -> Glider:
             eta_start=0.30,
             eta_end=0.85,
             input_axis=AILERON,
-            input_sign=1.0,
+            # Real-flight command convention: +delta_a is left trailing edge
+            # up and right trailing edge down. With positive roll defined as
+            # right wing down, that surface motion creates negative roll.
+            input_sign=-1.0,
         ),
     )
     htail = LiftingSurface(

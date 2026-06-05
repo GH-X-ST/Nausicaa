@@ -72,9 +72,9 @@ SURFACE_TO_COMMAND_AXIS = {value: key for key, value in COMMAND_AXIS_TO_SURFACE.
 COMMAND_AXIS_INDEX = {"delta_a": 0, "delta_e": 1, "delta_r": 2}
 
 PRIMARY_METRICS_BY_SURFACE = {
-    "aileron": ("peak_p_rad_s", "p_impulse_rad", "phi_change_deg", "yaw_coupling_psi_change_deg", "dy_m"),
-    "elevator": ("peak_q_rad_s", "q_impulse_rad", "theta_change_deg", "altitude_loss_m", "max_abs_alpha_deg"),
-    "rudder": ("peak_r_rad_s", "r_impulse_rad", "psi_change_deg", "roll_coupling_phi_change_deg", "dy_m"),
+    "aileron": ("peak_p_rad_s", "p_impulse_rad", "phi_change_deg", "yaw_coupling_psi_change_deg", "response_dy_m"),
+    "elevator": ("peak_q_rad_s", "q_impulse_rad", "theta_change_deg", "response_altitude_loss_m", "max_abs_alpha_deg"),
+    "rudder": ("peak_r_rad_s", "r_impulse_rad", "psi_change_deg", "roll_coupling_phi_change_deg", "response_dy_m"),
 }
 ALL_RESPONSE_METRICS = (
     "peak_p_rad_s",
@@ -88,9 +88,9 @@ ALL_RESPONSE_METRICS = (
     "psi_change_deg",
     "roll_coupling_phi_change_deg",
     "yaw_coupling_psi_change_deg",
-    "dy_m",
-    "dx_m",
-    "altitude_loss_m",
+    "response_dy_m",
+    "response_dx_m",
+    "response_altitude_loss_m",
     "max_abs_alpha_deg",
     "alpha_gt_20_s",
     "alpha_gt_30_s",
@@ -760,9 +760,9 @@ def response_metrics_from_rows(rows: list[dict[str, Any]], start_s: float, end_s
         "psi_change_deg": psi_change,
         "roll_coupling_phi_change_deg": phi_change,
         "yaw_coupling_psi_change_deg": psi_change,
-        "dy_m": dy,
-        "dx_m": dx,
-        "altitude_loss_m": altitude_loss,
+        "response_dy_m": dy,
+        "response_dx_m": dx,
+        "response_altitude_loss_m": altitude_loss,
         "max_abs_alpha_deg": safe_max_abs(alpha_values),
         "alpha_gt_20_s": exposure_time(times, [abs(value) >= 20.0 for value in alpha_values]),
         "alpha_gt_30_s": exposure_time(times, [abs(value) >= 30.0 for value in alpha_values]),

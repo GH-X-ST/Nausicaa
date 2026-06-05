@@ -121,6 +121,10 @@ def test_short_response_window_returns_nan_metrics_without_crashing() -> None:
     assert math.isnan(metrics["peak_p_rad_s"])
 
 
+def test_replay_csv_fields_are_unique_for_standard_csv_readers() -> None:
+    assert len(study.REPLAY_FIELDS) == len(set(study.REPLAY_FIELDS))
+
+
 def test_optional_surface_fit_is_diagnostic_and_non_promoting() -> None:
     effectiveness_rows = [
         {

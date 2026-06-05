@@ -27,27 +27,27 @@ Main analysis requires valid state samples, a matching nonzero 20 percent comman
 Each usable throw is replayed from its measured launch state using the active neutral calibrated model, logged command schedule, nominal command-onset delay, and actuator lag from the throw manifest.
 
 - successful replays: `174` / `174`
-- replay dx MAE: `0.251621292` m
-- replay dy MAE: `0.5010647582` m
-- replay altitude-loss MAE: `0.2276364641` m
+- replay dx MAE: `0.2514345921` m
+- replay dy MAE: `0.4848302572` m
+- replay altitude-loss MAE: `0.2202974012` m
 
 ## 5. Aileron Effectiveness
 
-- `p_impulse_rad` at |cmd| `0.2`: real antisym `-0.1210443046`, frozen replay antisym `0.1505835379`, symmetric `-0.07303182681`
-- `p_impulse_rad` at |cmd| `0.4`: real antisym `-0.2205070193`, frozen replay antisym `0.2555871341`, symmetric `-0.1208255662`
-- `p_impulse_rad` at |cmd| `0.6`: real antisym `-0.2625987419`, frozen replay antisym `0.4490682297`, symmetric `-0.2407683994`
-- `p_impulse_rad` at |cmd| `0.8`: real antisym `-0.3616444479`, frozen replay antisym `0.5715223463`, symmetric `-0.2237233768`
-- `p_impulse_rad` at |cmd| `1`: real antisym `-0.4255499444`, frozen replay antisym `0.4802313681`, symmetric `-0.110179692`
-- `peak_p_rad_s` at |cmd| `0.2`: real antisym `-0.3594961665`, frozen replay antisym `0.3171739093`, symmetric `-0.1930355039`
-- `peak_p_rad_s` at |cmd| `0.4`: real antisym `-0.5748971197`, frozen replay antisym `0.4490394062`, symmetric `-0.2362419743`
-- `peak_p_rad_s` at |cmd| `0.6`: real antisym `-0.5340032405`, frozen replay antisym `0.9708702694`, symmetric `-0.5629066085`
-- `peak_p_rad_s` at |cmd| `0.8`: real antisym `-0.9441721259`, frozen replay antisym `1.313652468`, symmetric `-0.6744709449`
-- `peak_p_rad_s` at |cmd| `1`: real antisym `-1.220090835`, frozen replay antisym `1.116029366`, symmetric `-0.2853769045`
-- `phi_change_deg` at |cmd| `0.2`: real antisym `-4.978640333`, frozen replay antisym `9.813273846`, symmetric `-7.779638421`
-- `phi_change_deg` at |cmd| `0.4`: real antisym `-12.7797718`, frozen replay antisym `15.42004346`, symmetric `-10.48163817`
-- `phi_change_deg` at |cmd| `0.6`: real antisym `-17.26749192`, frozen replay antisym `25.60203648`, symmetric `-12.57800562`
-- `phi_change_deg` at |cmd| `0.8`: real antisym `-21.46354104`, frozen replay antisym `28.23790525`, symmetric `-10.47514676`
-- `phi_change_deg` at |cmd| `1`: real antisym `-23.93518186`, frozen replay antisym `24.56955055`, symmetric `-9.27870387`
+- `p_impulse_rad` at |cmd| `0.2`: real antisym `-0.1210443046`, frozen replay antisym `-0.1557525924`, symmetric `-0.07303182681`
+- `p_impulse_rad` at |cmd| `0.4`: real antisym `-0.2205070193`, frozen replay antisym `-0.3238383061`, symmetric `-0.1208255662`
+- `p_impulse_rad` at |cmd| `0.6`: real antisym `-0.2625987419`, frozen replay antisym `-0.5133613713`, symmetric `-0.2407683994`
+- `p_impulse_rad` at |cmd| `0.8`: real antisym `-0.3616444479`, frozen replay antisym `-0.4587645602`, symmetric `-0.2237233768`
+- `p_impulse_rad` at |cmd| `1`: real antisym `-0.4255499444`, frozen replay antisym `-0.5211829091`, symmetric `-0.110179692`
+- `peak_p_rad_s` at |cmd| `0.2`: real antisym `-0.3594961665`, frozen replay antisym `-0.2462101975`, symmetric `-0.1930355039`
+- `peak_p_rad_s` at |cmd| `0.4`: real antisym `-0.5748971197`, frozen replay antisym `-0.6397697748`, symmetric `-0.2362419743`
+- `peak_p_rad_s` at |cmd| `0.6`: real antisym `-0.5340032405`, frozen replay antisym `-1.131940715`, symmetric `-0.5629066085`
+- `peak_p_rad_s` at |cmd| `0.8`: real antisym `-0.9441721259`, frozen replay antisym `-0.9178158059`, symmetric `-0.6744709449`
+- `peak_p_rad_s` at |cmd| `1`: real antisym `-1.220090835`, frozen replay antisym `-1.271422462`, symmetric `-0.2853769045`
+- `phi_change_deg` at |cmd| `0.2`: real antisym `-4.978640333`, frozen replay antisym `-7.704175762`, symmetric `-7.779638421`
+- `phi_change_deg` at |cmd| `0.4`: real antisym `-12.7797718`, frozen replay antisym `-16.93710236`, symmetric `-10.48163817`
+- `phi_change_deg` at |cmd| `0.6`: real antisym `-17.26749192`, frozen replay antisym `-28.12835956`, symmetric `-12.57800562`
+- `phi_change_deg` at |cmd| `0.8`: real antisym `-21.46354104`, frozen replay antisym `-28.18708176`, symmetric `-10.47514676`
+- `phi_change_deg` at |cmd| `1`: real antisym `-23.93518186`, frozen replay antisym `-27.15055966`, symmetric `-9.27870387`
 
 ## 6. Elevator Effectiveness
 
@@ -102,7 +102,7 @@ Symmetric response is separated from antisymmetric response. Large symmetric ter
 - `S0_frozen_neutral`: `evaluated_frozen_active_neutral_model`, promoted `False`
 - `S1_surface_effectiveness_scales`: `diagnostic_metric_space_estimate_not_promoted`, promoted `False`
 - `S2_scales_plus_neutral_biases`: `not_run_neutral_bias_not_fit_from_symmetric_contamination`, promoted `False`
-- S1 held-out metric diagnostics improved `37` / `75` rows, but remain not promoted.
+- S1 held-out metric diagnostics improved `45` / `75` rows, but remain not promoted.
 
 ## 11. Promotion Decision
 

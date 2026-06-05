@@ -1,7 +1,7 @@
 {
   "task": "Real-Flight Control Surface Effectiveness Study v3.0",
-  "generated_at": "2026-06-05T07:41:39",
-  "git_commit_hash": "d2c880743b8819f1b3c11250f6b3ea610fa3bed0",
+  "generated_at": "2026-06-05T08:06:17",
+  "git_commit_hash": "87f790770d2e0e64b63eca162e3855916aff2eef",
   "input_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal",
   "input_data_roots": [
     "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pa30",
