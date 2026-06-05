@@ -1,11 +1,13 @@
-"""Active neutral dry-air calibration constants for simulation and real flight.
+"""Active neutral dry-air and elevator-effectiveness calibration constants.
 
 The active model is the selected compact residual-calibrated replay alignment
 promoted from the n30 neutral open-loop throw set. It includes the longitudinal
 terms plus the compact coupling terms from the selected replay row; this is
-still replay alignment rather than a full aerodynamic SysID claim. The
-comparison-only theory baseline is archived as JSON next to this file and is
-not imported by runtime code.
+still replay alignment rather than a full aerodynamic SysID claim. A subsequent
+control-surface pulse diagnostic promotes only a conservative elevator
+aerodynamic effectiveness scale; aileron and rudder pulse evidence remains
+diagnostic. The comparison-only theory baseline is archived as JSON next to
+this file and is not imported by runtime code.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from __future__ import annotations
 # 1) Calibration Metadata
 # =============================================================================
 CALIBRATION_ACTIVE = True
-CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1"
+CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_effectiveness_v1"
 SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_compact_joint_sweep_from_active_v1"
 SOURCE_DIAGNOSTIC_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_cmq_wide_diagnostic_v1"
 SOURCE_SELECTED_CANDIDATE = "joint_0270_post_stall_Cn_p_1.5"
@@ -31,7 +33,7 @@ SOURCE_FILTERED_THROW_COUNT = 74
 HELDOUT_POLICY = "randomised_stratified_by_session_label"
 HELDOUT_COUNT = 11
 HELDOUT_SEED = 606
-CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms"
+CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_and_conservative_elevator_effectiveness_only"
 
 # =============================================================================
 # 2) Active Aerodynamic Correction
@@ -116,3 +118,10 @@ POST_STALL_YAW_MOMENT_RBF_COEFFS = (
 DELTA_A_TRIM_RAD = 0.0
 DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0
+# Control-surface pulse-ladder update. These scale aerodynamic effectiveness in
+# the strip model, not the measured/commanded physical surface angle. Aileron
+# and rudder remain unity because their pulse evidence is launch-condition and
+# lateral/cross-axis contaminated.
+DELTA_A_AERO_EFFECTIVENESS_SCALE = 1.0
+DELTA_E_AERO_EFFECTIVENESS_SCALE = 0.60
+DELTA_R_AERO_EFFECTIVENESS_SCALE = 1.0

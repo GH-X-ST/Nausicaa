@@ -274,9 +274,11 @@ def test_post_stall_pitch_damping_upper_bound_is_released_for_diagnostics() -> N
 
 
 def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
-    assert active_calibration.CALIBRATION_ID == "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1"
+    assert active_calibration.CALIBRATION_ID == (
+        "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_effectiveness_v1"
+    )
     assert active_calibration.CLAIM_BOUNDARY == (
-        "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms"
+        "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_and_conservative_elevator_effectiveness_only"
     )
     assert active_calibration.SOURCE_SELECTED_CANDIDATE == "joint_0270_post_stall_Cn_p_1.5"
     assert active_calibration.ATTACHED_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.11309832420327923)
@@ -290,6 +292,9 @@ def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
     assert np.asarray(active_calibration.POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)[2, 0] == pytest.approx(
         -0.07119920085255141
     )
+    assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
+    assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.60)
+    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
 
 
 def test_theory_baseline_is_comparison_only_data_artifact() -> None:

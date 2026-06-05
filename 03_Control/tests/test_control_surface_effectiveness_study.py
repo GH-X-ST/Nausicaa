@@ -17,6 +17,7 @@ if str(INNER_LOOP) not in sys.path:
     sys.path.insert(0, str(INNER_LOOP))
 
 import run_control_surface_effectiveness_study as study  # noqa: E402
+from glider import AILERON, ELEVATOR, RUDDER, build_nausicaa_glider  # noqa: E402
 from A_model_parameters import neutral_dry_air_calibration as active_calibration  # noqa: E402
 
 
@@ -222,6 +223,55 @@ def test_surface_aero_coupling_candidate_families_are_constrained() -> None:
     assert "Cl_delta_r_residual" not in families["C5_c2_plus_surface_side_force"]
 
 
+def test_scaled_surface_command_applies_pairwise_gain_by_surface() -> None:
+    command = np.asarray([1.0, 2.0, 3.0], dtype=float)
+
+    scaled = study.scaled_surface_command(command, {"elevator": 0.5, "rudder": 1.25})
+
+    assert scaled.tolist() == pytest.approx([1.0, 1.0, 3.75])
+    assert command.tolist() == pytest.approx([1.0, 2.0, 3.0])
+
+
+def test_pairwise_surface_gain_fit_uses_confidence_weighted_train_pairs() -> None:
+    rows = [
+        pairwise_effectiveness_row("confidence_weighted_train", "elevator", actual=0.5, sim=1.0),
+        pairwise_effectiveness_row("train", "elevator", actual=0.5, sim=1.0),
+        pairwise_effectiveness_row("heldout", "elevator", actual=0.6, sim=1.0),
+    ]
+
+    fit_rows = study.pairwise_surface_gain_fit(rows)
+    gains = study.pairwise_surface_gain_values(fit_rows)
+    candidates = study.pairwise_gain_candidate_gains(gains)
+    elevator_row = next(row for row in fit_rows if row["surface_axis"] == "elevator")
+
+    assert elevator_row["raw_gain"] == pytest.approx(0.5)
+    assert elevator_row["bounded_gain"] == pytest.approx(0.6)
+    assert elevator_row["heldout_improved"] is True
+    assert candidates["P2_pairwise_elevator_gain"] == {"elevator": pytest.approx(0.6)}
+    assert candidates["P4_pairwise_all_surface_gains"] == {"elevator": pytest.approx(0.6)}
+
+
+def test_control_surface_replay_is_hardcoded_to_eight_workers() -> None:
+    source = Path(study.__file__).read_text(encoding="utf-8")
+
+    assert study.DEFAULT_WORKERS == 8
+    assert study.DEFAULT_MAX_WORKERS == 8
+    assert "ProcessPoolExecutor(max_workers=worker_count)" in source
+    assert "worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)" in source
+
+
+def test_active_surface_effectiveness_promotes_only_elevator_scale() -> None:
+    glider = build_nausicaa_glider()
+    control_mix = np.asarray(glider.control_mix, dtype=float)
+
+    assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
+    assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.60)
+    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
+    assert np.max(np.abs(control_mix[:, AILERON])) == pytest.approx(1.0)
+    assert np.max(np.abs(control_mix[:, ELEVATOR])) == pytest.approx(0.60)
+    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(1.0)
+
+
 def test_alpha_regime_candidates_share_rudder_post_stall_with_transition() -> None:
     families = study.surface_aero_coupling_candidate_coefficients(
         {
@@ -405,6 +455,19 @@ def command_row(t_s: float, command_axis: str, command_value: float, pulse_activ
         "delta_a_cmd_norm": values["delta_a"],
         "delta_e_cmd_norm": values["delta_e"],
         "delta_r_cmd_norm": values["delta_r"],
+    }
+
+
+def pairwise_effectiveness_row(split: str, surface: str, *, actual: float, sim: float) -> dict[str, object]:
+    return {
+        "split": split,
+        "surface_axis": surface,
+        "command_abs": 0.4,
+        "metric": {"aileron": "peak_p_rad_s", "elevator": "peak_q_rad_s", "rudder": "peak_r_rad_s"}[surface],
+        "positive_count": 1,
+        "negative_count": 1,
+        "actual_antisymmetric_response": actual,
+        "sim_antisymmetric_response": sim,
     }
 
 

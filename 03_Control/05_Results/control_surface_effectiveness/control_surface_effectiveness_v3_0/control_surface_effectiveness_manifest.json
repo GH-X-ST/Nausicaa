@@ -1,7 +1,7 @@
 {
   "task": "Real-Flight Control Surface Effectiveness Study v3.0",
-  "generated_at": "2026-06-05T09:38:30",
-  "git_commit_hash": "19f7a6804e014f4af4ba8ba7ccf0234afb06f2bd",
+  "generated_at": "2026-06-05T10:34:16",
+  "git_commit_hash": "f68ff0b2850a8de5062396c14d45abe65fb2afcf",
   "input_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal",
   "input_data_roots": [
     "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pa30",
@@ -10,11 +10,25 @@
   ],
   "output_dir": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0",
   "current_neutral_model_coefficient_source": "03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py",
-  "current_neutral_model_calibration_id": "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1",
-  "current_neutral_model_claim_boundary": "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms",
+  "current_neutral_model_calibration_id": "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_effectiveness_v1",
+  "current_neutral_model_claim_boundary": "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_and_conservative_elevator_effectiveness_only",
+  "active_surface_effectiveness_scales": {
+    "delta_a_aero_effectiveness_scale": 1.0,
+    "delta_e_aero_effectiveness_scale": 0.6,
+    "delta_r_aero_effectiveness_scale": 1.0
+  },
+  "promoted_surface_effectiveness": {
+    "delta_e_aero_effectiveness_scale": 0.6,
+    "delta_a_status": "diagnostic_only_not_promoted",
+    "delta_e_status": "promoted_conservative_elevator_only",
+    "delta_r_status": "diagnostic_only_not_promoted"
+  },
   "replay_script": "03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
-  "replay_policy": "frozen active neutral model, measured launch state, logged command schedule, existing command delay and actuator lag",
+  "replay_policy": "frozen active calibrated model, measured launch state, logged command schedule, existing command delay and actuator lag",
   "replay_dt_s": 0.005,
+  "worker_count": 8,
+  "max_workers": 8,
+  "worker_count_decision": "hard-coded 8-worker replay for baseline and all diagnostic candidates",
   "filtering_thresholds": {
     "min_response_window_s": 0.25,
     "response_window_s": 0.65,
@@ -46,7 +60,7 @@
     "train": 144,
     "heldout": 30,
     "successful_replays": 174,
-    "successful_candidate_sweep_replays": 1392
+    "successful_candidate_sweep_replays": 2088
   },
   "output_files": {
     "inventory": "control_surface_inventory.csv",
@@ -60,6 +74,7 @@
     "symmetric_contamination_summary": "control_surface_symmetric_contamination_summary.csv",
     "optional_surface_fit_candidates": "optional_surface_fit_candidates.csv",
     "optional_surface_fit_heldout_summary": "optional_surface_fit_heldout_summary.csv",
+    "pairwise_surface_gain_fit": "pairwise_surface_gain_fit.csv",
     "optional_surface_aero_coupling_fit": "optional_surface_aero_coupling_fit.csv",
     "report": "control_surface_effectiveness_report.md",
     "figures": [
@@ -75,8 +90,8 @@
       "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0/figures/rudder_representative_replay.png"
     ]
   },
-  "promotion_decision": "not_promoted",
-  "claim_boundary": "control-surface effectiveness diagnostics and residual-calibrated replay alignment only; no broad aero SysID",
+  "promotion_decision": "promoted_conservative_elevator_effectiveness_only",
+  "claim_boundary": "neutral aero replay alignment plus conservative elevator-only surface effectiveness; aileron/rudder and lateral/coupling terms diagnostic only; no broad aero SysID",
   "filtering_summary_groups": 19,
   "candidate_families": {
     "C0_frozen_neutral": [],
@@ -152,10 +167,27 @@
       "CY_delta_a_residual@post_stall"
     ]
   },
-  "replay_error_summary_rows": 108,
-  "regime_ladder_error_summary_rows": 1215,
+  "pairwise_gain_candidate_families": {
+    "P1_pairwise_aileron_gain": [
+      "aileron"
+    ],
+    "P2_pairwise_elevator_gain": [
+      "elevator"
+    ],
+    "P3_pairwise_rudder_gain": [
+      "rudder"
+    ],
+    "P4_pairwise_all_surface_gains": [
+      "aileron",
+      "elevator",
+      "rudder"
+    ]
+  },
+  "replay_error_summary_rows": 156,
+  "regime_ladder_error_summary_rows": 1755,
   "effectiveness_summary_rows": 635,
   "launch_confidence_summary_rows": 57,
+  "pairwise_surface_gain_fit_rows": 3,
   "optional_surface_aero_coupling_fit_rows": 21,
-  "optional_heldout_rows": 21
+  "optional_heldout_rows": 24
 }

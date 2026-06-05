@@ -13,8 +13,11 @@ from A_model_parameters.neutral_dry_air_calibration import (
     CALIBRATION_ACTIVE as NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE,
     CD0_STRIP_SCALE as NEUTRAL_DRY_AIR_CD0_STRIP_SCALE,
     DELTA_A_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD,
+    DELTA_A_AERO_EFFECTIVENESS_SCALE as NEUTRAL_DRY_AIR_DELTA_A_AERO_EFFECTIVENESS_SCALE,
     DELTA_E_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD,
+    DELTA_E_AERO_EFFECTIVENESS_SCALE as NEUTRAL_DRY_AIR_DELTA_E_AERO_EFFECTIVENESS_SCALE,
     DELTA_R_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD,
+    DELTA_R_AERO_EFFECTIVENESS_SCALE as NEUTRAL_DRY_AIR_DELTA_R_AERO_EFFECTIVENESS_SCALE,
     DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
     ATTACHED_PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ATTACHED_PITCH_MOMENT_BIAS_COEFF,
@@ -613,6 +616,19 @@ def build_nausicaa_glider() -> Glider:
     )
     surfaces = (wing, htail, vtail)
     strip_table = _flatten_strip_table(surfaces)
+    control_effectiveness_scale = (
+        np.array(
+            [
+                NEUTRAL_DRY_AIR_DELTA_A_AERO_EFFECTIVENESS_SCALE,
+                NEUTRAL_DRY_AIR_DELTA_E_AERO_EFFECTIVENESS_SCALE,
+                NEUTRAL_DRY_AIR_DELTA_R_AERO_EFFECTIVENESS_SCALE,
+            ],
+            dtype=float,
+        )
+        if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+        else np.ones(3, dtype=float)
+    )
+    control_mix = np.asarray(strip_table["control_mix"], dtype=float) * control_effectiveness_scale.reshape(1, 3)
     return Glider(
         mass_kg=mass_kg,
         inertia_b=inertia_b,
@@ -627,7 +643,7 @@ def build_nausicaa_glider() -> Glider:
         aspect_ratio_strip=strip_table["aspect_ratio_strip"],
         span_axis_b=strip_table["span_axis_b"],
         surface_normal_b=strip_table["surface_normal_b"],
-        control_mix=strip_table["control_mix"],
+        control_mix=control_mix,
         cd0_strip=strip_table["cd0_strip"],
         alpha0_strip=strip_table["alpha0_strip"],
         efficiency_strip=strip_table["efficiency_strip"],
