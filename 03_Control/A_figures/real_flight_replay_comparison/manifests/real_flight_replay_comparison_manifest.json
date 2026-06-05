@@ -1,0 +1,26 @@
+{
+  "figure_run_version": "real_flight_replay_comparison_v1",
+  "status": "complete",
+  "surface_result_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0_final_cnbeta",
+  "neutral_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/n30",
+  "output_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison",
+  "replay_dt_s": 0.005,
+  "workers": 8,
+  "model_comparison": {
+    "uncalibrated": "comparison-only pure theory/geometry baseline; calibration disabled in memory",
+    "calibrated": "active neutral dry-air residual-calibrated replay model plus active elevator and rudder effectiveness"
+  },
+  "representative_selection": "neutral plus highest-confidence max positive/negative surface throws; prefers max_abs_alpha_deg <= 35 when available; extra neutral samples use seed 607 from confidence >= 0.85, max_abs_alpha_deg <= 25",
+  "figures": [
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_neutral.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_neutral_random_good_01.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_neutral_random_good_02.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_neutral_random_good_03.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_max_elevator_neg.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_max_elevator_pos.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_max_rudder_neg.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_max_rudder_pos.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_max_aileron_neg.png",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_max_aileron_pos.png"
+  ]
+}

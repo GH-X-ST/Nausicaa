@@ -33,6 +33,8 @@ FOUR_FAN_CENTERS_XY = (
     (3.0, 1.2),
     (5.4, 1.2),
 )
+LEGACY_RANDOMISED_STRENGTH_SCALE_RANGE = (0.85, 1.15)
+LEGACY_RANDOMISED_WIDTH_SCALE_RANGE = (0.85, 1.15)
 
 
 # =============================================================================
@@ -216,12 +218,22 @@ def sample_updraft_randomisation(
     # Sampling happens once at scenario construction, not inside wind evaluation
     rng = np.random.default_rng(int(seed))
     return UpdraftRandomisation(
-        strength_scale=float(rng.uniform(0.85, 1.15)),
+        strength_scale=float(
+            rng.uniform(
+                LEGACY_RANDOMISED_STRENGTH_SCALE_RANGE[0],
+                LEGACY_RANDOMISED_STRENGTH_SCALE_RANGE[1],
+            )
+        ),
         centre_shift_m=(
             float(rng.uniform(-0.20, 0.20)),
             float(rng.uniform(-0.20, 0.20)),
         ),
-        width_scale=float(rng.uniform(0.85, 1.15)),
+        width_scale=float(
+            rng.uniform(
+                LEGACY_RANDOMISED_WIDTH_SCALE_RANGE[0],
+                LEGACY_RANDOMISED_WIDTH_SCALE_RANGE[1],
+            )
+        ),
         vertical_decay_scale="not_applied",
         residual_scale="not_applied",
         temporal_variation_scale="not_applied",

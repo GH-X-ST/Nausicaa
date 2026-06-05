@@ -99,6 +99,34 @@ def test_model_backed_rollout_is_distinct_from_smoke_and_finite() -> None:
     assert np.isfinite(evidence.ceiling_margin_m)
 
 
+def test_model_backed_open_loop_zero_command_rollout_is_comparison_only_backend() -> None:
+    state = _state()
+    context, wind = _context_and_wind(state)
+
+    evidence = simulate_primitive_rollout(
+        rollout_id="open_loop_rollout_000",
+        episode_id="episode_open_loop",
+        initial_state=state,
+        context=context,
+        primitive=primitive_by_id("glide"),
+        config=RolloutConfig(W_layer="W1", rollout_backend="model_backed_open_loop_zero_command"),
+        wind_field=wind,
+        controller=_controller("glide"),
+    )
+    row = rollout_evidence_row(evidence)
+    commands = json.loads(str(row["command_norm_history_json"]))
+
+    assert evidence.rollout_backend == "model_backed_open_loop_zero_command"
+    assert evidence.evidence_role == "open_loop_comparison_rollout"
+    assert evidence.controller_mode == "open_loop_zero_command"
+    assert evidence.feedback_mode == "open_loop_zero_command"
+    assert evidence.timing_state_source == "not_used_open_loop_zero_command"
+    assert evidence.trajectory_integrity_status == "finite_model_backed"
+    assert evidence.max_abs_command_norm == pytest.approx(0.0)
+    assert commands
+    assert all(np.allclose(command, [0.0, 0.0, 0.0]) for command in commands)
+
+
 def test_model_backed_rollout_integrates_positive_wing_updraft_along_trajectory() -> None:
     state = _state()
     metadata = EnvironmentMetadata(

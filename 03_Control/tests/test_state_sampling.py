@@ -19,6 +19,14 @@ from state_sampling import (
     LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S,
     LAUNCH_GATE_YAW_LIMIT_DEG,
     LAUNCH_GATE_Z_W_M,
+    RECOVERY_EDGE_PITCH_MAX_DEG,
+    RECOVERY_EDGE_PITCH_MIN_DEG,
+    RECOVERY_EDGE_PITCH_RATE_LIMIT_RAD_S,
+    RECOVERY_EDGE_ROLL_LIMIT_DEG,
+    RECOVERY_EDGE_ROLL_RATE_LIMIT_RAD_S,
+    RECOVERY_EDGE_SIDE_VELOCITY_LIMIT_M_S,
+    RECOVERY_EDGE_VERTICAL_BODY_VELOCITY_M_S,
+    RECOVERY_EDGE_YAW_RATE_LIMIT_RAD_S,
     archive_state_sample_for_family,
     archive_state_sample_for_row,
     archive_state_sample_row,
@@ -182,7 +190,11 @@ def test_inflight_sampler_uses_widened_velocity_envelopes() -> None:
         "inflight_nominal": ((3.0, 8.2), (-0.35, 0.35), (-0.25, 0.25)),
         "inflight_lift_region": ((3.2, 8.0), (-0.30, 0.30), (-0.22, 0.22)),
         "inflight_boundary_near": ((3.0, 8.0), (-0.35, 0.35), (-0.25, 0.25)),
-        "inflight_recovery_edge": ((2.2, 5.2), (-0.45, 0.45), (-0.35, 0.35)),
+        "inflight_recovery_edge": (
+            (2.2, 5.2),
+            (-RECOVERY_EDGE_SIDE_VELOCITY_LIMIT_M_S, RECOVERY_EDGE_SIDE_VELOCITY_LIMIT_M_S),
+            RECOVERY_EDGE_VERTICAL_BODY_VELOCITY_M_S,
+        ),
     }
     for family, ((u_min, u_max), (v_min, v_max), (w_min, w_max)) in bounds.items():
         for index in range(48):
@@ -198,6 +210,30 @@ def test_inflight_sampler_uses_widened_velocity_envelopes() -> None:
             assert u_min <= state[STATE_INDEX["u"]] <= u_max
             assert v_min <= state[STATE_INDEX["v"]] <= v_max
             assert w_min <= state[STATE_INDEX["w"]] <= w_max
+
+
+def test_recovery_edge_sampler_uses_realflight_stress_attitude_and_rates() -> None:
+    for index in range(64):
+        sample = archive_state_sample_for_family(
+            start_state_family="inflight_recovery_edge",
+            paired_start_key=f"recovery_edge_stress_{index}",
+            sample_index=index,
+            seed=42,
+            W_layer="W1",
+            environment_mode="annular_gp",
+        )
+        state = sample.state_vector
+
+        assert np.deg2rad(-RECOVERY_EDGE_ROLL_LIMIT_DEG) <= state[STATE_INDEX["phi"]]
+        assert state[STATE_INDEX["phi"]] <= np.deg2rad(RECOVERY_EDGE_ROLL_LIMIT_DEG)
+        assert np.deg2rad(RECOVERY_EDGE_PITCH_MIN_DEG) <= state[STATE_INDEX["theta"]]
+        assert state[STATE_INDEX["theta"]] <= np.deg2rad(RECOVERY_EDGE_PITCH_MAX_DEG)
+        assert -RECOVERY_EDGE_ROLL_RATE_LIMIT_RAD_S <= state[STATE_INDEX["p"]]
+        assert state[STATE_INDEX["p"]] <= RECOVERY_EDGE_ROLL_RATE_LIMIT_RAD_S
+        assert -RECOVERY_EDGE_PITCH_RATE_LIMIT_RAD_S <= state[STATE_INDEX["q"]]
+        assert state[STATE_INDEX["q"]] <= RECOVERY_EDGE_PITCH_RATE_LIMIT_RAD_S
+        assert -RECOVERY_EDGE_YAW_RATE_LIMIT_RAD_S <= state[STATE_INDEX["r"]]
+        assert state[STATE_INDEX["r"]] <= RECOVERY_EDGE_YAW_RATE_LIMIT_RAD_S
 
 
 def test_measured_log_compatibility_shape_without_real_logs(tmp_path) -> None:

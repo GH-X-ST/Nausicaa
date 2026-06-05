@@ -6,6 +6,8 @@ import numpy as np
 
 from command_contract import AGGREGATE_LIMITS, SURFACE_STATE_NAMES, command_norm_to_angle
 
+SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE = (0.50, 1.00)
+
 
 # =============================================================================
 # SECTION MAP
@@ -82,9 +84,9 @@ def implementation_instance_for_layer(
             command_transport_delay_scale=float(rng.uniform(0.90, 1.25)),
             latency_jitter_s=float(rng.uniform(0.0, 0.015)),
             actuator_tau_scale=float(rng.uniform(0.90, 1.25)),
-            aileron_effectiveness_scale=float(rng.uniform(0.85, 1.15)),
-            elevator_effectiveness_scale=float(rng.uniform(0.85, 1.15)),
-            rudder_effectiveness_scale=float(rng.uniform(0.85, 1.15)),
+            aileron_effectiveness_scale=float(rng.uniform(*SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE)),
+            elevator_effectiveness_scale=float(rng.uniform(*SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE)),
+            rudder_effectiveness_scale=float(rng.uniform(*SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE)),
             surface_neutral_bias_rad=tuple(float(value) for value in rng.uniform(-0.015, 0.015, size=3)),
             surface_limit_scale=float(rng.uniform(0.90, 1.00)),
             left_right_aileron_asymmetry_scale=float(rng.uniform(0.95, 1.05)),

@@ -6,7 +6,7 @@ R10 governor handoff, actuator/latency model, and file-management path as the
 full validation, but uses only a few paired local cases per ladder.
 
 Default schedule:
-    8 ladders x 2 local cases x 5 library tiers x 4 policies = 320 final launches
+    8 ladders x 2 local cases x 5 library tiers x 5 policies = 400 final launches
     8 ladders x 2 local cases x 5 library tiers x (3+10+30) = 3440 history launches
 """
 
@@ -34,7 +34,7 @@ from run_changed_case_validation import (  # noqa: E402
     HISTORY_LENGTH_SUM,
     HeldoutChangedCaseValidationConfig,
     LIBRARY_SIZE_CASE_IDS,
-    POLICY_HISTORY_CONDITIONS,
+    R11_POLICY_HISTORY_CONDITIONS,
     R11_FIDELITY_LADDER_BLOCK_IDS,
     run_heldout_changed_case_validation,
 )
@@ -54,7 +54,7 @@ DEFAULT_WORKERS = 8
 
 def _expected_counts(outer_cases_per_ladder: int) -> tuple[int, int]:
     outer_cases = len(R11_FIDELITY_LADDER_BLOCK_IDS) * int(outer_cases_per_ladder)
-    final_count = len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * outer_cases
+    final_count = len(LIBRARY_SIZE_CASE_IDS) * len(R11_POLICY_HISTORY_CONDITIONS) * outer_cases
     history_count = len(LIBRARY_SIZE_CASE_IDS) * outer_cases * HISTORY_LENGTH_SUM
     return final_count, history_count
 
@@ -92,7 +92,7 @@ def _write_readiness_manifest(
         "preserved_contracts": [
             "all_8_r11_ladders",
             "all_5_library_tiers",
-            "all_4_policy_history_final_conditions",
+            "all_5_policy_history_final_conditions_including_open_loop_comparison",
             "paired_start_conditions",
             "paired_history_seed_sequences",
             "frozen_r10_governor_config",

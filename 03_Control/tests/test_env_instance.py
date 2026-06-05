@@ -10,6 +10,7 @@ from env_instance import (
     sample_environment_randomisation,
 )
 from env_surrogate import resolve_surrogate_binding, wind_field_for_binding
+from robust_evidence_distribution import R5_EVIDENCE_BLOCKS, randomisation_config_for_block
 from state_sampling import archive_state_sample_for_row
 
 
@@ -66,6 +67,24 @@ def test_randomisation_defaults_do_not_duplicate_strength_or_position_channels()
     assert cfg.fan_power_scale_range != (1.0, 1.0)
     assert cfg.amplitude_scale_range == (1.0, 1.0)
     assert cfg.centre_shift_range_m == (0.0, 0.0)
+
+
+def test_randomisation_defaults_use_nominal_static_power_and_measured_scatter() -> None:
+    cfg = EnvironmentRandomisationConfig()
+
+    assert cfg.fan_power_scale_range == (0.85, 1.15)
+    assert cfg.width_scale_range == (0.85, 1.15)
+    assert cfg.uncertainty_scale_range == (1.0, 2.5)
+
+
+def test_robust_evidence_blocks_use_nominal_static_power_and_measured_scatter() -> None:
+    random_block = next(block for block in R5_EVIDENCE_BLOCKS if block.block_id == "r5_random_four_fan_parameter")
+    cfg = randomisation_config_for_block(random_block, paired_start_index=0)
+
+    assert cfg is not None
+    assert cfg.fan_power_scale_range == (0.85, 1.15)
+    assert cfg.width_scale_range == (0.85, 1.15)
+    assert cfg.uncertainty_scale_range == (1.0, 2.5)
 
 
 def test_context_uses_conservative_nonzero_uncertainty_for_fitted_wind() -> None:

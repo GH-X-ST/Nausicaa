@@ -1,0 +1,64 @@
+{
+  "run_label": "n30_tiny_cnbeta_heavy_sweep_v1",
+  "status": "complete",
+  "reference_result_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/glider_model_calibration_prep/n30_tiny_cnbeta_diagnostic_v1",
+  "active_calibration_id": "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_effectiveness_tiny_cnbeta_v1",
+  "loaded_throw_count": 105,
+  "valid_throw_count": 74,
+  "filtered_throw_count": 31,
+  "train_throw_count": 63,
+  "heldout_throw_count": 11,
+  "heldout_policy": "randomised_stratified_by_session_label",
+  "heldout_seed": 606,
+  "workers": 8,
+  "candidate_count": 180,
+  "attached_cnbeta_grid": [
+    0.0,
+    -0.0125,
+    -0.025,
+    -0.0375,
+    -0.0487479808
+  ],
+  "transition_cnbeta_grid": [
+    0.0,
+    -0.007337912235,
+    -0.01467582447,
+    -0.022013736705,
+    -0.02935164894,
+    -0.04402747341
+  ],
+  "post_stall_cnbeta_grid": [
+    0.0,
+    -0.01870860145,
+    -0.0374172029,
+    -0.05612580435,
+    -0.0748344058,
+    -0.1122516087
+  ],
+  "selection": [
+    {
+      "selection_class": "strict_best",
+      "candidate_id": "H0049_Cn_beta",
+      "selection_reason": "best_strict_heavy_sweep_candidate",
+      "selection_score": 0.03276367535046509,
+      "yaw_moment_beta_coeff": -0.0125,
+      "transition_yaw_moment_beta_coeff": -0.01467582447,
+      "post_stall_yaw_moment_beta_rbf_20_coeff": -0.01870860145,
+      "heldout_dx_mae_m": 0.3821074532283554,
+      "heldout_dy_mae_m": 0.46645018900011176,
+      "heldout_altitude_loss_mae_m": 0.15193483746104947,
+      "heldout_sink_mae_m_s": 0.13793032302152,
+      "heldout_roll_mae_deg": 15.186071991572312,
+      "heldout_pitch_mae_deg": 4.441769460267778,
+      "heldout_yaw_mae_deg": 6.340895812192315,
+      "delta_dx_mae_m": 0.0013576486057704784,
+      "delta_dy_mae_m": -0.03133243751364051,
+      "delta_altitude_loss_mae_m": 0.000450480600220432,
+      "delta_sink_mae_m_s": 0.0003217568307327112,
+      "delta_roll_mae_deg": -0.7362727876859481,
+      "delta_pitch_mae_deg": -0.05489151556633143,
+      "delta_yaw_mae_deg": -0.022908403506797903
+    }
+  ],
+  "claim_boundary": "diagnostic_heavy_sweep_for_tiny_cnbeta_replay_correction_only"
+}

@@ -31,6 +31,9 @@ from run_post_w3_library_size_study import (
     PROJECT_TITLE_VERSION as POST_W3_PROJECT_TITLE_VERSION,
     PostW3LibrarySizeStudyConfig,
     _coverage_medoid_selection,
+    _representatives_for_case,
+    library_size_case_by_id,
+    representative_budget_for_entry_class,
     run_post_w3_library_size_study,
 )
 from run_repeated_launch_learning_curve import (
@@ -266,6 +269,67 @@ def test_post_w3_medoid_selection_preserves_speed_bin_coverage_when_budget_allow
 
     assert set(selected["local_lqr_speed_bin_id"]) == {lqr_speed_bin_id(5.0), lqr_speed_bin_id(7.0)}
     assert "greedy_speed_bin_marginal_coverage_medoid" in set(selected["_medoid_selection_reason"])
+
+
+def test_post_w3_launch_gate_uses_wider_representative_budget_than_non_launch() -> None:
+    rows: list[dict[str, object]] = []
+    for index, speed in enumerate((4.0, 5.0, 6.0, 7.0)):
+        rows.append(
+            {
+                "primitive_variant_id": f"launch_variant_{index}",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "launch_gate",
+                "controller_id": f"ctrl_launch_{index}",
+                "local_lqr_reference_speed_m_s": speed,
+                "local_lqr_speed_bin_id": lqr_speed_bin_id(speed),
+                "continuation_valid_rate": 0.80 - 0.02 * index,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": f'["speed_bin:{lqr_speed_bin_id(speed)}"]',
+                "robustness_coverage_rates_json": "[0.8]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            }
+        )
+        rows.append(
+            {
+                "primitive_variant_id": f"inflight_variant_{index}",
+                "primitive_id": "glide",
+                "entry_role": "transition_object",
+                "transition_entry_class": "inflight_stable",
+                "controller_id": f"ctrl_inflight_{index}",
+                "local_lqr_reference_speed_m_s": speed,
+                "local_lqr_speed_bin_id": lqr_speed_bin_id(speed),
+                "continuation_valid_rate": 0.80 - 0.02 * index,
+                "episode_terminal_useful_rate": 0.1,
+                "hard_failure_rate": 0.02,
+                "robustness_coverage_labels_json": f'["speed_bin:{lqr_speed_bin_id(speed)}"]',
+                "robustness_coverage_rates_json": "[0.8]",
+                "Q_weight_json": '{"q":1.0}',
+                "R_weight_json": '{"r":1.0}',
+                "reference_state_vector": "[0,0,0]",
+                "reference_command_vector": "[0,0,0]",
+            }
+        )
+    frame = pd.DataFrame(rows)
+    source_roots = {"source_w01_root": "", "source_w2_root": "", "source_w3_root": ""}
+
+    heavy = library_size_case_by_id("heavy_cluster")
+    heavy_reps = pd.DataFrame(_representatives_for_case(frame, case=heavy, source_roots=source_roots))
+    assert representative_budget_for_entry_class(heavy, "launch_gate") == 2
+    assert representative_budget_for_entry_class(heavy, "inflight_stable") == 1
+    assert len(heavy_reps[heavy_reps["transition_entry_class"] == "launch_gate"]) == 2
+    assert len(heavy_reps[heavy_reps["transition_entry_class"] == "inflight_stable"]) == 1
+
+    balanced = library_size_case_by_id("balanced_cluster")
+    balanced_reps = pd.DataFrame(_representatives_for_case(frame, case=balanced, source_roots=source_roots))
+    assert representative_budget_for_entry_class(balanced, "launch_gate") == 5
+    assert representative_budget_for_entry_class(balanced, "inflight_stable") == 3
+    assert len(balanced_reps[balanced_reps["transition_entry_class"] == "launch_gate"]) == 4
+    assert len(balanced_reps[balanced_reps["transition_entry_class"] == "inflight_stable"]) == 3
 
 
 def test_outcome_and_repeated_launch_validation_use_case_ids_histories_and_counts(tmp_path: Path) -> None:

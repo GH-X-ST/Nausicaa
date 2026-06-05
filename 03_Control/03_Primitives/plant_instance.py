@@ -7,6 +7,11 @@ import numpy as np
 from A_model_parameters.mass_properties_estimate import MASS_KG as ESTIMATED_MASS_KG
 from flight_dynamics import AircraftModel
 
+CONTROL_EFFECTIVENESS_PERTURBATION_POLICY = "axis_specific_control_mix_multiplier_v2"
+AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE = (0.50, 1.00)
+ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE = (0.50, 1.00)
+RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE = (0.50, 1.00)
+
 
 # =============================================================================
 # SECTION MAP
@@ -35,6 +40,10 @@ class PlantInstance:
     cross_inertia_status: str
     aero_coefficient_scale: float
     surface_calibration_scale: float
+    aileron_control_effectiveness_multiplier: float
+    elevator_control_effectiveness_multiplier: float
+    rudder_control_effectiveness_multiplier: float
+    control_effectiveness_perturbation_policy: str
     plant_adjustment_status: str
     plant_adjustment_limitations: str
     claim_status: str = "simulation_only_plant_instance"
@@ -81,9 +90,20 @@ def plant_instance_for_layer(
             Izz_scale=float(rng.uniform(0.92, 1.08)),
             aero_coefficient_scale=float(rng.uniform(0.95, 1.05)),
             surface_calibration_scale=float(rng.uniform(0.90, 1.10)),
+            aileron_control_effectiveness_multiplier=float(
+                rng.uniform(*AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE)
+            ),
+            elevator_control_effectiveness_multiplier=float(
+                rng.uniform(*ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE)
+            ),
+            rudder_control_effectiveness_multiplier=float(
+                rng.uniform(*RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE)
+            ),
+            control_effectiveness_perturbation_policy=CONTROL_EFFECTIVENESS_PERTURBATION_POLICY,
             plant_adjustment_status="randomised_applied",
             plant_adjustment_limitations=(
                 "mass inertia aero surface calibration and cg offset applied; "
+                "axis-specific control-mix effectiveness multipliers applied; "
                 "cg offset shifts aerodynamic moment arms; cross inertia remains not perturbed"
             ),
         )
@@ -110,6 +130,10 @@ def _plant_instance(
     cross_inertia_status: str = "not_perturbed",
     aero_coefficient_scale: float = 1.0,
     surface_calibration_scale: float = 1.0,
+    aileron_control_effectiveness_multiplier: float = 1.0,
+    elevator_control_effectiveness_multiplier: float = 1.0,
+    rudder_control_effectiveness_multiplier: float = 1.0,
+    control_effectiveness_perturbation_policy: str = "nominal_no_control_mix_perturbation",
     plant_adjustment_status: str = "nominal_no_perturbation",
     plant_adjustment_limitations: str = "",
 ) -> PlantInstance:
@@ -127,6 +151,10 @@ def _plant_instance(
         cross_inertia_status=str(cross_inertia_status),
         aero_coefficient_scale=float(aero_coefficient_scale),
         surface_calibration_scale=float(surface_calibration_scale),
+        aileron_control_effectiveness_multiplier=float(aileron_control_effectiveness_multiplier),
+        elevator_control_effectiveness_multiplier=float(elevator_control_effectiveness_multiplier),
+        rudder_control_effectiveness_multiplier=float(rudder_control_effectiveness_multiplier),
+        control_effectiveness_perturbation_policy=str(control_effectiveness_perturbation_policy),
         plant_adjustment_status=str(plant_adjustment_status),
         plant_adjustment_limitations=str(plant_adjustment_limitations),
     )
@@ -164,6 +192,14 @@ def apply_plant_instance_to_aircraft(
     aero_scale = float(instance.aero_coefficient_scale)
     surface_scale = float(instance.surface_calibration_scale)
     cg_offset_b = np.asarray(instance.cg_offset_m, dtype=float).reshape(3)
+    control_effectiveness = np.asarray(
+        [
+            float(instance.aileron_control_effectiveness_multiplier),
+            float(instance.elevator_control_effectiveness_multiplier),
+            float(instance.rudder_control_effectiveness_multiplier),
+        ],
+        dtype=float,
+    )
     return replace(
         aircraft,
         mass_kg=float(aircraft.mass_kg) * float(instance.mass_scale),
@@ -172,4 +208,5 @@ def apply_plant_instance_to_aircraft(
         r_strip_b=np.asarray(aircraft.r_strip_b, dtype=float) - cg_offset_b.reshape(1, 3),
         cd0_strip=np.asarray(aircraft.cd0_strip, dtype=float) * aero_scale,
         flap_scale_strip=np.asarray(aircraft.flap_scale_strip, dtype=float) * surface_scale,
+        control_mix=np.asarray(aircraft.control_mix, dtype=float) * control_effectiveness.reshape(1, 3),
     )

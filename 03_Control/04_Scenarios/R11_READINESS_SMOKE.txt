@@ -11,7 +11,7 @@ The smoke run preserves the official R11 structure:
 
 - all 8 R11 ladder blocks, L0 through L7;
 - all 5 library tiers;
-- all 4 final policies: no memory, h3, h10, h30;
+- all 5 final policies: open-loop zero-command comparison, no memory, h3, h10, h30;
 - paired start conditions across ladders, tiers, and policies;
 - paired history-launch sequences;
 - frozen R10 governor config consumption;
@@ -25,7 +25,7 @@ Default `outer_cases_per_ladder = 2`.
 
 Expected launches:
 
-- final launches: 320
+- final launches: 400
 - history launches: 3440
 
 This is intended to run in roughly 30 minutes on the current 8-worker setup,

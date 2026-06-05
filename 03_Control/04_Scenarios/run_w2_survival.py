@@ -1420,6 +1420,10 @@ def _blocked_instance_prefix_rows(prefix: str) -> dict[str, object]:
     return {
         "plant_plant_instance_id": "",
         "plant_W_layer": "",
+        "plant_aileron_control_effectiveness_multiplier": "",
+        "plant_elevator_control_effectiveness_multiplier": "",
+        "plant_rudder_control_effectiveness_multiplier": "",
+        "plant_control_effectiveness_perturbation_policy": "",
         "plant_plant_adjustment_status": "not_applied_blocked_before_rollout",
         "plant_plant_adjustment_limitations": "blocked_before_rollout_simulation",
     }

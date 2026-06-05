@@ -682,7 +682,7 @@ def run_study(
     )
     append_pairwise_gain_candidates(optional_candidates, optional_heldout, pairwise_gain_rows)
     append_surface_aero_coupling_candidate(optional_candidates, optional_heldout, aero_coupling_rows)
-    append_active_elevator_effectiveness_candidate(optional_candidates)
+    append_active_surface_effectiveness_candidate(optional_candidates)
     filtering_summary_rows = filtering_summary(inventory_rows)
 
     write_csv(output_dir / "control_surface_inventory.csv", inventory_rows, INVENTORY_FIELDS)
@@ -1763,24 +1763,29 @@ def append_surface_aero_coupling_candidate(
         )
 
 
-def append_active_elevator_effectiveness_candidate(candidates: list[dict[str, Any]]) -> None:
+def append_active_surface_effectiveness_candidate(candidates: list[dict[str, Any]]) -> None:
+    delta_a_scale = float(getattr(active_calibration, "DELTA_A_AERO_EFFECTIVENESS_SCALE", 1.0))
     delta_e_scale = float(getattr(active_calibration, "DELTA_E_AERO_EFFECTIVENESS_SCALE", 1.0))
-    promoted = abs(delta_e_scale - 1.0) > 1e-12
+    delta_r_scale = float(getattr(active_calibration, "DELTA_R_AERO_EFFECTIVENESS_SCALE", 1.0))
+    promoted = any(abs(value - 1.0) > 1e-12 for value in (delta_a_scale, delta_e_scale, delta_r_scale))
     candidates.append(
         {
-            "candidate_id": "M0_active_elevator_aero_effectiveness_scale",
-            "status": "promoted_conservative_elevator_effectiveness_only" if promoted else "not_promoted_unity_elevator_scale",
+            "candidate_id": "M0_active_surface_aero_effectiveness_scale",
+            "status": "promoted_conservative_elevator_rudder_effectiveness" if promoted else "not_promoted_unity_surface_scale",
             "promoted": bool(promoted),
-            "delta_a_effectiveness_scale": float(getattr(active_calibration, "DELTA_A_AERO_EFFECTIVENESS_SCALE", 1.0)),
+            "delta_a_effectiveness_scale": delta_a_scale,
             "delta_e_effectiveness_scale": delta_e_scale,
-            "delta_r_effectiveness_scale": float(getattr(active_calibration, "DELTA_R_AERO_EFFECTIVENESS_SCALE", 1.0)),
+            "delta_r_effectiveness_scale": delta_r_scale,
             "delta_a_neutral_bias_rad": 0.0,
             "delta_e_neutral_bias_rad": 0.0,
             "delta_r_neutral_bias_rad": 0.0,
             "aileron_left_right_asymmetry": "",
             "actuator_time_constant_scale": "",
             "command_delay_offset_s": "",
-            "evidence_summary": "conservative elevator-only aero effectiveness scale; aileron/rudder pulse evidence retained as diagnostic",
+            "evidence_summary": (
+                "conservative elevator and rudder aero effectiveness scales; "
+                "aileron pulse evidence retained as diagnostic"
+            ),
             "claim_boundary": "surface effectiveness replay alignment only; no broad aero or lateral/coupling SysID",
         }
     )
@@ -2500,9 +2505,20 @@ def build_manifest(
         "delta_e_aero_effectiveness_scale": float(getattr(active_calibration, "DELTA_E_AERO_EFFECTIVENESS_SCALE", 1.0)),
         "delta_r_aero_effectiveness_scale": float(getattr(active_calibration, "DELTA_R_AERO_EFFECTIVENESS_SCALE", 1.0)),
     }
+    active_aileron_surface_scale = surface_effectiveness_scales["delta_a_aero_effectiveness_scale"]
     active_elevator_surface_scale = surface_effectiveness_scales["delta_e_aero_effectiveness_scale"]
+    active_rudder_surface_scale = surface_effectiveness_scales["delta_r_aero_effectiveness_scale"]
+    promoted_aileron_effectiveness = abs(active_aileron_surface_scale - 1.0) > 1e-12
     promoted_elevator_effectiveness = abs(active_elevator_surface_scale - 1.0) > 1e-12
-    promoted = promoted_elevator_effectiveness or any(bool(row.get("promoted")) for row in optional_candidates)
+    promoted_rudder_effectiveness = abs(active_rudder_surface_scale - 1.0) > 1e-12
+    promoted_active_surface_effectiveness = any(
+        (
+            promoted_aileron_effectiveness,
+            promoted_elevator_effectiveness,
+            promoted_rudder_effectiveness,
+        )
+    )
+    promoted = promoted_active_surface_effectiveness or any(bool(row.get("promoted")) for row in optional_candidates)
     return {
         "task": "Real-Flight Control Surface Effectiveness Study v3.0",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -2515,10 +2531,12 @@ def build_manifest(
         "current_neutral_model_claim_boundary": getattr(active_calibration, "CLAIM_BOUNDARY", "unknown"),
         "active_surface_effectiveness_scales": surface_effectiveness_scales,
         "promoted_surface_effectiveness": {
+            "delta_a_aero_effectiveness_scale": active_aileron_surface_scale,
             "delta_e_aero_effectiveness_scale": active_elevator_surface_scale,
-            "delta_a_status": "diagnostic_only_not_promoted",
+            "delta_r_aero_effectiveness_scale": active_rudder_surface_scale,
+            "delta_a_status": "promoted" if promoted_aileron_effectiveness else "diagnostic_only_not_promoted",
             "delta_e_status": "promoted_conservative_elevator_only" if promoted_elevator_effectiveness else "unity_not_promoted",
-            "delta_r_status": "diagnostic_only_not_promoted",
+            "delta_r_status": "promoted_conservative_weak_rudder" if promoted_rudder_effectiveness else "unity_not_promoted",
         },
         "replay_script": "03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
         "replay_policy": "frozen active calibrated model, measured launch state, logged command schedule, existing command delay and actuator lag",
@@ -2574,11 +2592,11 @@ def build_manifest(
             "figures": figures,
         },
         "promotion_decision": (
-            "promoted_conservative_elevator_effectiveness_only"
-            if promoted_elevator_effectiveness
+            "promoted_conservative_elevator_rudder_effectiveness"
+            if promoted_elevator_effectiveness and promoted_rudder_effectiveness and not promoted_aileron_effectiveness
             else ("promoted" if promoted else "not_promoted")
         ),
-        "claim_boundary": "neutral aero replay alignment plus conservative elevator-only surface effectiveness; aileron/rudder and lateral/coupling terms diagnostic only; no broad aero SysID",
+        "claim_boundary": "neutral aero replay alignment plus conservative elevator and rudder surface effectiveness; aileron and lateral/coupling terms diagnostic only; no broad aero SysID",
         "filtering_summary_groups": len(filtering_summary_rows),
         "candidate_families": {candidate_id: list(parameters) for candidate_id, parameters in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES.items()},
         "pairwise_gain_candidate_families": {candidate_id: list(surfaces) for candidate_id, surfaces in PAIRWISE_GAIN_CANDIDATE_FAMILIES.items()},
@@ -2701,7 +2719,7 @@ def write_report(
         "",
         "## 14. Promotion Decision",
         "",
-        "Only the conservative elevator aerodynamic-effectiveness scale is promoted in the active model. Aileron/rudder effectiveness, lateral/cross-axis derivatives, and alpha-regime schedules remain diagnostic because their held-out replay trade-offs are mixed and launch-condition contaminated.",
+        "The conservative elevator and rudder aerodynamic-effectiveness scales are promoted in the active model. Aileron effectiveness, lateral/cross-axis derivatives, and alpha-regime schedules remain diagnostic because their held-out replay trade-offs are mixed and launch-condition contaminated.",
         "",
         "## 15. Limitations",
         "",

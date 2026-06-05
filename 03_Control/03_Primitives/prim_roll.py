@@ -84,11 +84,13 @@ from state_contract import as_state_vector
 ROLLOUT_BACKENDS = (
     "smoke_only",
     "model_backed_lqr",
+    "model_backed_open_loop_zero_command",
     "blocked_lqr",
 )
 EVIDENCE_ROLE_BY_BACKEND = {
     "smoke_only": "interface_smoke",
     "model_backed_lqr": "lqr_rollout_candidate",
+    "model_backed_open_loop_zero_command": "open_loop_comparison_rollout",
     "blocked_lqr": "blocked_lqr_synthesis",
 }
 CONTROLLED_XY_TERMINAL_MAX_ABS_ROLL_RAD = np.deg2rad(60.0)
@@ -406,7 +408,7 @@ def simulate_primitive_rollout(
             candidate_index=candidate_index,
             candidate_weight_label=candidate_weight_label,
         )
-    if cfg.rollout_backend == "model_backed_lqr":
+    if cfg.rollout_backend in {"model_backed_lqr", "model_backed_open_loop_zero_command"}:
         return _simulate_dynamics_rollout(
             rollout_id=rollout_id,
             episode_id="" if episode_id is None else str(episode_id),
@@ -902,8 +904,30 @@ def _simulate_dynamics_rollout(
                 )
             )
         )
+    elif config.rollout_backend == "model_backed_open_loop_zero_command":
+        zero_command_norm = np.zeros(3, dtype=float)
+        restored_times_s, restored_command_norm_history = _initial_command_history_from_config(config)
+        if (
+            bool(config.preserve_command_timing_state)
+            and restored_times_s
+            and restored_command_norm_history
+        ):
+            command_times_s = restored_times_s
+            command_norm_history = [zero_command_norm.copy() for _ in restored_command_norm_history]
+            timing_state_continuity_status = "continued_open_loop_zero_command_history"
+        elif mechanism_flags["command_delay_applied"]:
+            command_times_s = [absolute_start_time_s - (command_delay_s + 1e-9)]
+            command_norm_history = [zero_command_norm.copy()]
+        else:
+            command_times_s = [absolute_start_time_s]
+            command_norm_history = [zero_command_norm.copy()]
+        saturation_count = 0
+        max_abs_command_norm = 0.0
+        max_abs_surface_rad = 0.0
+        feedback_mode = "open_loop_zero_command"
+        timing_state_source = "not_used_open_loop_zero_command"
     else:
-        raise ValueError("model-backed rollout requires rollout_backend='model_backed_lqr'.")
+        raise ValueError("model-backed rollout requires model_backed_lqr or model_backed_open_loop_zero_command.")
 
     for step_index in range(steps):
         time_s = float(step_index) * float(config.dt_s)
@@ -990,8 +1014,32 @@ def _simulate_dynamics_rollout(
             saturation_count += int(control_command.saturation_applied)
             max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
             max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command))))
+        elif config.rollout_backend == "model_backed_open_loop_zero_command":
+            desired_command_norm = np.zeros(3, dtype=float)
+            if absolute_time_s > command_times_s[-1]:
+                command_times_s.append(absolute_time_s)
+                command_norm_history.append(desired_command_norm.copy())
+            else:
+                command_norm_history[-1] = desired_command_norm.copy()
+            if mechanism_flags["command_delay_applied"]:
+                applied_norm = latency_adjusted_command_sample(
+                    np.asarray(command_times_s, dtype=float),
+                    np.asarray(command_norm_history, dtype=float),
+                    absolute_time_s,
+                    latency,
+                )
+            else:
+                applied_norm = desired_command_norm
+            command = apply_surface_implementation(
+                normalised_command_to_surface_rad(applied_norm),
+                implementation,
+            )
+            feedback_mode = "open_loop_zero_command"
+            timing_state_source = "not_used_open_loop_zero_command"
+            max_abs_command_norm = max(max_abs_command_norm, float(np.max(np.abs(applied_norm))))
+            max_abs_surface_rad = max(max_abs_surface_rad, float(np.max(np.abs(command))))
         else:
-            raise ValueError("model-backed rollout requires rollout_backend='model_backed_lqr'.")
+            raise ValueError("model-backed rollout requires model_backed_lqr or model_backed_open_loop_zero_command.")
         if not mechanism_flags["actuator_lag_applied"]:
             x[12:15] = command
         x = _rk4_step(
@@ -1350,6 +1398,8 @@ def _controller_mode_for_backend(
 ) -> str:
     if backend == "model_backed_lqr":
         return "lqr_local_feedback"
+    if backend == "model_backed_open_loop_zero_command":
+        return "open_loop_zero_command"
     return primitive.controller_mode
 
 

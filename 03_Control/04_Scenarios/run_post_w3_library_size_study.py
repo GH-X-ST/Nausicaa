@@ -34,35 +34,47 @@ POST_W3_LIBRARY_STUDY_VERSION = "post_w3_library_size_study_v54_uncertainty_bloc
 DEFAULT_W3_DISCOVERY_ROOT = Path("03_Control/05_Results/R7_survival")
 DEFAULT_INPUT_ROOT: Path | None = None
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R8_library_size_study")
+LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID: dict[str, int] = {
+    "heavy_cluster": 2,
+    "balanced_cluster": 5,
+    "light_cluster": 8,
+    "super_light_cluster": 12,
+    "no_cluster_no_merge": 1_000_000,
+}
 LIBRARY_SIZE_CASES: tuple[dict[str, object], ...] = (
     {
         "library_size_case_id": "heavy_cluster",
         "library_size_human_label": "heavy clustering and merging",
         "max_representatives_per_group": 1,
-        "selection_policy": "coverage_medoid_best_worst_case_per_primitive_transition_entry",
+        "launch_gate_representative_override": LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID["heavy_cluster"],
+        "selection_policy": "coverage_medoid_best_worst_case_per_primitive_transition_entry_launch_gate_top_2",
     },
     {
         "library_size_case_id": "balanced_cluster",
         "library_size_human_label": "balanced clustering and merging",
         "max_representatives_per_group": 3,
-        "selection_policy": "coverage_medoid_greedy_marginal_top_3_per_primitive_transition_entry",
+        "launch_gate_representative_override": LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID["balanced_cluster"],
+        "selection_policy": "coverage_medoid_greedy_marginal_top_3_non_launch_top_5_launch_gate",
     },
     {
         "library_size_case_id": "light_cluster",
         "library_size_human_label": "light clustering and merging",
         "max_representatives_per_group": 6,
-        "selection_policy": "coverage_medoid_greedy_marginal_top_6_per_primitive_transition_entry",
+        "launch_gate_representative_override": LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID["light_cluster"],
+        "selection_policy": "coverage_medoid_greedy_marginal_top_6_non_launch_top_8_launch_gate",
     },
     {
         "library_size_case_id": "super_light_cluster",
         "library_size_human_label": "super-light clustering and merging",
         "max_representatives_per_group": 12,
+        "launch_gate_representative_override": LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID["super_light_cluster"],
         "selection_policy": "coverage_medoid_greedy_marginal_top_12_per_primitive_transition_entry",
     },
     {
         "library_size_case_id": "no_cluster_no_merge",
         "library_size_human_label": "no-clustering/no-merging",
         "max_representatives_per_group": 1_000_000,
+        "launch_gate_representative_override": LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID["no_cluster_no_merge"],
         "selection_policy": "all_w3_eligible_transition_objects_no_clustering_no_merging",
     },
 )
@@ -137,6 +149,8 @@ def run_post_w3_library_size_study(config: PostW3LibrarySizeStudyConfig) -> dict
                 "library_size_case_id": case_id,
                 "library_size_human_label": str(case["library_size_human_label"]),
                 "representative_count": int(len(representatives)),
+                "max_representatives_per_group": int(case["max_representatives_per_group"]),
+                "launch_gate_representative_override": representative_budget_for_entry_class(case, "launch_gate"),
                 "selection_policy": str(case["selection_policy"]),
                 "library_manifest": f"manifests/{case_id}_primitive_library.json",
                 "library_table": f"metrics/{case_id}_representative_library.csv",
@@ -178,6 +192,14 @@ def library_size_case_by_id(case_id: str) -> dict[str, object]:
         if str(case["library_size_case_id"]) == str(case_id):
             return dict(case)
     raise KeyError(f"unknown library_size_case_id: {case_id}")
+
+
+def representative_budget_for_entry_class(case: dict[str, object], entry_class: str) -> int:
+    """Return the R8 representative budget for one primitive/entry-class group."""
+
+    if str(entry_class) == "launch_gate":
+        return int(case.get("launch_gate_representative_override", case["max_representatives_per_group"]))
+    return int(case["max_representatives_per_group"])
 
 
 def discover_latest_w3_root_for_post_w3(discovery_root: Path = DEFAULT_W3_DISCOVERY_ROOT) -> Path | None:
@@ -545,10 +567,13 @@ def _representatives_for_case(
     source_roots: dict[str, str],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    max_per_group = int(case["max_representatives_per_group"])
-    for (primitive_id, entry_class), group in survived.groupby(["primitive_id", "transition_entry_class"], sort=True):
-        del primitive_id, entry_class
-        selected = _coverage_medoid_selection(group.copy(), max_representatives=max_per_group, case_id=str(case["library_size_case_id"]))
+    for (_primitive_id, entry_class), group in survived.groupby(["primitive_id", "transition_entry_class"], sort=True):
+        max_per_group = representative_budget_for_entry_class(case, str(entry_class))
+        selected = _coverage_medoid_selection(
+            group.copy(),
+            max_representatives=max_per_group,
+            case_id=str(case["library_size_case_id"]),
+        )
         for rank, (_, row) in enumerate(selected.iterrows()):
             rows.append(_representative_row(row.to_dict(), case=case, source_roots=source_roots, rank=rank))
     return rows
@@ -962,6 +987,12 @@ def _representative_row(
         "library_size_case_id": case_id,
         "library_size_human_label": str(case["library_size_human_label"]),
         "selection_policy": str(case["selection_policy"]),
+        "default_max_representatives_per_group": int(case["max_representatives_per_group"]),
+        "effective_max_representatives_for_entry_class": representative_budget_for_entry_class(
+            case,
+            transition_entry_class,
+        ),
+        "launch_gate_representative_override": representative_budget_for_entry_class(case, "launch_gate"),
         "primitive_variant_id": variant_id,
         "transition_object_id": transition_object_id,
         "primitive_id": str(row.get("primitive_id", "")),
@@ -1068,11 +1099,14 @@ def _library_payload(
         "source_w01_root": str(registry.get("source_w01_root", "")),
         "source_w3_survivor_registry_sha256": file_sha256(config.input_root / "manifests" / "w3_survivor_registry.json"),
         "representative_count": int(len(representatives)),
+        "max_representatives_per_group": int(case["max_representatives_per_group"]),
+        "launch_gate_representative_override": representative_budget_for_entry_class(case, "launch_gate"),
         "selection_policy": str(case["selection_policy"]),
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
         "coverage_objective": "smallest_existing_transition_compatible_variant set covering useful entry/exit transitions, local speed bins, and R7 uncertainty blocks with low hard-failure risk",
-        "speed_bin_coverage_policy": "preserve distinct W3-eligible local LQR speed bins within each primitive_id + transition_entry_class group up to the library-size case budget",
+        "speed_bin_coverage_policy": "preserve distinct W3-eligible local LQR speed bins within each primitive_id + transition_entry_class group up to the effective entry-class budget",
+        "launch_gate_budget_policy": "launch_gate keeps a wider step-0 representative budget than non-launch entries because measured release variation dominates early transition sensitivity",
         "uncertainty_coverage_policy": "preserve R7 evidence block, uncertainty tier, active-fan policy, and fan-position policy coverage through robustness labels before medoid compression",
         "transition_contract": transition_contract_row(),
         "claim_status": "simulation_only_post_w3_library_size_case",
@@ -1122,7 +1156,6 @@ def _speed_bin_coverage_audit(survived: pd.DataFrame, representatives: list[dict
         return pd.DataFrame(), ["source_w3_survivor_frame_empty_for_speed_bin_coverage"]
     for case in LIBRARY_SIZE_CASES:
         case_id = str(case["library_size_case_id"])
-        max_per_group = int(case["max_representatives_per_group"])
         case_reps = (
             reps[reps.get("library_size_case_id", pd.Series(dtype=str)).astype(str) == case_id]
             if not reps.empty
@@ -1139,6 +1172,8 @@ def _speed_bin_coverage_audit(survived: pd.DataFrame, representatives: list[dict
                 else pd.DataFrame()
             )
             selected_speed_bins = sorted(_speed_bin_set(selected_group)) if not selected_group.empty else []
+            max_per_group = representative_budget_for_entry_class(case, str(entry_class))
+            default_max_per_group = int(case["max_representatives_per_group"])
             target_count = min(max_per_group, len(source_speed_bins))
             status = "passed"
             if not source_speed_bins:
@@ -1156,11 +1191,13 @@ def _speed_bin_coverage_audit(survived: pd.DataFrame, representatives: list[dict
                     "target_speed_bin_count_for_case_budget": int(target_count),
                     "source_speed_bins": ";".join(source_speed_bins),
                     "selected_speed_bins": ";".join(selected_speed_bins),
-                    "max_representatives_per_group": int(max_per_group),
+                    "max_representatives_per_group": int(default_max_per_group),
+                    "effective_max_representatives_for_entry_class": int(max_per_group),
+                    "launch_gate_representative_override": representative_budget_for_entry_class(case, "launch_gate"),
                     "speed_bin_coverage_status": status,
                     "speed_bin_coverage_policy": (
                         "preserve distinct W3-eligible local LQR speed bins within each "
-                        "primitive_id + transition_entry_class group up to the library-size case budget"
+                        "primitive_id + transition_entry_class group up to the effective entry-class budget"
                     ),
                 }
             )
@@ -1178,6 +1215,9 @@ def _coverage_medoid_selection_audit(representatives: list[dict[str, object]]) -
         "primitive_id",
         "entry_role",
         "transition_entry_class",
+        "default_max_representatives_per_group",
+        "effective_max_representatives_for_entry_class",
+        "launch_gate_representative_override",
         "transition_object_id",
         "primitive_variant_id",
         "selection_algorithm",
@@ -1238,10 +1278,12 @@ def _study_manifest(
         "source_w3_survivor_count": int(registry.get("survivor_count", 0)),
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
         "library_size_cases": case_rows,
+        "launch_gate_representative_budget_by_case_id": dict(LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID),
         "selection_algorithm": "coverage_aware_behavior_qr_medoid_greedy_marginal",
-        "selection_policy_summary": "hard safety filter, per-case coverage table including speed-bin coverage, behavior/Q_R medoid selection, greedy marginal coverage fill",
+        "selection_policy_summary": "hard safety filter, per-case coverage table including speed-bin coverage, behavior/Q_R medoid selection, greedy marginal coverage fill, launch_gate entry-class budget override",
         "hard_safety_filter_policy": "prefer hard_failure_rate_below_0p75_within_primitive_transition_entry_group",
-        "speed_bin_coverage_policy": "R8 compression must preserve local LQR speed-bin diversity within each primitive_id + transition_entry_class group up to the case representative budget",
+        "speed_bin_coverage_policy": "R8 compression must preserve local LQR speed-bin diversity within each primitive_id + transition_entry_class group up to the effective entry-class representative budget",
+        "launch_gate_budget_policy": "launch_gate step-0 representatives use wider case budgets than non-launch entries: heavy=2, balanced=5, light=8, super_light=12, no_cluster=all",
         "primitive_timing_contract": primitive_timing_contract_row(),
         "entry_role_regime_separation_policy": "representatives_grouped_by_primitive_id_and_transition_entry_class_no_cross_entry_merge",
         "claim_status": "simulation_only_post_w3_library_size_study",
@@ -1260,6 +1302,7 @@ def _write_blocked_outputs(run_root: Path, config: PostW3LibrarySizeStudyConfig,
         "source_w3_root": config.input_root.as_posix(),
         "blocked_reason": blocked_reason,
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
+        "launch_gate_representative_budget_by_case_id": dict(LAUNCH_GATE_REPRESENTATIVE_BUDGET_BY_CASE_ID),
         "blocked_claims": list(BLOCKED_CLAIMS),
     }
     _write_json(run_root / "manifests" / "post_w3_library_size_study_manifest.json", manifest)
@@ -1276,7 +1319,8 @@ def _write_report(run_root: Path, manifest: dict[str, object]) -> None:
         f"- Library-size cases: `{','.join(LIBRARY_SIZE_CASE_IDS)}`",
         "- Human label retained for no_cluster_no_merge: `no-clustering/no-merging`",
         "- Selection: `coverage-aware behavior/Q-R medoid selection with greedy marginal coverage fill`",
-        "- Speed-bin coverage: R8 preserves distinct W3-eligible local LQR speed bins within each primitive/entry-class group up to the case budget and writes `speed_bin_coverage_audit.csv`.",
+        "- Launch-gate budget: R8 keeps wider step-0 launch-gate representative budgets than non-launch entries: heavy=2, balanced=5, light=8, super-light=12, no-cluster=all.",
+        "- Speed-bin coverage: R8 preserves distinct W3-eligible local LQR speed bins within each primitive/entry-class group up to the effective entry-class budget and writes `speed_bin_coverage_audit.csv`.",
         "- Hard safety filter: within each primitive/entry-role group, prefer survivors with `hard_failure_rate < 0.75`; if all candidates exceed that threshold the group is retained for explicit downstream blocking/audit.",
         "- Medoids are existing W3-eligible variants; no Q/R, K, reference, horizon, entry-role, controller-ID, or primitive-variant-ID mutation is performed.",
         "- Claim boundary: simulation-only; no hardware-readiness, transfer, mission, or memory-improvement claim.",

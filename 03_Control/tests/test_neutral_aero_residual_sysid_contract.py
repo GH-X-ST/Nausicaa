@@ -275,26 +275,32 @@ def test_post_stall_pitch_damping_upper_bound_is_released_for_diagnostics() -> N
 
 def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
     assert active_calibration.CALIBRATION_ID == (
-        "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_effectiveness_v1"
+        "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_rudder_effectiveness_tiny_cnbeta_heavy_sweep_v1"
     )
     assert active_calibration.CLAIM_BOUNDARY == (
-        "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_and_conservative_elevator_effectiveness_only"
+        "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_conservative_elevator_and_rudder_effectiveness_and_tiny_cnbeta_lateral_replay_correction"
     )
     assert active_calibration.SOURCE_SELECTED_CANDIDATE == "joint_0270_post_stall_Cn_p_1.5"
+    assert active_calibration.SOURCE_LATERAL_CNBETA_CANDIDATE == "H0049_Cn_beta"
     assert active_calibration.ATTACHED_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.11309832420327923)
     assert active_calibration.TRANSITION_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.05711558897899738)
     assert active_calibration.POST_STALL_PITCH_MOMENT_COEFF == pytest.approx(0.07585874586245771)
     assert active_calibration.POST_STALL_PITCH_DAMPING_COEFF == pytest.approx(4.0)
     assert active_calibration.POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG == pytest.approx(22.0)
     assert active_calibration.SIDE_FORCE_BETA_COEFF == pytest.approx(-1.9802669025044202)
+    assert active_calibration.YAW_MOMENT_BETA_COEFF == pytest.approx(-0.0125)
     assert active_calibration.TRANSITION_SIDE_FORCE_R_HAT_COEFF == pytest.approx(-3.0)
+    assert active_calibration.TRANSITION_YAW_MOMENT_BETA_COEFF == pytest.approx(-0.01467582447)
     assert active_calibration.TRANSITION_YAW_MOMENT_P_HAT_COEFF == pytest.approx(-0.1461483136170422)
+    assert np.asarray(active_calibration.POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)[1, 0] == pytest.approx(
+        -0.01870860145
+    )
     assert np.asarray(active_calibration.POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)[2, 0] == pytest.approx(
         -0.07119920085255141
     )
     assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
     assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.60)
-    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
+    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.531)
 
 
 def test_theory_baseline_is_comparison_only_data_artifact() -> None:

@@ -91,6 +91,7 @@ GOVERNOR_TUNING_HANDOFF_VERSION = "governor_tuning_handoff_v4"
 HISTORY_LENGTHS = (3, 10, 30)
 SAFE_EXPLORE_ABLATION_HISTORY_LENGTH = 10
 HISTORY_LENGTH_SUM = sum(HISTORY_LENGTHS)
+OPEN_LOOP_COMPARISON_POLICY_ID = "open_loop_zero_command_baseline"
 EMPTY_FROZEN_PRIOR_BASELINE_ID = "empty_frozen_prior_baseline"
 BASELINE_POLICY_IDS = ("no_memory_baseline",)
 MEMORY_POLICY_PREFIX = "spatial_flow_belief_memory"
@@ -100,6 +101,10 @@ POLICY_HISTORY_CONDITIONS = (
     "spatial_flow_belief_memory_h3",
     "spatial_flow_belief_memory_h10",
     "spatial_flow_belief_memory_h30",
+)
+R11_POLICY_HISTORY_CONDITIONS = (
+    OPEN_LOOP_COMPARISON_POLICY_ID,
+    *POLICY_HISTORY_CONDITIONS,
 )
 LAUNCH_SPEED_BIN_DEFINITIONS = (
     ("v0_lt_4_0_m_s", None, 4.0, "initial_launch_speed_m_s < 4.0"),
@@ -1668,10 +1673,21 @@ def _scheduled_active_fan_count_for_context(
 
 
 def _policy_condition(policy_id: str) -> dict[str, object]:
+    if policy_id == OPEN_LOOP_COMPARISON_POLICY_ID:
+        return {
+            "policy_id": policy_id,
+            "policy_family": "open_loop_comparison",
+            "history_length": 0,
+            "uses_memory": False,
+            "updates_memory": False,
+            "safe_explore": False,
+            "open_loop": True,
+            "comparison_only": True,
+        }
     if policy_id == "no_memory_baseline":
-        return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": False, "updates_memory": False, "safe_explore": False}
+        return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": False, "updates_memory": False, "safe_explore": False, "open_loop": False, "comparison_only": False}
     if policy_id == EMPTY_FROZEN_PRIOR_BASELINE_ID:
-        return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": True, "updates_memory": False, "safe_explore": False}
+        return {"policy_id": policy_id, "policy_family": "baseline", "history_length": 0, "uses_memory": True, "updates_memory": False, "safe_explore": False, "open_loop": False, "comparison_only": False}
     for prefix in (MEMORY_POLICY_PREFIX, SAFE_EXPLORE_POLICY_PREFIX):
         marker = f"{prefix}_h"
         if policy_id.startswith(marker):
@@ -1683,6 +1699,8 @@ def _policy_condition(policy_id: str) -> dict[str, object]:
                 "uses_memory": True,
                 "updates_memory": True,
                 "safe_explore": True,
+                "open_loop": False,
+                "comparison_only": False,
             }
     raise KeyError(f"unknown policy_id: {policy_id}")
 
@@ -1699,6 +1717,18 @@ def _initial_belief_for_policy(
     )
     del final_row
     return belief
+
+
+def _rollout_backend_for_policy(policy: dict[str, object]) -> str:
+    if bool(policy.get("open_loop", False)):
+        return "model_backed_open_loop_zero_command"
+    return "model_backed_lqr"
+
+
+def _controller_selection_status_for_policy(policy: dict[str, object], *, protocol: ValidationProtocol) -> str:
+    if bool(policy.get("open_loop", False)):
+        return f"selected_by_{protocol.stage_id.lower()}_open_loop_zero_command_comparison"
+    return f"selected_by_{protocol.stage_id.lower()}_repeated_launch_validator"
 
 
 def _run_one_launch(
@@ -1846,7 +1876,7 @@ def _run_one_launch(
             primitive=primitive,
             config=RolloutConfig(
                 W_layer=str(scheduled["W_layer"]),
-                rollout_backend="model_backed_lqr",
+                rollout_backend=_rollout_backend_for_policy(policy),
                 absolute_start_time_s=float(episode_absolute_time_s),
                 preserve_command_timing_state=True,
                 initial_command_history_times_s_json=episode_command_history_times_s_json,
@@ -1856,7 +1886,7 @@ def _run_one_launch(
             implementation_instance=context_payload["implementation_instance"],
             plant_instance=context_payload["plant_instance"],
             controller=record.controller,
-            controller_selection_status=f"selected_by_{protocol.stage_id.lower()}_repeated_launch_validator",
+            controller_selection_status=_controller_selection_status_for_policy(policy, protocol=protocol),
             candidate_index=record.candidate_index,
             candidate_weight_label=record.candidate_weight_label,
         )
@@ -3798,11 +3828,14 @@ def _episode_row_from_sequence(
     hard_failure = bool(physical_hard_failure and not expected_low_energy_sink)
     floor_or_ceiling = bool(physical_floor_or_ceiling and not expected_low_energy_sink)
     safe_success = bool(sequence_compliant and last_continuation_or_terminal and not hard_failure and not floor_or_ceiling and not no_viable)
+    comparison_only_policy = bool(policy.get("comparison_only", False))
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
         "policy_family": str(policy["policy_family"]),
         "safe_explore_active": bool(policy["safe_explore"]),
+        "open_loop_comparison_active": bool(policy.get("open_loop", False)),
+        "comparison_only_policy": bool(comparison_only_policy),
         "selected_primitive_variant_id": ";".join(selected_variants),
         "selected_primitive_id": ";".join(selected_primitives),
         "selected_controller_id": ";".join(selected_controllers),
@@ -3826,7 +3859,7 @@ def _episode_row_from_sequence(
             floor_or_ceiling=floor_or_ceiling,
             no_viable=no_viable,
         ),
-        "claim_bearing_episode": bool(not expected_low_energy_sink),
+        "claim_bearing_episode": bool(not expected_low_energy_sink and not comparison_only_policy),
         "initial_launch_speed_m_s": float(initial_launch_speed_m_s),
         "no_viable_primitive": no_viable,
         "safe_success": safe_success,
@@ -3891,11 +3924,14 @@ def _episode_row_from_rollout(
     )
     hard_failure = bool(physical_hard_failure and not expected_low_energy_sink)
     floor_or_ceiling = bool(physical_floor_or_ceiling and not expected_low_energy_sink)
+    comparison_only_policy = bool(policy.get("comparison_only", False))
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
         "policy_family": str(policy["policy_family"]),
         "safe_explore_active": bool(policy["safe_explore"]),
+        "open_loop_comparison_active": bool(policy.get("open_loop", False)),
+        "comparison_only_policy": bool(comparison_only_policy),
         "selected_primitive_variant_id": str(selector_row.get("selected_primitive_variant_id", "")),
         "selected_primitive_id": str(selector_row.get("selected_primitive_id", "")),
         "selected_controller_id": str(selector_row.get("selected_controller_id", "")),
@@ -3925,7 +3961,7 @@ def _episode_row_from_rollout(
             floor_or_ceiling=floor_or_ceiling,
             no_viable=False,
         ),
-        "claim_bearing_episode": bool(not expected_low_energy_sink),
+        "claim_bearing_episode": bool(not expected_low_energy_sink and not comparison_only_policy),
         "initial_launch_speed_m_s": float(initial_launch_speed_m_s),
         "no_viable_primitive": False,
         "safe_success": bool(
@@ -3977,11 +4013,14 @@ def _episode_row_from_blocked(
     *,
     reason: str = "no_viable_primitive",
 ) -> dict[str, object]:
+    comparison_only_policy = bool(policy.get("comparison_only", False))
     row = {
         **_schedule_identity_row(scheduled),
         "launch_role": str(scheduled["launch_role"]),
         "policy_family": str(policy["policy_family"]),
         "safe_explore_active": bool(policy["safe_explore"]),
+        "open_loop_comparison_active": bool(policy.get("open_loop", False)),
+        "comparison_only_policy": bool(comparison_only_policy),
         "selected_primitive_variant_id": "",
         "selected_primitive_id": "",
         "selected_controller_id": "",
@@ -4000,7 +4039,7 @@ def _episode_row_from_blocked(
         "physical_floor_or_ceiling_violation": False,
         "expected_low_energy_dry_air_sink": False,
         "episode_interpretation_label": "no_viable_primitive",
-        "claim_bearing_episode": True,
+        "claim_bearing_episode": bool(not comparison_only_policy),
         "initial_launch_speed_m_s": float("nan"),
         "no_viable_primitive": True,
         "safe_success": False,

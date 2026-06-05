@@ -23,6 +23,14 @@ LAUNCH_GATE_Z_W_M = (1.3, 1.8)
 LAUNCH_GATE_ROLL_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_PITCH_RATE_LIMIT_RAD_S = 1.2
 LAUNCH_GATE_YAW_RATE_LIMIT_RAD_S = 1.8
+RECOVERY_EDGE_ROLL_LIMIT_DEG = 42.0
+RECOVERY_EDGE_PITCH_MIN_DEG = -35.0
+RECOVERY_EDGE_PITCH_MAX_DEG = 25.0
+RECOVERY_EDGE_SIDE_VELOCITY_LIMIT_M_S = 1.0
+RECOVERY_EDGE_VERTICAL_BODY_VELOCITY_M_S = (-0.3, 2.0)
+RECOVERY_EDGE_ROLL_RATE_LIMIT_RAD_S = 1.2
+RECOVERY_EDGE_PITCH_RATE_LIMIT_RAD_S = 1.2
+RECOVERY_EDGE_YAW_RATE_LIMIT_RAD_S = 1.0
 
 
 # =============================================================================
@@ -50,7 +58,7 @@ class ArchiveStateSample:
     synthetic_time_since_launch_s: float
     state_sampling_seed: int
     launch_gate_compliant: bool
-    state_sampling_version: str = "mixed_primitive_start_v6_launch_u_vw0p9_measured_log"
+    state_sampling_version: str = "mixed_primitive_start_v7_recovery_edge_realflight_stress"
     measured_log_source: str = ""
     measured_log_row_index: int | str = ""
 
@@ -317,12 +325,28 @@ def _boundary_near_state(rng: np.random.Generator, *, side: str) -> np.ndarray:
 
 def _inflight_recovery_edge_state(rng: np.random.Generator) -> np.ndarray:
     state = _local_envelope_state(rng)
-    state[STATE_INDEX["phi"]] = float(np.deg2rad(rng.uniform(-42.0, 42.0)))
-    state[STATE_INDEX["theta"]] = float(np.deg2rad(rng.uniform(-28.0, 28.0)))
+    state[STATE_INDEX["phi"]] = float(
+        np.deg2rad(rng.uniform(-RECOVERY_EDGE_ROLL_LIMIT_DEG, RECOVERY_EDGE_ROLL_LIMIT_DEG))
+    )
+    state[STATE_INDEX["theta"]] = float(
+        np.deg2rad(rng.uniform(RECOVERY_EDGE_PITCH_MIN_DEG, RECOVERY_EDGE_PITCH_MAX_DEG))
+    )
     state[STATE_INDEX["u"]] = float(rng.uniform(2.2, 5.2))
-    state[STATE_INDEX["v"]] = float(rng.uniform(-0.45, 0.45))
-    state[STATE_INDEX["w"]] = float(rng.uniform(-0.35, 0.35))
-    return _with_inflight_rates_and_surfaces(state, rng, rate_scale=0.70, surface_scale=0.35)
+    state[STATE_INDEX["v"]] = float(
+        rng.uniform(-RECOVERY_EDGE_SIDE_VELOCITY_LIMIT_M_S, RECOVERY_EDGE_SIDE_VELOCITY_LIMIT_M_S)
+    )
+    state[STATE_INDEX["w"]] = float(rng.uniform(*RECOVERY_EDGE_VERTICAL_BODY_VELOCITY_M_S))
+    return _with_inflight_rates_and_surfaces(
+        state,
+        rng,
+        rate_scale=0.70,
+        surface_scale=0.35,
+        rate_limits_rad_s=(
+            RECOVERY_EDGE_ROLL_RATE_LIMIT_RAD_S,
+            RECOVERY_EDGE_PITCH_RATE_LIMIT_RAD_S,
+            RECOVERY_EDGE_YAW_RATE_LIMIT_RAD_S,
+        ),
+    )
 
 
 def _with_inflight_rates_and_surfaces(
@@ -331,11 +355,18 @@ def _with_inflight_rates_and_surfaces(
     *,
     rate_scale: float,
     surface_scale: float,
+    rate_limits_rad_s: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     result = np.asarray(state, dtype=float).reshape(STATE_SIZE).copy()
-    result[STATE_INDEX["p"]] = float(rng.uniform(-rate_scale, rate_scale))
-    result[STATE_INDEX["q"]] = float(rng.uniform(-0.7 * rate_scale, 0.7 * rate_scale))
-    result[STATE_INDEX["r"]] = float(rng.uniform(-0.8 * rate_scale, 0.8 * rate_scale))
+    if rate_limits_rad_s is None:
+        p_limit = float(rate_scale)
+        q_limit = float(0.7 * rate_scale)
+        r_limit = float(0.8 * rate_scale)
+    else:
+        p_limit, q_limit, r_limit = (float(value) for value in rate_limits_rad_s)
+    result[STATE_INDEX["p"]] = float(rng.uniform(-p_limit, p_limit))
+    result[STATE_INDEX["q"]] = float(rng.uniform(-q_limit, q_limit))
+    result[STATE_INDEX["r"]] = float(rng.uniform(-r_limit, r_limit))
     result[STATE_INDEX["delta_a"]] = float(rng.uniform(-surface_scale, surface_scale))
     result[STATE_INDEX["delta_e"]] = float(rng.uniform(-surface_scale, surface_scale))
     result[STATE_INDEX["delta_r"]] = float(rng.uniform(-surface_scale, surface_scale))

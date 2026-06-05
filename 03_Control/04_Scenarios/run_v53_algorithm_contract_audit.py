@@ -60,6 +60,7 @@ from run_post_w3_library_size_study import (  # noqa: E402
     _coverage_medoid_selection,
     _representatives_for_case,
     _representative_score,
+    representative_budget_for_entry_class,
 )
 from run_r5_r10_pipeline import ARCHIVED_STAGES, STAGE_ORDER  # noqa: E402
 from transition_labels import (
@@ -83,6 +84,7 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     ONLINE_MEMORY_SCOPE,
     OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
     POLICY_HISTORY_CONDITIONS,
+    R11_POLICY_HISTORY_CONDITIONS,
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     R10_GLOBAL_CALIBRATION_SCOPE,
     R9_POLICY_HISTORY_CONDITIONS,
@@ -227,6 +229,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r8_library_cases_group_by_primitive_and_transition_entry", 'groupby(["primitive_id", "transition_entry_class"]' in r8_representatives_source, "active grouping source", 'W3-eligible frame grouped by ["primitive_id", "transition_entry_class"]'))
     rows.append(_row("r8_selection_applies_hard_safety_filter_first", "_hard_safety_filtered_group" in r8_selection_source, "coverage selection source", "_hard_safety_filtered_group before scoring"))
     rows.append(_row("r8_compressed_cases_use_coverage_medoid_policy", _r8_compressed_cases_use_coverage_medoid_policy(), _r8_library_selection_policies(), "heavy/balanced/light/super_light use coverage_medoid; no_cluster keeps all W3-eligible transition objects"))
+    rows.append(_row("r8_launch_gate_budget_override_active", _r8_launch_gate_budget_override_active(), _r8_effective_budget_table(), "launch_gate keeps wider step-0 medoid budgets while non-launch budgets stay compact"))
     rows.append(_row("r8_heavy_medoid_prefers_worst_case_coverage", _r8_heavy_medoid_prefers_worst_case_coverage(), "synthetic coverage-medoid selection", "select existing variant with stronger worst-case coverage"))
     rows.append(_row("r8_medoid_preserves_speed_bin_coverage_when_budget_allows", _r8_speed_bin_medoid_preserves_distinct_bins(), "synthetic speed-bin medoid selection", "compressed R8 cases preserve distinct W3-eligible local LQR speed bins up to case budget"))
     rows.append(_row("r8_representative_score_uses_updraft_gain_not_net_energy", _r8_score_uses_updraft_gain_not_net_energy(), "updraft-gain score check", "net energy residual must not improve representative score"))
@@ -256,7 +259,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r9_expected_history_launches_quick_preflight", R9_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R9_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM == 645, R9_EXPECTED_HISTORY_LAUNCHES, "library_cases*3*(h3+h10+h30)=645"))
     rows.append(_row("r10_expected_final_launches_l7_training", R10_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R10_OUTER_CASES_PER_CONDITION, R10_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*50"))
     rows.append(_row("r10_expected_history_launches_l7_training", R10_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R10_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R10_EXPECTED_HISTORY_LAUNCHES, "library_cases*50*(h3+h10+h30)"))
-    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*4*400"))
+    rows.append(_row("r11_expected_final_launches_fidelity_ladder", R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R11_POLICY_HISTORY_CONDITIONS) * R11_OUTER_CASES_PER_CONDITION, R11_EXPECTED_FINAL_HELDOUT_LAUNCHES, "library_cases*5*400"))
     rows.append(_row("r11_expected_history_launches_fidelity_ladder", R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * R11_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM, R11_EXPECTED_HISTORY_LAUNCHES, "library_cases*400*(h3+h10+h30)"))
     rows.append(_row("four_policy_history_conditions_core", len(POLICY_HISTORY_CONDITIONS) == 4, len(POLICY_HISTORY_CONDITIONS), 4))
     rows.append(_row("history_lengths_core_exact", HISTORY_LENGTHS == (3, 10, 30), HISTORY_LENGTHS, (3, 10, 30)))
@@ -596,6 +599,27 @@ def _r8_compressed_cases_use_coverage_medoid_policy() -> bool:
     return all("coverage_medoid" in policies.get(case_id, "") for case_id in compressed_case_ids) and policies.get(
         "no_cluster_no_merge", ""
     ) == "all_w3_eligible_transition_objects_no_clustering_no_merging"
+
+
+def _r8_effective_budget_table() -> dict[str, dict[str, int]]:
+    return {
+        str(case["library_size_case_id"]): {
+            "non_launch": representative_budget_for_entry_class(case, "inflight_stable"),
+            "launch_gate": representative_budget_for_entry_class(case, "launch_gate"),
+        }
+        for case in LIBRARY_SIZE_CASES
+    }
+
+
+def _r8_launch_gate_budget_override_active() -> bool:
+    budgets = _r8_effective_budget_table()
+    return budgets == {
+        "heavy_cluster": {"non_launch": 1, "launch_gate": 2},
+        "balanced_cluster": {"non_launch": 3, "launch_gate": 5},
+        "light_cluster": {"non_launch": 6, "launch_gate": 8},
+        "super_light_cluster": {"non_launch": 12, "launch_gate": 12},
+        "no_cluster_no_merge": {"non_launch": 1_000_000, "launch_gate": 1_000_000},
+    }
 
 
 def _r8_heavy_medoid_prefers_worst_case_coverage() -> bool:

@@ -1,13 +1,13 @@
-"""Active neutral dry-air and elevator-effectiveness calibration constants.
+"""Active neutral dry-air and surface-effectiveness calibration constants.
 
 The active model is the selected compact residual-calibrated replay alignment
 promoted from the n30 neutral open-loop throw set. It includes the longitudinal
 terms plus the compact coupling terms from the selected replay row; this is
 still replay alignment rather than a full aerodynamic SysID claim. A subsequent
-control-surface pulse diagnostic promotes only a conservative elevator
-aerodynamic effectiveness scale; aileron and rudder pulse evidence remains
-diagnostic. The comparison-only theory baseline is archived as JSON next to
-this file and is not imported by runtime code.
+control-surface pulse diagnostics promote conservative elevator and rudder
+aerodynamic effectiveness scales; aileron pulse evidence remains diagnostic.
+The comparison-only theory baseline is archived as JSON next to this file and
+is not imported by runtime code.
 """
 
 from __future__ import annotations
@@ -24,16 +24,18 @@ from __future__ import annotations
 # 1) Calibration Metadata
 # =============================================================================
 CALIBRATION_ACTIVE = True
-CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_effectiveness_v1"
+CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_rudder_effectiveness_tiny_cnbeta_heavy_sweep_v1"
 SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_compact_joint_sweep_from_active_v1"
 SOURCE_DIAGNOSTIC_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_cmq_wide_diagnostic_v1"
+SOURCE_LATERAL_CNBETA_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_tiny_cnbeta_heavy_sweep_v1"
 SOURCE_SELECTED_CANDIDATE = "joint_0270_post_stall_Cn_p_1.5"
+SOURCE_LATERAL_CNBETA_CANDIDATE = "H0049_Cn_beta"
 SOURCE_THROW_COUNT = 105
 SOURCE_FILTERED_THROW_COUNT = 74
 HELDOUT_POLICY = "randomised_stratified_by_session_label"
 HELDOUT_COUNT = 11
 HELDOUT_SEED = 606
-CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_and_conservative_elevator_effectiveness_only"
+CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_conservative_elevator_and_rudder_effectiveness_and_tiny_cnbeta_lateral_replay_correction"
 
 # =============================================================================
 # 2) Active Aerodynamic Correction
@@ -53,7 +55,8 @@ ATTACHED_PITCH_MOMENT_BIAS_COEFF = 0.11309832420327923
 TRANSITION_PITCH_MOMENT_BIAS_COEFF = 0.05711558897899738
 YAW_MOMENT_BIAS_COEFF = 0.0
 # Attached-flow lateral-directional residual derivatives. The selected compact
-# replay row promotes CY_beta only; the remaining attached terms stay at zero.
+# replay row promotes CY_beta; the later heavy narrow Cn_beta sweep adds only a
+# very small attached yaw-beta replay correction.
 SIDE_FORCE_BIAS_COEFF = 0.0
 SIDE_FORCE_BETA_COEFF = -1.9802669025044202
 SIDE_FORCE_P_HAT_COEFF = 0.0
@@ -61,12 +64,13 @@ SIDE_FORCE_R_HAT_COEFF = 0.0
 ROLL_MOMENT_BETA_COEFF = 0.0
 ROLL_MOMENT_P_HAT_COEFF = 0.0
 ROLL_MOMENT_R_HAT_COEFF = 0.0
-YAW_MOMENT_BETA_COEFF = 0.0
+YAW_MOMENT_BETA_COEFF = -0.0125
 YAW_MOMENT_P_HAT_COEFF = 0.0
 YAW_MOMENT_R_HAT_COEFF = 0.0
 # Transition-only lateral deltas. They are multiplied by a bounded
 # transition-window weight between residual blend start/full alpha. The active
-# model includes the selected transition CY_r and Cn_p replay terms only.
+# model includes the selected transition CY_r/Cn_p replay terms plus a tiny
+# Cn_beta lateral replay correction from the frozen-baseline 105-throw check.
 TRANSITION_SIDE_FORCE_BIAS_COEFF = 0.0
 TRANSITION_SIDE_FORCE_BETA_COEFF = 0.0
 TRANSITION_SIDE_FORCE_P_HAT_COEFF = 0.0
@@ -76,7 +80,7 @@ TRANSITION_ROLL_MOMENT_BETA_COEFF = 0.0
 TRANSITION_ROLL_MOMENT_P_HAT_COEFF = 0.0
 TRANSITION_ROLL_MOMENT_R_HAT_COEFF = 0.0
 TRANSITION_YAW_MOMENT_BIAS_COEFF = 0.0
-TRANSITION_YAW_MOMENT_BETA_COEFF = 0.0
+TRANSITION_YAW_MOMENT_BETA_COEFF = -0.01467582447
 TRANSITION_YAW_MOMENT_P_HAT_COEFF = -0.1461483136170422
 TRANSITION_YAW_MOMENT_R_HAT_COEFF = 0.0
 # Compact post-stall longitudinal residual coefficients are separate from the
@@ -89,7 +93,8 @@ POST_STALL_PITCH_DAMPING_COEFF = 4.0
 POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG = 12.0
 POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG = 22.0
 # Compact neutral SysID residual-surface basis. The active model includes only
-# the selected post-stall Cn_p 20 deg term from the compact replay row.
+# the selected post-stall Cn_p 20 deg term from the compact replay row plus a
+# tiny post-stall Cn_beta 20 deg term from the heavy frozen-baseline sweep.
 POST_STALL_RBF_ALPHA_CENTERS_DEG = (20.0, 45.0, 70.0)
 POST_STALL_RBF_ALPHA_WIDTH_DEG = 15.0
 POST_STALL_LIFT_RBF_COEFFS = (0.0, 0.0, 0.0)
@@ -111,7 +116,7 @@ POST_STALL_ROLL_MOMENT_RBF_COEFFS = (
 )
 POST_STALL_YAW_MOMENT_RBF_COEFFS = (
     (0.0, 0.0, 0.0),
-    (0.0, 0.0, 0.0),
+    (-0.01870860145, 0.0, 0.0),
     (-0.07119920085255141, 0.0, 0.0),
     (0.0, 0.0, 0.0),
 )
@@ -120,8 +125,9 @@ DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0
 # Control-surface pulse-ladder update. These scale aerodynamic effectiveness in
 # the strip model, not the measured/commanded physical surface angle. Aileron
-# and rudder remain unity because their pulse evidence is launch-condition and
-# lateral/cross-axis contaminated.
+# remains unity because its pulse evidence fails held-out signed-response replay.
+# The rudder value is a conservative weak-authority promotion from the pairwise
+# response-gain diagnostic; lateral/cross-axis derivatives remain diagnostic.
 DELTA_A_AERO_EFFECTIVENESS_SCALE = 1.0
 DELTA_E_AERO_EFFECTIVENESS_SCALE = 0.60
-DELTA_R_AERO_EFFECTIVENESS_SCALE = 1.0
+DELTA_R_AERO_EFFECTIVENESS_SCALE = 0.531

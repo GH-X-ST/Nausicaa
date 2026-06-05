@@ -13,6 +13,10 @@ R5_ANNULAR_GP_TRAINING_MODES = (
     "w1_annular_gp_randomised_four",
 )
 
+DEFAULT_FAN_POWER_SCALE_RANGE = (0.85, 1.15)
+DEFAULT_UPDRAFT_WIDTH_SCALE_RANGE = (0.85, 1.15)
+DEFAULT_UPDRAFT_UNCERTAINTY_SCALE_RANGE = (1.0, 2.5)
+
 
 # =============================================================================
 # SECTION MAP
@@ -33,13 +37,13 @@ class EnvironmentRandomisationConfig:
     fan_position_xy_bounds_m: tuple[tuple[float, float], tuple[float, float]] = ((0.0, 8.0), (0.0, 4.8))
     fan_position_safety_radius_m: float = 0.5
     fan_position_rejection_sample_attempts: int = 10_000
-    fan_power_scale_range: tuple[float, float] = (0.85, 1.15)
+    fan_power_scale_range: tuple[float, float] = DEFAULT_FAN_POWER_SCALE_RANGE
     active_fan_subset_policy: str = "at_least_one_active"
     active_fan_count: int | None = None
     amplitude_scale_range: tuple[float, float] = (1.0, 1.0)
-    width_scale_range: tuple[float, float] = (0.85, 1.15)
+    width_scale_range: tuple[float, float] = DEFAULT_UPDRAFT_WIDTH_SCALE_RANGE
     centre_shift_range_m: tuple[float, float] = (0.0, 0.0)
-    uncertainty_scale_range: tuple[float, float] = (1.0, 1.5)
+    uncertainty_scale_range: tuple[float, float] = DEFAULT_UPDRAFT_UNCERTAINTY_SCALE_RANGE
     launch_perturbation_policy: str = "launch_distribution_sampler"
     latency_model_uncertainty_policy: str = "nominal_or_conservative_case"
     fan_layout_seed: int | None = None

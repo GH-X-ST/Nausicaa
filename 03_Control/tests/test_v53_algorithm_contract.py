@@ -40,7 +40,9 @@ from run_repeated_launch_learning_curve import (
     LIBRARY_SIZE_CASE_IDS,
     ONLINE_MEMORY_SCOPE,
     OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
+    OPEN_LOOP_COMPARISON_POLICY_ID,
     POLICY_HISTORY_CONDITIONS,
+    R11_POLICY_HISTORY_CONDITIONS,
     R10_GLOBAL_CALIBRATION_SCOPE,
     R9_POLICY_HISTORY_CONDITIONS,
     R9_BLOCKS,
@@ -81,6 +83,11 @@ from run_repeated_launch_learning_curve import (
 from state_contract import STATE_INDEX
 from run_w3_survival import R5_INPUT_KIND, R7_EVIDENCE_BLOCK_IDS, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
 from episode_selector import select_compact_representative
+from plant_instance import (
+    AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
+    ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
+    RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
+)
 from viability_governor import DEFAULT_GOVERNOR_CONFIG, REJECTION_REASONS, governor_candidate_row, governor_config_from_row
 
 
@@ -414,6 +421,8 @@ def test_v53_memory_scope_is_per_final_case_and_final_launches_are_paired() -> N
     assert history["environment_seed"] != memory_final["environment_seed"]
 
     assert _policy_condition("no_memory_baseline")["uses_memory"] is False
+    assert _policy_condition(OPEN_LOOP_COMPARISON_POLICY_ID)["open_loop"] is True
+    assert _policy_condition(OPEN_LOOP_COMPARISON_POLICY_ID)["comparison_only"] is True
     assert _policy_condition(EMPTY_FROZEN_PRIOR_BASELINE_ID)["uses_memory"] is True
     assert _policy_condition(EMPTY_FROZEN_PRIOR_BASELINE_ID)["updates_memory"] is False
     assert OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION == (
@@ -1170,7 +1179,15 @@ def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
     )
     assert R11_PROTOCOL.outer_cases_per_condition == 8 * 50
     assert all(int(block.case_count) == 50 for block in R11_PROTOCOL.blocks)
-    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(POLICY_HISTORY_CONDITIONS) * 400
+    assert R11_PROTOCOL.policy_history_conditions == R11_POLICY_HISTORY_CONDITIONS
+    assert R11_POLICY_HISTORY_CONDITIONS == (
+        OPEN_LOOP_COMPARISON_POLICY_ID,
+        "no_memory_baseline",
+        "spatial_flow_belief_memory_h3",
+        "spatial_flow_belief_memory_h10",
+        "spatial_flow_belief_memory_h30",
+    )
+    assert R11_EXPECTED_FINAL_HELDOUT_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * len(R11_POLICY_HISTORY_CONDITIONS) * 400
     assert R11_EXPECTED_HISTORY_LAUNCHES == len(LIBRARY_SIZE_CASE_IDS) * 400 * (3 + 10 + 30)
 
     assert _scheduled_active_fan_count_for_outer_case(
@@ -1349,6 +1366,22 @@ def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> N
         assert payload["implementation_instance"].W_layer == "W3"
         assert payload["implementation_instance"].implementation_adjustment_status == "randomised_applied"
         assert payload["plant_instance"].plant_adjustment_status == "randomised_applied"
+        assert payload["plant_instance"].control_effectiveness_perturbation_policy == "axis_specific_control_mix_multiplier_v2"
+        assert (
+            AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+            <= payload["plant_instance"].aileron_control_effectiveness_multiplier
+            <= AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+        )
+        assert (
+            ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+            <= payload["plant_instance"].elevator_control_effectiveness_multiplier
+            <= ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+        )
+        assert (
+            RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+            <= payload["plant_instance"].rudder_control_effectiveness_multiplier
+            <= RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+        )
 
 
 def test_v53_r11_full_safe_success_gate_catches_safe_exit_only_passes() -> None:

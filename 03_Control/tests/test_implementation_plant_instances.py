@@ -5,6 +5,7 @@ import numpy as np
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
 from implementation_instance import (
+    SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE,
     _clip_surface_rad,
     apply_aileron_asymmetry_to_aircraft,
     adjusted_actuator_tau_s,
@@ -13,6 +14,9 @@ from implementation_instance import (
     implementation_instance_row,
 )
 from plant_instance import (
+    AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
+    ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
+    RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
     apply_plant_instance_to_aircraft,
     plant_instance_for_layer,
     plant_instance_row,
@@ -27,6 +31,21 @@ def test_implementation_instance_is_deterministic_and_changes_surface_and_tau() 
 
     assert first == second
     assert implementation_instance_row(first)["implementation_adjustment_status"] == "randomised_applied"
+    assert (
+        SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[0]
+        <= first.aileron_effectiveness_scale
+        <= SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[1]
+    )
+    assert (
+        SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[0]
+        <= first.elevator_effectiveness_scale
+        <= SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[1]
+    )
+    assert (
+        SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[0]
+        <= first.rudder_effectiveness_scale
+        <= SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[1]
+    )
     assert adjusted_actuator_tau_s((0.1, 0.2, 0.3), first) != (0.1, 0.2, 0.3)
     assert not np.allclose(
         apply_surface_implementation(command, first),
@@ -56,6 +75,7 @@ def test_plant_instance_is_deterministic_and_changes_aircraft_model() -> None:
     adjusted = apply_plant_instance_to_aircraft(aircraft, first)
 
     assert first == second
+    assert "axis-specific control-mix effectiveness multipliers applied" in first.plant_adjustment_limitations
     assert "cg offset shifts aerodynamic moment arms" in first.plant_adjustment_limitations
     assert plant_instance_row(first)["plant_adjustment_status"] == "randomised_applied"
     assert not np.isclose(adjusted.mass_kg, aircraft.mass_kg)
@@ -65,3 +85,46 @@ def test_plant_instance_is_deterministic_and_changes_aircraft_model() -> None:
         aircraft.r_strip_b - np.asarray(first.cg_offset_m, dtype=float).reshape(1, 3),
     )
     assert not np.allclose(adjusted.flap_scale_strip, aircraft.flap_scale_strip)
+    assert not np.allclose(adjusted.control_mix, aircraft.control_mix)
+
+
+def test_w3_plant_surface_effectiveness_uses_axis_specific_ranges() -> None:
+    aircraft = adapt_glider(build_nausicaa_glider())
+    instance = plant_instance_for_layer("W3", 77, baseline_mass_kg=aircraft.mass_kg)
+    adjusted = apply_plant_instance_to_aircraft(aircraft, instance)
+    nominal = plant_instance_for_layer("W2", 77, baseline_mass_kg=aircraft.mass_kg)
+
+    assert nominal.aileron_control_effectiveness_multiplier == 1.0
+    assert nominal.elevator_control_effectiveness_multiplier == 1.0
+    assert nominal.rudder_control_effectiveness_multiplier == 1.0
+    assert instance.control_effectiveness_perturbation_policy == "axis_specific_control_mix_multiplier_v2"
+    assert (
+        AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+        <= instance.aileron_control_effectiveness_multiplier
+        <= AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+    )
+    assert (
+        ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+        <= instance.elevator_control_effectiveness_multiplier
+        <= ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+    )
+    assert (
+        RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+        <= instance.rudder_control_effectiveness_multiplier
+        <= RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+    )
+
+    base_mix = np.asarray(aircraft.control_mix, dtype=float)
+    adjusted_mix = np.asarray(adjusted.control_mix, dtype=float)
+    assert np.isclose(
+        np.max(np.abs(adjusted_mix[:, 0])),
+        np.max(np.abs(base_mix[:, 0])) * instance.aileron_control_effectiveness_multiplier,
+    )
+    assert np.isclose(
+        np.max(np.abs(adjusted_mix[:, 1])),
+        np.max(np.abs(base_mix[:, 1])) * instance.elevator_control_effectiveness_multiplier,
+    )
+    assert np.isclose(
+        np.max(np.abs(adjusted_mix[:, 2])),
+        np.max(np.abs(base_mix[:, 2])) * instance.rudder_control_effectiveness_multiplier,
+    )

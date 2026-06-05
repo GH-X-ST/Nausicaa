@@ -260,16 +260,16 @@ def test_control_surface_replay_is_hardcoded_to_eight_workers() -> None:
     assert "worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)" in source
 
 
-def test_active_surface_effectiveness_promotes_only_elevator_scale() -> None:
+def test_active_surface_effectiveness_promotes_elevator_and_rudder_scales() -> None:
     glider = build_nausicaa_glider()
     control_mix = np.asarray(glider.control_mix, dtype=float)
 
     assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
     assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.60)
-    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
+    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.531)
     assert np.max(np.abs(control_mix[:, AILERON])) == pytest.approx(1.0)
     assert np.max(np.abs(control_mix[:, ELEVATOR])) == pytest.approx(0.60)
-    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(1.0)
+    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(0.531)
 
 
 def test_alpha_regime_candidates_share_rudder_post_stall_with_transition() -> None:
