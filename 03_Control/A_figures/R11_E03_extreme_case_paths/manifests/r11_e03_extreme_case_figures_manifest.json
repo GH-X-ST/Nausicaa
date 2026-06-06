@@ -1,0 +1,22 @@
+{
+  "claim_status": "diagnostic_extreme_case_visualisation_not_new_evidence_run",
+  "default_library_size_case_id": "balanced_cluster",
+  "figure_count": 3,
+  "figure_run_version": "r11_e03_extreme_case_paths_v1",
+  "figures": [
+    "03_Control/A_figures/R11_E03_extreme_case_paths/figures/r11_e03_1_open_closed_largest_score_gap_balanced_cluster_l4_case0093.png",
+    "03_Control/A_figures/R11_E03_extreme_case_paths/figures/r11_e03_1_memory_largest_score_impact_no_cluster_no_merge_l5_case0107.png",
+    "03_Control/A_figures/R11_E03_extreme_case_paths/figures/r11_e03_1_open_fail_closed_success_balanced_cluster_l4_case0093.png"
+  ],
+  "memory_scope": "all",
+  "neutral_rollout_path": "03_Control/A_figures/R11_E03_balanced_neutral_baseline/metrics/neutral_rollout_by_case.csv",
+  "output_root": "03_Control/A_figures/R11_E03_extreme_case_paths",
+  "policy_ids": [
+    "no_memory_baseline",
+    "spatial_flow_belief_memory_h3",
+    "spatial_flow_belief_memory_h10",
+    "spatial_flow_belief_memory_h30"
+  ],
+  "r11_root": "03_Control/05_Results/R11_validation/E03.1",
+  "selection_metrics_path": "03_Control/A_figures/R11_E03_extreme_case_paths/metrics/r11_e03_extreme_case_figure_selection.csv"
+}
