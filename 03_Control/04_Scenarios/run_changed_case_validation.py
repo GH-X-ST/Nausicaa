@@ -59,6 +59,7 @@ R10_REDUCED_EXPECTED_FINAL_HELDOUT_LAUNCHES = (
 R10_REDUCED_EXPECTED_HISTORY_LAUNCHES = len(LIBRARY_SIZE_CASE_IDS) * R10_REDUCED_OUTER_CASES_PER_CONDITION * HISTORY_LENGTH_SUM
 DEFAULT_OUTPUT_ROOT = Path("03_Control/05_Results/R10_learn")
 DEFAULT_R11_OUTPUT_ROOT = Path("03_Control/05_Results/R11_validation")
+DEFAULT_R10_GOVERNOR_CONFIG_PATH = Path("03_Control/04_Scenarios/r10_default_governor_config_e03.json")
 
 R10_BLOCKS: tuple[ValidationBlockSpec, ...] = (
     ValidationBlockSpec(
@@ -170,8 +171,8 @@ class ChangedCaseValidationConfig:
     max_episode_time_s: float = DEFAULT_VALIDATION_MAX_EPISODE_TIME_S
     smoke_outer_cases_per_block: int = 0
     r10_mode: str = "full"
-    workers: int = 1
-    max_workers: int | None = None
+    workers: int = 16
+    max_workers: int | None = 16
     worker_backend: str = "process"
     governor_config: GovernorConfig | None = None
     governor_config_path: Path | None = None
@@ -301,9 +302,12 @@ def _r11_protocol_for_outer_cases_per_ladder(outer_cases_per_ladder: int) -> Val
 def _resolve_governor_config(config: ChangedCaseValidationConfig) -> GovernorConfig | None:
     if config.governor_config is not None:
         return config.governor_config
-    if config.governor_config_path is None:
+    governor_config_path = config.governor_config_path
+    if governor_config_path is None and DEFAULT_R10_GOVERNOR_CONFIG_PATH.is_file():
+        governor_config_path = DEFAULT_R10_GOVERNOR_CONFIG_PATH
+    if governor_config_path is None:
         return None
-    payload = json.loads(Path(config.governor_config_path).read_text(encoding="ascii"))
+    payload = json.loads(Path(governor_config_path).read_text(encoding="ascii"))
     row = payload.get("governor_config", payload)
     if not isinstance(row, dict):
         raise ValueError("governor_config_path_missing_governor_config_object")
@@ -332,8 +336,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
     parser.add_argument("--dry-run-schedule", action="store_true")
     parser.add_argument("--r10-mode", default="full", choices=("full", "reduced_diagnostic_10", "reduced_diagnostic_50"))
-    parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--max-workers", type=int, default=16)
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     parser.add_argument("--governor-config-path", type=Path, default=None)
     parser.add_argument("--history-log-mode", choices=("auto", "plot_summary", "sampled_debug", "full_debug"), default="auto")

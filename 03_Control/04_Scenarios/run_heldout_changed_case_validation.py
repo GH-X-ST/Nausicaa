@@ -52,8 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Held-out R11 paired local cases per ladder. Default 20 is the clean full R11 unit; repeat with different seeds for richer evidence.",
     )
     parser.add_argument("--dry-run-schedule", action="store_true")
-    parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--max-workers", type=int, default=16)
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     parser.add_argument("--governor-config-path", type=Path, default=None)
     parser.add_argument("--history-log-mode", choices=("auto", "plot_summary", "sampled_debug", "full_debug"), default="auto")

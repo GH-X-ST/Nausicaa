@@ -34,6 +34,7 @@ from primitive_timing_contract import (  # noqa: E402
 from run_changed_case_validation import (  # noqa: E402
     ChangedCaseValidationConfig,
     DEFAULT_R11_OUTPUT_ROOT,
+    DEFAULT_R10_GOVERNOR_CONFIG_PATH,
     HeldoutChangedCaseValidationConfig,
     R10_EXPECTED_FINAL_HELDOUT_LAUNCHES,
     R10_EXPECTED_HISTORY_LAUNCHES,
@@ -116,8 +117,8 @@ class R5R10PipelineConfig:
     resume: bool = True
     repair_incomplete: bool = True
     dry_run_schedule: bool = False
-    workers: int | str = 8
-    max_workers: int | None = 8
+    workers: int | str = 16
+    max_workers: int | None = 16
     storage_format: str = "auto"
     compression_level: int = 1
     candidate_chunk_size: int = 800
@@ -577,7 +578,11 @@ def _execute_stage(stage_id: str, config: R5R10PipelineConfig, context: dict[str
     if stage_id == "R10":
         r8_root = Path(str(context["stages"]["R8"]["run_root"]))
         outcome_root = Path(str(context["stages"]["R8"]["outcome_run_root"]))
-        governor_config_path = config.r10_governor_config_path or _r9_initial_governor_config_path(context)
+        governor_config_path = (
+            config.r10_governor_config_path
+            or _default_r10_governor_config_path()
+            or _r9_initial_governor_config_path(context)
+        )
         stage_run_id = _stage_run_id(config, DEFAULT_CHANGED_OUTPUT_ROOT)
         return run_changed_case_validation(
             ChangedCaseValidationConfig(
@@ -1078,7 +1083,7 @@ def _next_run_id(output_root: Path) -> int:
 
 def _validation_worker_count(workers: int | str) -> int:
     if str(workers).strip().lower() == "auto":
-        return 8
+        return 16
     return max(1, int(workers))
 
 
@@ -1091,6 +1096,10 @@ def _r9_initial_governor_config_path(context: dict[str, object]) -> Path | None:
     run_root = Path(str(stage.get("run_root", "")))
     path = run_root / "manifests" / "initial_governor_config_for_r10.json"
     return path if path.is_file() else None
+
+
+def _default_r10_governor_config_path() -> Path | None:
+    return DEFAULT_R10_GOVERNOR_CONFIG_PATH if DEFAULT_R10_GOVERNOR_CONFIG_PATH.is_file() else None
 
 
 def _r10_frozen_governor_config_path(context: dict[str, object]) -> Path | None:
@@ -1370,8 +1379,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repair-incomplete", dest="repair_incomplete", action="store_true", default=True)
     parser.add_argument("--no-repair-incomplete", dest="repair_incomplete", action="store_false")
     parser.add_argument("--dry-run-schedule", action="store_true")
-    parser.add_argument("--workers", default=8)
-    parser.add_argument("--max-workers", type=int, default=8)
+    parser.add_argument("--workers", default=16)
+    parser.add_argument("--max-workers", type=int, default=16)
     parser.add_argument("--storage-format", default="auto", choices=("auto", "parquet", "csv_gz", "csv"))
     parser.add_argument("--compression-level", type=int, default=1)
     parser.add_argument("--candidate-chunk-size", type=int, default=800)

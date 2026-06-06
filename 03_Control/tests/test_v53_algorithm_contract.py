@@ -42,6 +42,7 @@ from run_repeated_launch_learning_curve import (
     OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
     OPEN_LOOP_COMPARISON_POLICY_ID,
     POLICY_HISTORY_CONDITIONS,
+    R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS,
     R11_POLICY_HISTORY_CONDITIONS,
     R10_GLOBAL_CALIBRATION_SCOPE,
     R9_POLICY_HISTORY_CONDITIONS,
@@ -160,6 +161,7 @@ def test_v53_stage_contract_is_r5_r7_r8_r10_r11_with_r6_archived_and_r9_internal
     assert R10_PROTOCOL.gate_profile == "relaxed_changed_case_viability_governor_learning_not_final_validation"
     assert R10_PROTOCOL.max_hard_failure_rate == pytest.approx(0.20)
     assert R10_PROTOCOL.max_floor_or_ceiling_violation_rate == pytest.approx(0.20)
+    assert R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS == ("heavy_cluster", "balanced_cluster", "light_cluster")
     assert R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"
     assert R11_PROTOCOL.gate_profile == "strict_final_heldout_validation"
     assert R11_PROTOCOL.max_floor_or_ceiling_violation_rate == pytest.approx(0.0)
@@ -1906,6 +1908,90 @@ def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> N
             <= payload["plant_instance"].rudder_control_effectiveness_multiplier
             <= RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
         )
+
+
+def _r10_claim_gate_schedule_and_rows(passing_case_id: str | None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    final_schedule = []
+    final_rows = []
+    case_ids = list(LIBRARY_SIZE_CASE_IDS)
+    policy_ids = list(R10_PROTOCOL.policy_history_conditions)
+    for index in range(R10_EXPECTED_FINAL_HELDOUT_LAUNCHES):
+        case_id = case_ids[index % len(case_ids)]
+        case_passes = case_id == passing_case_id
+        final_schedule.append(
+            {
+                "library_size_case_id": case_id,
+                "policy_id": policy_ids[(index // len(case_ids)) % len(policy_ids)],
+                "outer_case_index": index,
+                "common_final_launch_key": f"r10_case_{index}",
+                "launch_state_seed": index,
+                "environment_seed": index,
+            }
+        )
+        final_rows.append(
+            {
+                "launch_role": "final_heldout",
+                "library_size_case_id": case_id,
+                "safe_success": case_passes,
+                "full_safe_success": case_passes,
+                "terminal_useful": case_passes,
+                "lift_capture": False,
+                "hard_failure": not case_passes,
+                "floor_or_ceiling_violation": False,
+                "no_viable_primitive": False,
+                "claim_bearing_episode": True,
+                "launch_inflight_recovery_sequence_compliant": True,
+                "selected_primitive_id": "glide",
+                "selected_primitive_variant_id": "v0",
+            }
+        )
+    return final_schedule, final_rows
+
+
+def test_v53_r10_claim_gate_passes_when_any_deployable_cluster_profile_passes() -> None:
+    final_schedule, final_rows = _r10_claim_gate_schedule_and_rows("balanced_cluster")
+
+    gates = _pass_fail_summary(
+        protocol=R10_PROTOCOL,
+        max_primitives_per_launch=0,
+        max_episode_time_s=20.0,
+        final_schedule=final_schedule,
+        history_schedule=[{}] * R10_EXPECTED_HISTORY_LAUNCHES,
+        episode_rows=final_rows,
+        pairing_rows=[{"pairing_passed": True}],
+        no_variation_rows=[{"variation_audit_passed": True}],
+    )
+
+    aggregate_hard_failure = next(row for row in gates if row["gate_id"] == "hard_failure_rate_within_stage_profile")
+    any_cluster_gate = next(
+        row for row in gates if row["gate_id"] == "r10_any_deployable_cluster_claim_profile_within_stage_profile"
+    )
+    assert aggregate_hard_failure["observed"] > R10_PROTOCOL.max_hard_failure_rate
+    assert aggregate_hard_failure["passed"] is True
+    assert any_cluster_gate["passed"] is True
+    assert any_cluster_gate["observed"] == "balanced_cluster"
+    assert all(bool(row["passed"]) for row in gates)
+
+
+def test_v53_r10_claim_gate_ignores_non_deployable_cluster_only_pass() -> None:
+    final_schedule, final_rows = _r10_claim_gate_schedule_and_rows("super_light_cluster")
+
+    gates = _pass_fail_summary(
+        protocol=R10_PROTOCOL,
+        max_primitives_per_launch=0,
+        max_episode_time_s=20.0,
+        final_schedule=final_schedule,
+        history_schedule=[{}] * R10_EXPECTED_HISTORY_LAUNCHES,
+        episode_rows=final_rows,
+        pairing_rows=[{"pairing_passed": True}],
+        no_variation_rows=[{"variation_audit_passed": True}],
+    )
+
+    any_cluster_gate = next(
+        row for row in gates if row["gate_id"] == "r10_any_deployable_cluster_claim_profile_within_stage_profile"
+    )
+    assert any_cluster_gate["passed"] is False
+    assert any_cluster_gate["observed"] == "none"
 
 
 def test_v53_r11_full_safe_success_gate_catches_safe_exit_only_passes() -> None:

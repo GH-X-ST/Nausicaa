@@ -1,0 +1,127 @@
+﻿{
+    "R7_R8_R10_R11_deliberately_not_run_when_stop_after_stage_R5":  false,
+    "active_primitive_count":  8,
+    "archived_stages":  [
+                            "R6"
+                        ],
+    "blocked_claims":  [
+                           "hardware_readiness",
+                           "real_flight_transfer",
+                           "mission_success",
+                           "full_autonomy",
+                           "memory_improvement"
+                       ],
+    "blocked_reason":  "",
+    "config":  {
+                   "allow_stage_smoke":  false,
+                   "candidate_chunk_size":  800,
+                   "compression_level":  1,
+                   "continue_on_stage_failure":  false,
+                   "dry_run_schedule":  false,
+                   "history_debug_sample_stride":  10,
+                   "history_log_mode":  "plot_summary",
+                   "max_workers":  16,
+                   "output_root":  "03_Control/05_Results/A_Pipeline",
+                   "r10_governor_config_path":  null,
+                   "r10_mode":  "full",
+                   "repair_incomplete":  false,
+                   "resume":  true,
+                   "run_id":  3,
+                   "run_label":  "E03",
+                   "stage_run_label":  "E03",
+                   "start_stage":  "R8",
+                   "stop_after_stage":  "R8",
+                   "storage_format":  "csv_gz",
+                   "workers":  "16"
+               },
+    "docs_alignment_baseline":  {
+                                    "docs/Daily_Schedule.txt":  {
+                                                                    "byte_count":  52913,
+                                                                    "modified_time_utc":  "2026-06-06T12:56:42.8517487Z",
+                                                                    "path":  "docs/Daily_Schedule.txt",
+                                                                    "readable":  true,
+                                                                    "sha256":  "016d28f1a53ca1bb58db7ad0b672ff8e2a1dd5707a5eff2625c36f8a38725246"
+                                                                },
+                                    "docs/Glider_Control_Project_Plan.md":  {
+                                                                                "byte_count":  114612,
+                                                                                "modified_time_utc":  "2026-06-06T12:57:04.6276408Z",
+                                                                                "path":  "docs/Glider_Control_Project_Plan.md",
+                                                                                "readable":  true,
+                                                                                "sha256":  "a2587ee162fa155f13aa5e8de36ffe4ddef79eb3ff27968cf043d5d2aeda8597"
+                                                                            },
+                                    "docs/MATLAB Coding.txt":  {
+                                                                   "byte_count":  24108,
+                                                                   "modified_time_utc":  "2026-06-06T12:43:34.5615590Z",
+                                                                   "path":  "docs/MATLAB Coding.txt",
+                                                                   "readable":  true,
+                                                                   "sha256":  "70b13c5c22200f9326950f0dec481cf1bf765993a9f09f63a60e3f8a4f8872fa"
+                                                               },
+                                    "docs/PR.txt":  {
+                                                        "byte_count":  36755,
+                                                        "modified_time_utc":  "2026-06-06T12:43:34.5893985Z",
+                                                        "path":  "docs/PR.txt",
+                                                        "readable":  true,
+                                                        "sha256":  "8ad431782b2bcb0b175747f914680861781dd41e9910cae07aa8927652e4e611"
+                                                    },
+                                    "docs/Python Coding Instruction.txt":  {
+                                                                               "byte_count":  31927,
+                                                                               "modified_time_utc":  "2026-06-06T12:43:34.5775685Z",
+                                                                               "path":  "docs/Python Coding Instruction.txt",
+                                                                               "readable":  true,
+                                                                               "sha256":  "bb149ee07f00648a0b24eb683949ab0a8424886bd91f41d72fbc5b21cc8878de"
+                                                                           },
+                                    "docs/Python Coding to CODEX.txt":  {
+                                                                            "byte_count":  25658,
+                                                                            "modified_time_utc":  "2026-06-06T12:43:34.5585577Z",
+                                                                            "path":  "docs/Python Coding to CODEX.txt",
+                                                                            "readable":  true,
+                                                                            "sha256":  "ed165222f7ae52c0d0ac1d58ba3124082d3bf01eb4001593c76a11b81398e54f"
+                                                                        },
+                                    "docs/Skills.md":  {
+                                                           "byte_count":  40107,
+                                                           "modified_time_utc":  "2026-06-06T12:56:48.0196582Z",
+                                                           "path":  "docs/Skills.md",
+                                                           "readable":  true,
+                                                           "sha256":  "2544a0d670495520c829d1862e1e3ed624f699a095b0c53d5f5dc81916d452c6"
+                                                       },
+                                    "docs/housekeeping_and_naming_rules.md":  {
+                                                                                  "byte_count":  36043,
+                                                                                  "modified_time_utc":  "2026-06-06T12:56:53.2974285Z",
+                                                                                  "path":  "docs/housekeeping_and_naming_rules.md",
+                                                                                  "readable":  true,
+                                                                                  "sha256":  "26240f9a516f1d3081568b86a098e53659ce617dc9ad08c80ed88bb389d9eb23"
+                                                                              }
+                                },
+    "docs_changed_during_run":  false,
+    "execution_scope":  "R5_R7_R8_R10_R11_chain",
+    "full_run_policy":  "R5_then_R7_R8_R10_R11_only_after_previous_stage_passes_R6_archived_diagnostic_only_R9_internal_preflight_only",
+    "pipeline_version":  "v55_r5_r7_r11_pipeline_r6_archived_with_repeated_docs_guard",
+    "project_title_version":  "LQR-Stabilised Contextual Primitive v5.20",
+    "r5_expected_dense_rows":  102400,
+    "r5_only_scope":  false,
+    "r8_thesis_role":  "post_R7_library_compression_and_library_size_cross_study",
+    "r9_thesis_role":  "internal_preflight_excluded_from_thesis_workflow_narrative",
+    "retired_launch_capture_primitive_ids_active":  false,
+    "run_id":  3,
+    "run_label":  "E03",
+    "run_root":  "03_Control/05_Results/A_Pipeline/E03",
+    "stage_order":  [
+                        "R5",
+                        "R7",
+                        "R8",
+                        "R10",
+                        "R11"
+                    ],
+    "stage_role_map":  {
+                           "R10":  "viability_governor_changed_case_tuning",
+                           "R11":  "viability_governor_strict_heldout_validation",
+                           "R5":  "primitive_learning_dense_synthesis",
+                           "R6":  "archived_diagnostic_only",
+                           "R7":  "primitive_validation_frozen_w3_holdout",
+                           "R8":  "post_w3_clustering_and_library_size_study",
+                           "R9":  "internal_preflight_ablation_only_not_active_pipeline_gate"
+                       },
+    "stage_run_label":  "E03",
+    "status":  "complete",
+    "thesis_facing_workflow":  "R5 -\u003e R7 -\u003e R8 -\u003e R10 -\u003e R11 -\u003e Reality"
+}

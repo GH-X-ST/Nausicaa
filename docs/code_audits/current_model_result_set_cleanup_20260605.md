@@ -2,8 +2,8 @@
 
 Date: 2026-06-05
 
-This audit records the cleanup of old neutral SysID and control-surface generated
-results after promotion of the current calibrated replay model:
+This historical cleanup audit records old neutral SysID and control-surface
+generated results after promotion of the then-current calibrated replay model:
 
 ```text
 neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_rudder_effectiveness_tiny_cnbeta_heavy_sweep_v1
@@ -35,8 +35,8 @@ Retained control-surface evidence:
 03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_0_final_cnbeta
 ```
 
-Active surface-effectiveness constants in
-`03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py`:
+Historical scalar surface-effectiveness constants recorded by this cleanup
+pass:
 
 ```text
 delta_a = 1.00
@@ -44,11 +44,15 @@ delta_e = 0.60
 delta_r = 0.531
 ```
 
-The retained control-surface result folder was generated before the final
-checked-in rudder-scale promotion, so its report/manifest may still describe
-rudder as diagnostic or unity. The evidence for the active rudder scale is in
-`pairwise_surface_gain_fit.csv`, where the rudder bounded gain is approximately
-`0.5308967863`; the active constants use the rounded conservative value `0.531`.
+The retained control-surface result folder was generated before the later
+alpha-regime surface-effectiveness schedule was promoted. Its report/manifest
+may still describe rudder as diagnostic, unity, or a scalar value. That scalar
+evidence is retained only as historical support. Newest active code uses the
+scheduled surface-authority model documented in
+`docs/code_audits/control_surface_effectiveness_v3_1_current_model_refit.md`
+and `docs/code_audits/real_flight_sysid_launch_alignment_v3_9.md`:
+`aileron=0.85/0.55/0.45`, `elevator=0.75/0.55/0.45`, and
+`rudder=0.85/0.55/0.40` for normal/transition/post-stall.
 
 Related current-model replay figures:
 

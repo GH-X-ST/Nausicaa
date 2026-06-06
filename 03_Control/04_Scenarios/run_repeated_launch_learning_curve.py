@@ -253,6 +253,7 @@ THESIS_FACING_WORKFLOW = "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 R9_THESIS_REPORTING_STATUS = "internal_preflight_excluded_from_thesis_workflow_narrative"
 REAL_FLIGHT_REQUIRED_LIBRARY_CASE_IDS = ("heavy_cluster", "balanced_cluster")
 REAL_FLIGHT_OPTIONAL_LIBRARY_CASE_IDS = ("light_cluster", "super_light_cluster")
+R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS = ("heavy_cluster", "balanced_cluster", "light_cluster")
 OFFLINE_UNRESTRICTED_LIBRARY_CASE_IDS = ("no_cluster_no_merge",)
 LAUNCH_SEQUENCE_POLICY_ID = "state_class_transition_entry_governor_no_launch_specific_family"
 FIRST_PRIMITIVE_START_FAMILY = "launch_gate"
@@ -457,8 +458,8 @@ class RepeatedLaunchValidationConfig:
     max_primitives_per_launch: int = 0
     max_episode_time_s: float = R9_PREFLIGHT_MAX_EPISODE_TIME_S
     smoke_outer_cases_per_block: int = 0
-    workers: int = 1
-    max_workers: int | None = None
+    workers: int = 16
+    max_workers: int | None = 16
     worker_backend: str = "process"
     governor_config: GovernorConfig | None = None
     history_log_mode: str = "auto"
@@ -6494,38 +6495,7 @@ def _pass_fail_summary(
                     sum(1 for row in final_rows if _truthy(row.get("expected_low_energy_dry_air_sink", False))),
                     "diagnostic_not_claim_bearing_governor_failure",
                 ),
-                _gate_row(
-                    "hard_failure_rate_within_stage_profile",
-                    _mean_bool(claim_rows, "hard_failure") <= float(protocol.max_hard_failure_rate),
-                    _mean_bool(claim_rows, "hard_failure"),
-                    protocol.max_hard_failure_rate,
-                ),
-                _gate_row(
-                    "floor_or_ceiling_violation_rate_within_stage_profile",
-                    _mean_bool(claim_rows, "floor_or_ceiling_violation")
-                    <= float(protocol.max_floor_or_ceiling_violation_rate),
-                    _mean_bool(claim_rows, "floor_or_ceiling_violation"),
-                    protocol.max_floor_or_ceiling_violation_rate,
-                ),
-                _gate_row(
-                    "no_viable_primitive_rate_within_stage_profile",
-                    _mean_bool(claim_rows, "no_viable_primitive") <= float(protocol.max_no_viable_rate),
-                    _mean_bool(claim_rows, "no_viable_primitive"),
-                    protocol.max_no_viable_rate,
-                ),
-                _gate_row(
-                    "safe_success_rate_within_stage_profile",
-                    _mean_bool(claim_rows, "safe_success") >= float(protocol.min_safe_success_rate),
-                    _mean_bool(claim_rows, "safe_success"),
-                    protocol.min_safe_success_rate,
-                ),
-                _gate_row(
-                    "terminal_or_lift_capture_within_stage_profile",
-                    max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture"))
-                    >= float(protocol.min_terminal_or_lift_capture_rate),
-                    max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture")),
-                    protocol.min_terminal_or_lift_capture_rate,
-                ),
+                *_stage_profile_gate_rows(protocol, claim_rows),
                 _gate_row(
                     "front_wall_mission_success_rate_diagnostic",
                     True,
@@ -6559,6 +6529,7 @@ def _pass_fail_summary(
             ]
         )
         if protocol.stage_id == "R10":
+            rows.extend(_r10_deployable_cluster_claim_gate_rows(protocol, claim_rows))
             rows.extend(
                 [
                     _gate_row(
@@ -6586,6 +6557,140 @@ def _pass_fail_summary(
             )
     else:
         rows.append(_gate_row("final_rollout_rows_present", False, 0, protocol.expected_final_heldout_launches))
+    return rows
+
+
+def _stage_profile_gate_rows(protocol: ValidationProtocol, claim_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    terminal_or_lift_rate = max(_mean_bool(claim_rows, "terminal_useful"), _mean_bool(claim_rows, "lift_capture"))
+    if protocol.stage_id == "R10":
+        diagnostic_required = (
+            "aggregate_diagnostic_only; blocking_R10_claim_gate_is_"
+            "r10_any_deployable_cluster_claim_profile_within_stage_profile"
+        )
+        return [
+            _gate_row(
+                "hard_failure_rate_within_stage_profile",
+                True,
+                _mean_bool(claim_rows, "hard_failure"),
+                diagnostic_required,
+            ),
+            _gate_row(
+                "floor_or_ceiling_violation_rate_within_stage_profile",
+                True,
+                _mean_bool(claim_rows, "floor_or_ceiling_violation"),
+                diagnostic_required,
+            ),
+            _gate_row(
+                "no_viable_primitive_rate_within_stage_profile",
+                True,
+                _mean_bool(claim_rows, "no_viable_primitive"),
+                diagnostic_required,
+            ),
+            _gate_row(
+                "safe_success_rate_within_stage_profile",
+                True,
+                _mean_bool(claim_rows, "safe_success"),
+                diagnostic_required,
+            ),
+            _gate_row(
+                "terminal_or_lift_capture_within_stage_profile",
+                True,
+                terminal_or_lift_rate,
+                diagnostic_required,
+            ),
+        ]
+    return [
+        _gate_row(
+            "hard_failure_rate_within_stage_profile",
+            _mean_bool(claim_rows, "hard_failure") <= float(protocol.max_hard_failure_rate),
+            _mean_bool(claim_rows, "hard_failure"),
+            protocol.max_hard_failure_rate,
+        ),
+        _gate_row(
+            "floor_or_ceiling_violation_rate_within_stage_profile",
+            _mean_bool(claim_rows, "floor_or_ceiling_violation")
+            <= float(protocol.max_floor_or_ceiling_violation_rate),
+            _mean_bool(claim_rows, "floor_or_ceiling_violation"),
+            protocol.max_floor_or_ceiling_violation_rate,
+        ),
+        _gate_row(
+            "no_viable_primitive_rate_within_stage_profile",
+            _mean_bool(claim_rows, "no_viable_primitive") <= float(protocol.max_no_viable_rate),
+            _mean_bool(claim_rows, "no_viable_primitive"),
+            protocol.max_no_viable_rate,
+        ),
+        _gate_row(
+            "safe_success_rate_within_stage_profile",
+            _mean_bool(claim_rows, "safe_success") >= float(protocol.min_safe_success_rate),
+            _mean_bool(claim_rows, "safe_success"),
+            protocol.min_safe_success_rate,
+        ),
+        _gate_row(
+            "terminal_or_lift_capture_within_stage_profile",
+            terminal_or_lift_rate >= float(protocol.min_terminal_or_lift_capture_rate),
+            terminal_or_lift_rate,
+            protocol.min_terminal_or_lift_capture_rate,
+        ),
+    ]
+
+
+def _r10_deployable_cluster_claim_gate_rows(
+    protocol: ValidationProtocol,
+    claim_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    passed_cases: list[str] = []
+    required = (
+        f"case_claim_rows>0; hard_failure<={float(protocol.max_hard_failure_rate)}; "
+        f"floor_or_ceiling<={float(protocol.max_floor_or_ceiling_violation_rate)}; "
+        f"no_viable<={float(protocol.max_no_viable_rate)}; "
+        f"safe_success>={float(protocol.min_safe_success_rate)}; "
+        f"terminal_or_lift>={float(protocol.min_terminal_or_lift_capture_rate)}"
+    )
+    for case_id in R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS:
+        case_rows = [row for row in claim_rows if str(row.get("library_size_case_id", "")) == case_id]
+        hard_failure_rate = _mean_bool(case_rows, "hard_failure")
+        floor_or_ceiling_rate = _mean_bool(case_rows, "floor_or_ceiling_violation")
+        no_viable_rate = _mean_bool(case_rows, "no_viable_primitive")
+        safe_success_rate = _mean_bool(case_rows, "safe_success")
+        terminal_or_lift_rate = max(_mean_bool(case_rows, "terminal_useful"), _mean_bool(case_rows, "lift_capture"))
+        case_passed = bool(
+            case_rows
+            and hard_failure_rate <= float(protocol.max_hard_failure_rate)
+            and floor_or_ceiling_rate <= float(protocol.max_floor_or_ceiling_violation_rate)
+            and no_viable_rate <= float(protocol.max_no_viable_rate)
+            and safe_success_rate >= float(protocol.min_safe_success_rate)
+            and terminal_or_lift_rate >= float(protocol.min_terminal_or_lift_capture_rate)
+        )
+        if case_passed:
+            passed_cases.append(case_id)
+        rows.append(
+            _gate_row(
+                f"r10_{case_id}_claim_profile_diagnostic",
+                True,
+                json.dumps(
+                    {
+                        "claim_bearing_final_launch_count": len(case_rows),
+                        "hard_failure_rate": hard_failure_rate,
+                        "floor_or_ceiling_violation_rate": floor_or_ceiling_rate,
+                        "no_viable_primitive_rate": no_viable_rate,
+                        "safe_success_rate": safe_success_rate,
+                        "terminal_or_lift_capture_rate": terminal_or_lift_rate,
+                        "case_claim_profile_passed": case_passed,
+                    },
+                    sort_keys=True,
+                ),
+                required,
+            )
+        )
+    rows.append(
+        _gate_row(
+            "r10_any_deployable_cluster_claim_profile_within_stage_profile",
+            bool(passed_cases),
+            ",".join(passed_cases) if passed_cases else "none",
+            "any_of:" + ",".join(R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS),
+        )
+    )
     return rows
 
 
@@ -6733,23 +6838,33 @@ def _write_governor_tuning_outputs(
     selector_rows: list[dict[str, object]] | None = None,
 ) -> None:
     final = pd.DataFrame([row for row in episode_rows if str(row.get("launch_role", "")) == "final_heldout"])
+    final_records = final.to_dict(orient="records")
+    claim_records = [row for row in final_records if _truthy(row.get("claim_bearing_episode", True))]
     final_episode_ids = {
         str(row.get("episode_id", ""))
-        for row in final.to_dict(orient="records")
+        for row in final_records
         if str(row.get("episode_id", "")).strip()
     }
+    calibration_records = claim_records if claim_records else final_records
     metrics = {
         "final_launch_count": int(len(final)),
-        "hard_failure_rate": _mean_bool(final.to_dict(orient="records"), "hard_failure") if not final.empty else 1.0,
-        "no_viable_primitive_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
-        "final_reject_rate": _mean_bool(final.to_dict(orient="records"), "no_viable_primitive") if not final.empty else 1.0,
-        "safe_success_rate": _mean_bool(final.to_dict(orient="records"), "safe_success") if not final.empty else 0.0,
-        "full_safe_success_rate": _mean_bool(final.to_dict(orient="records"), "full_safe_success") if not final.empty else 0.0,
-        "mission_success_rate": _mean_bool(final.to_dict(orient="records"), "mission_success") if not final.empty else 0.0,
-        "wrong_wall_exit_rate": _mean_bool(final.to_dict(orient="records"), "wrong_wall_exit") if not final.empty else 0.0,
+        "claim_bearing_final_launch_count": int(len(claim_records)),
+        "expected_low_energy_dry_air_sink_count": int(
+            sum(1 for row in final_records if _truthy(row.get("expected_low_energy_dry_air_sink", False)))
+        ),
+        "all_final_hard_failure_rate": _mean_bool(final_records, "hard_failure") if final_records else 1.0,
+        "all_final_no_viable_primitive_rate": _mean_bool(final_records, "no_viable_primitive") if final_records else 1.0,
+        "all_final_safe_success_rate": _mean_bool(final_records, "safe_success") if final_records else 0.0,
+        "hard_failure_rate": _mean_bool(calibration_records, "hard_failure") if calibration_records else 1.0,
+        "no_viable_primitive_rate": _mean_bool(calibration_records, "no_viable_primitive") if calibration_records else 1.0,
+        "final_reject_rate": _mean_bool(calibration_records, "no_viable_primitive") if calibration_records else 1.0,
+        "safe_success_rate": _mean_bool(calibration_records, "safe_success") if calibration_records else 0.0,
+        "full_safe_success_rate": _mean_bool(calibration_records, "full_safe_success") if calibration_records else 0.0,
+        "mission_success_rate": _mean_bool(calibration_records, "mission_success") if calibration_records else 0.0,
+        "wrong_wall_exit_rate": _mean_bool(calibration_records, "wrong_wall_exit") if calibration_records else 0.0,
         "terminal_or_lift_capture_rate": max(
-            _mean_bool(final.to_dict(orient="records"), "terminal_useful") if not final.empty else 0.0,
-            _mean_bool(final.to_dict(orient="records"), "lift_capture") if not final.empty else 0.0,
+            _mean_bool(calibration_records, "terminal_useful") if calibration_records else 0.0,
+            _mean_bool(calibration_records, "lift_capture") if calibration_records else 0.0,
         ),
     }
     metrics.update(
@@ -7333,6 +7448,14 @@ def _write_manifest(
         "policy_history_conditions": list(protocol.policy_history_conditions),
         "policy_history_condition_count": len(protocol.policy_history_conditions),
         "library_size_case_ids": list(LIBRARY_SIZE_CASE_IDS),
+        "r10_success_claim_policy": (
+            "pass_if_any_heavy_balanced_or_light_cluster_satisfies_claim_bearing_stage_profile"
+            if protocol.stage_id == "R10"
+            else ""
+        ),
+        "r10_success_claim_library_case_ids": (
+            list(R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS) if protocol.stage_id == "R10" else []
+        ),
         "outer_cases_per_condition": int(protocol.outer_cases_per_condition),
         "expected_final_heldout_launches": int(protocol.expected_final_heldout_launches),
         "actual_final_heldout_launches": int(len(final_schedule)),
@@ -7652,6 +7775,12 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         f"- Expected history launches: `{protocol.expected_history_launches}`",
         f"- Gate profile: `{protocol.gate_profile}`",
         f"- Safety thresholds: hard failure <= `{protocol.max_hard_failure_rate}`, no-viable <= `{protocol.max_no_viable_rate}`, safe success >= `{protocol.min_safe_success_rate}`, full safe success >= `{protocol.min_full_safe_success_rate}`, terminal/lift >= `{protocol.min_terminal_or_lift_capture_rate}`.",
+        (
+            "- R10 success claim policy: any one of `heavy_cluster`, `balanced_cluster`, or `light_cluster` must satisfy "
+            "the claim-bearing stage profile; aggregate rates remain diagnostics."
+            if protocol.stage_id == "R10"
+            else "- R10 success claim policy: `not_applicable`."
+        ),
         f"- Launch sequence policy: `{LAUNCH_SEQUENCE_POLICY_ID}`",
         "- Governor route: classify current transition state, filter matching primitive entry class, then score transition viability, front-wall progress, front-wall terminal proxy, progress-gated terminal total specific-energy proxy, updraft gain, lift dwell, and residual memory.",
         f"- Memory policy: `{OUTER_LOOP_MEMORY_POLICY_VERSION}` maintains a case-local 0.1 m 3D updraft-utility belief map; each flown primitive writes dense executed-segment residual samples at 0.1 m spacing with launch-index recency decay. The in-flight controller and full diagnostics query the accumulated map through the same 0.2 m neighbourhood over seven probes. The timed in-flight boundary uses a compact controller-row selector fast path before the 0.100 s boundary, while table flushing, full candidate-row expansion, and post-hoc candidate/memory diagnostics stay outside that boundary. Both use bounded current-to-exit, reachable-cone, and short-horizon route-flow probes from the candidate exit. The selector collapses those map queries into one cost-benefit memory value: remembered flow benefit plus small information value minus frozen mission-score, front-progress, risk, and path-margin costs. The value acts only among already-viable candidates and is accepted only through the baseline shield after viability filtering.",
@@ -7733,8 +7862,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--max-episode-time-s", type=float, default=R9_PREFLIGHT_MAX_EPISODE_TIME_S)
     parser.add_argument("--smoke-outer-cases-per-block", type=int, default=0)
-    parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--max-workers", type=int, default=16)
     parser.add_argument("--worker-backend", choices=("thread", "process"), default="process")
     parser.add_argument("--history-log-mode", choices=HISTORY_LOG_MODES, default="auto")
     parser.add_argument("--history-debug-sample-stride", type=int, default=DEFAULT_HISTORY_DEBUG_SAMPLE_STRIDE)

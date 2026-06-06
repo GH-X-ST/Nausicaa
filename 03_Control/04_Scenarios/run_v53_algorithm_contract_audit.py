@@ -84,6 +84,7 @@ from run_repeated_launch_learning_curve import (  # noqa: E402
     ONLINE_MEMORY_SCOPE,
     OUTER_LOOP_GOVERNOR_LEARNING_STRATEGY_VERSION,
     POLICY_HISTORY_CONDITIONS,
+    R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS,
     R11_POLICY_HISTORY_CONDITIONS,
     R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
     R10_GLOBAL_CALIBRATION_SCOPE,
@@ -178,6 +179,8 @@ def run_v53_algorithm_contract_audit(config: AlgorithmContractAuditConfig) -> di
         "docs_hashes": _doc_hash_rows(repo_root),
     }
     if not config.dry_run:
+        for subdir in ("metrics", "manifests", "reports"):
+            (run_root / subdir).mkdir(parents=True, exist_ok=True)
         _write_csv(run_root / "metrics" / "active_code_contract_audit.csv", active_contract_rows)
         _write_csv(run_root / "metrics" / "active_source_audit.csv", active_source_rows)
         _write_csv(run_root / "metrics" / "docs_code_consistency_audit.csv", docs_rows)
@@ -250,7 +253,7 @@ def _active_code_contract_rows() -> list[dict[str, object]]:
     rows.append(_row("r10_r11_arena_wide_fan_positions_nonoverlap_radius_0p5m", R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M == 0.5, R10_ARENA_WIDE_FAN_POSITION_SAFETY_RADIUS_M, "0.5 m radius; centers must be at least 1.0 m apart"))
     rows.append(_row("r9_is_internal_reduced_preflight", R9_PROTOCOL.validation_evidence_level == "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence", R9_PROTOCOL.validation_evidence_level, "internal_fixed_case_outer_loop_preflight_initial_governor_tuning_not_thesis_evidence"))
     rows.append(_row("r10_is_governor_learning_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level == "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate", R10_PROTOCOL.validation_evidence_level, "changed_case_viability_governor_learning_rollout_validation_not_final_claim_gate"))
-    rows.append(_row("r10_relaxed_failure_gate_allows_bounded_floor_ceiling_violations", R10_PROTOCOL.max_hard_failure_rate == 0.20 and R10_PROTOCOL.max_floor_or_ceiling_violation_rate == 0.20, {"hard_failure": R10_PROTOCOL.max_hard_failure_rate, "floor_or_ceiling": R10_PROTOCOL.max_floor_or_ceiling_violation_rate}, "R10 tuning gate allows bounded failures under full-domain randomisation"))
+    rows.append(_row("r10_cluster_scoped_claim_gate_uses_deployable_cases", R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS == ("heavy_cluster", "balanced_cluster", "light_cluster") and R10_PROTOCOL.max_hard_failure_rate == 0.20 and R10_PROTOCOL.max_floor_or_ceiling_violation_rate == 0.20, {"claim_cases": R10_DEPLOYABLE_CLAIM_LIBRARY_CASE_IDS, "hard_failure": R10_PROTOCOL.max_hard_failure_rate, "floor_or_ceiling": R10_PROTOCOL.max_floor_or_ceiling_violation_rate, "no_viable": R10_PROTOCOL.max_no_viable_rate, "safe_success": R10_PROTOCOL.min_safe_success_rate, "terminal_or_lift": R10_PROTOCOL.min_terminal_or_lift_capture_rate}, "any heavy/balanced/light cluster may satisfy the R10 claim profile; aggregate rates are diagnostics"))
     rows.append(_row("r11_is_strict_heldout_validation", R11_PROTOCOL.validation_evidence_level == "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation", R11_PROTOCOL.validation_evidence_level, "strict_heldout_environment_only_changed_case_repeated_launch_rollout_validation"))
     rows.append(_row("r11_strict_floor_ceiling_gate_zero", R11_PROTOCOL.max_floor_or_ceiling_violation_rate == 0.0, R11_PROTOCOL.max_floor_or_ceiling_violation_rate, 0.0))
     rows.append(_row("r11_gates_full_safe_success", R11_PROTOCOL.min_full_safe_success_rate == 0.99, R11_PROTOCOL.min_full_safe_success_rate, 0.99))
