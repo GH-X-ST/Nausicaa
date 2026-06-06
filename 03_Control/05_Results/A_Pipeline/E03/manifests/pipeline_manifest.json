@@ -11,7 +11,7 @@
     "full_autonomy",
     "memory_improvement"
   ],
-  "blocked_reason": "",
+  "blocked_reason": "failed_gate:pass_gate_true,r11_validation_gate_hard_failure_rate_within_stage_profile,r11_validation_gate_floor_or_ceiling_violation_rate_within_stage_profile,r11_validation_gate_no_viable_primitive_rate_within_stage_profile,r11_validation_gate_safe_success_rate_within_stage_profile,r11_validation_gate_terminal_or_lift_capture_within_stage_profile,r11_validation_gate_full_safe_success_rate_within_stage_profile",
   "config": {
     "allow_stage_smoke": false,
     "candidate_chunk_size": 800,
@@ -122,6 +122,6 @@
     "R9": "internal_preflight_ablation_only_not_active_pipeline_gate"
   },
   "stage_run_label": "E03.1",
-  "status": "running",
+  "status": "blocked",
   "thesis_facing_workflow": "R5 -> R7 -> R8 -> R10 -> R11 -> Reality"
 }

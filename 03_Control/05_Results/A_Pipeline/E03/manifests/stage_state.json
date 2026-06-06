@@ -1,5 +1,5 @@
 {
-  "blocked_reason": "",
+  "blocked_reason": "failed_gate:pass_gate_true,r11_validation_gate_hard_failure_rate_within_stage_profile,r11_validation_gate_floor_or_ceiling_violation_rate_within_stage_profile,r11_validation_gate_no_viable_primitive_rate_within_stage_profile,r11_validation_gate_safe_success_rate_within_stage_profile,r11_validation_gate_terminal_or_lift_capture_within_stage_profile,r11_validation_gate_full_safe_success_rate_within_stage_profile",
   "docs_alignment_baseline": {
     "docs/Daily_Schedule.txt": {
       "byte_count": 52915,
@@ -105,6 +105,6 @@
       "status": "complete"
     }
   },
-  "status": "complete",
-  "updated_utc": "2026-06-06T13:55:13.386199+00:00"
+  "status": "blocked",
+  "updated_utc": "2026-06-06T16:25:15.079716+00:00"
 }

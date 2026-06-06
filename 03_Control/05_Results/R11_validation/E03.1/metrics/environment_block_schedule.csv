@@ -1,0 +1,9 @@
+block_id,human_label,W_layer,environment_mode,case_count,environment_change_family
+r11_l0_dry_air_fixed,R11 L0 dry air fixed,W0,dry_air,20,l0_dry_air_fixed
+r11_l1_single_fan_fixed_nominal,R11 L1 single fan fixed nominal,W2,annular_gp_single,20,l1_single_fan_fixed_nominal
+r11_l2_four_fan_fixed_nominal,R11 L2 four fan fixed nominal,W2,annular_gp_four,20,l2_four_fan_fixed_nominal
+r11_l3_fan_parameter_uncertainty,R11 L3 fan parameter uncertainty,W3,w3_randomised_four,20,l3_fan_parameter_uncertainty
+r11_l4_local_fan_position_uncertainty,R11 L4 local fan position uncertainty,W3,w3_randomised_four,20,l4_local_fan_position_uncertainty
+r11_l5_active_fan_count_uncertainty,R11 L5 active fan count uncertainty,W3,w3_randomised_four,20,l5_active_fan_count_uncertainty
+r11_l6_environment_only_full_uncertainty,R11 L6 environment-only full uncertainty,W3,w3_randomised_four,20,l6_environment_only_full_uncertainty
+r11_l7_full_domain_randomisation_arena_wide,R11 L7 full-domain randomisation arena-wide,W3,w3_randomised_four,20,l7_full_domain_randomisation_arena_wide
