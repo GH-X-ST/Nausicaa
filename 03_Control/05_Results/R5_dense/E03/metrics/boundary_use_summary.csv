@@ -1,0 +1,5 @@
+boundary_use_class,continuation_valid,episode_terminal_useful,outcome_class,row_count
+continuation_valid,True,False,accepted,36115
+continuation_valid,True,False,weak,60005
+episode_terminal_useful,False,True,weak,6276
+hard_failure,False,False,failed,4

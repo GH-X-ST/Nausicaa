@@ -1,0 +1,25 @@
+{
+  "runner_version": "run_lqr_w01_dense_chunked_v524",
+  "status": "complete",
+  "run_id": 3,
+  "chunk_index": 86,
+  "chunk_count": 128,
+  "row_start": 68800,
+  "row_stop": 69600,
+  "row_count": 800,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w01_primitive_rows/c00086.csv.gz",
+  "byte_count": 2335372,
+  "checksum_sha256": "b7e9b212127b340965512a0aa7289975aac93ff6d09bae5c77bff884c0424b7b",
+  "duration_s": 114.34839749336243,
+  "table_name": "w01_primitive_rows",
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    "launch_handoff_duration_s": 0.04,
+    "launch_handoff_policy_version": "launch_gate_neutral_handoff_0p040s_v1"
+  }
+}
