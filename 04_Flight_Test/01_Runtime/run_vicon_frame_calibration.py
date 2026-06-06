@@ -34,8 +34,11 @@ from real_flight_io import ViconArenaFrameTransform  # noqa: E402
 #   "attitude"   updates only roll/pitch/yaw rigid-body alignment
 #   "pose"       updates both position and attitude
 #   "diagnostic" measures both and writes neither
-CALIBRATION_MODE = "attitude"
-CALIBRATION_MODES = ("position", "attitude", "pose", "diagnostic")
+#   "single_fan" checks Fan_1 against the single-fan simulation centre and writes nothing
+#   "four_fan"   checks Fan_1..Fan_4 against the fixed four-fan simulation centres and writes nothing
+CALIBRATION_MODE = "position"
+FAN_CHECK_MODES = ("single_fan", "four_fan")
+CALIBRATION_MODES = ("position", "attitude", "pose", "diagnostic", *FAN_CHECK_MODES)
 KNOWN_ARENA_POINT_M = (1.2, 1.6, 0.1)
 KNOWN_ARENA_ATTITUDE_DEG = (0.0, 0.0, 0.0)
 CURRENT_POSITION_OFFSET_M = DEFAULT_VICON_POSITION_OFFSET_M
@@ -48,6 +51,28 @@ CALIBRATION_SAMPLE_COUNT = 150
 CALIBRATION_TIMEOUT_S = 15.0
 POSITION_CALIBRATION_PATH = ACTIVE_VICON_POSITION_CALIBRATION_PATH
 ATTITUDE_CALIBRATION_PATH = ACTIVE_VICON_ATTITUDE_CALIBRATION_PATH
+DEFAULT_FAN_VICON_SUBJECT_NAMES = ("Fan_1", "Fan_2", "Fan_3", "Fan_4")
+DEFAULT_FAN_POSITION_TOLERANCE_M = 0.05
+DEFAULT_FAN_CHECK_PRINT_INTERVAL_S = 10.0
+DEFAULT_FAN_CHECK_TIMEOUT_S = 0.0
+DEFAULT_FAN_POSITION_ERROR_AXIS = "xy"
+DEFAULT_SIM_FAN_MARKER_HEIGHT_M = 0.75
+# Keep these fixed-layout targets aligned with 03_Control/04_Scenarios/updraft_models.py.
+SIM_SINGLE_FAN_TARGETS_M = {
+    "Fan_1": (4.2, 2.4, DEFAULT_SIM_FAN_MARKER_HEIGHT_M),
+}
+SIM_FOUR_FAN_TARGETS_M = {
+    "Fan_1": (3.0, 3.6, DEFAULT_SIM_FAN_MARKER_HEIGHT_M),
+    "Fan_2": (5.4, 3.6, DEFAULT_SIM_FAN_MARKER_HEIGHT_M),
+    "Fan_3": (3.0, 1.2, DEFAULT_SIM_FAN_MARKER_HEIGHT_M),
+    "Fan_4": (5.4, 1.2, DEFAULT_SIM_FAN_MARKER_HEIGHT_M),
+}
+RUNTIME_REPLAY_FAN_TARGETS_M = {
+    "Fan_1": (2.7, 1.6, 0.75),
+    "Fan_2": (2.7, 2.8, 0.75),
+    "Fan_3": (4.5, 1.6, 0.75),
+    "Fan_4": (4.5, 2.8, 0.75),
+}
 # =============================================================================
 
 
@@ -74,10 +99,18 @@ def _write_json_payload(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _format_vector(values: tuple[float, float, float] | np.ndarray, *, unit: str = "") -> str:
+    array = np.asarray(values, dtype=float).reshape(3)
+    suffix = f" {unit}" if unit else ""
+    return f"({array[0]:+.6f}, {array[1]:+.6f}, {array[2]:+.6f}){suffix}"
+
+
 def _update_flags_for_calibration_mode(calibration_mode: str) -> tuple[bool, bool, bool]:
     mode = str(calibration_mode)
     if mode not in CALIBRATION_MODES:
         raise ValueError(f"calibration_mode must be one of {CALIBRATION_MODES}, got {mode!r}.")
+    if mode in FAN_CHECK_MODES:
+        return False, False, False
     update_active_profile = mode != "diagnostic"
     update_active_position = mode in {"position", "pose"}
     update_active_attitude = mode in {"attitude", "pose"}
@@ -172,6 +205,237 @@ def _update_active_vicon_calibration_files(
     return manifest
 
 
+def _fan_targets_for_mode(calibration_mode: str) -> dict[str, tuple[float, float, float]]:
+    mode = str(calibration_mode)
+    if mode == "single_fan":
+        return dict(SIM_SINGLE_FAN_TARGETS_M)
+    if mode == "four_fan":
+        return dict(SIM_FOUR_FAN_TARGETS_M)
+    raise ValueError(f"fan targets are only defined for {FAN_CHECK_MODES}, got {mode!r}.")
+
+
+def _fan_position_error_m(
+    position_m: np.ndarray,
+    target_m: np.ndarray,
+    *,
+    error_axis: str,
+) -> tuple[np.ndarray, float]:
+    delta = np.asarray(position_m, dtype=float).reshape(3) - np.asarray(target_m, dtype=float).reshape(3)
+    if error_axis == "xy":
+        error = float(np.linalg.norm(delta[:2]))
+    elif error_axis == "xyz":
+        error = float(np.linalg.norm(delta))
+    else:
+        raise ValueError("fan position error axis must be 'xy' or 'xyz'.")
+    return delta, error
+
+
+def run_vicon_fan_position_check(
+    *,
+    calibration_mode: str,
+    current_position_offset_m: tuple[float, float, float],
+    current_yaw_alignment_deg: float,
+    current_attitude_signs: tuple[float, float, float],
+    current_attitude_offset_rad: tuple[float, float, float],
+    vicon_host: str,
+    subject_name: str,
+    run_label: str,
+    tolerance_m: float = DEFAULT_FAN_POSITION_TOLERANCE_M,
+    print_interval_s: float = DEFAULT_FAN_CHECK_PRINT_INTERVAL_S,
+    timeout_s: float = DEFAULT_FAN_CHECK_TIMEOUT_S,
+    error_axis: str = DEFAULT_FAN_POSITION_ERROR_AXIS,
+) -> dict[str, object]:
+    targets = _fan_targets_for_mode(calibration_mode)
+    target_subjects = tuple(targets)
+    tolerance = float(tolerance_m)
+    interval = max(0.1, float(print_interval_s))
+    timeout = max(0.0, float(timeout_s))
+    axis = str(error_axis)
+    logger = FlightLogger(RESULT_ROOT / "vicon_fan_position_check" / run_label)
+    reader = LiveNausicaaViconRigidBody(host=vicon_host, subject_name=subject_name)
+    transform = ViconArenaFrameTransform(
+        position_offset_m=current_position_offset_m,
+        yaw_alignment_rad=float(np.deg2rad(current_yaw_alignment_deg)),
+        attitude_signs=current_attitude_signs,
+        attitude_offset_rad=current_attitude_offset_rad,
+    )
+
+    manifest = {
+        "status": "running",
+        "calibration_mode": str(calibration_mode),
+        "vicon_host": str(vicon_host),
+        "tracked_fan_subject_names": target_subjects,
+        "vicon_default_fan_subject_names": DEFAULT_FAN_VICON_SUBJECT_NAMES,
+        "simulation_target_positions_m": targets,
+        "runtime_replay_fan_positions_m": RUNTIME_REPLAY_FAN_TARGETS_M,
+        "tolerance_m": tolerance,
+        "error_axis": axis,
+        "print_interval_s": interval,
+        "timeout_s": timeout,
+        "loaded_active_profile_id": ACTIVE_CALIBRATION_PROFILE.profile_id,
+        "loaded_active_profile_hash": ACTIVE_CALIBRATION_PROFILE.profile_hash(),
+        "current_position_offset_m": tuple(float(value) for value in current_position_offset_m),
+        "current_yaw_alignment_deg": float(current_yaw_alignment_deg),
+        "current_attitude_signs_phi_theta_psi": tuple(float(value) for value in current_attitude_signs),
+        "current_attitude_offset_rad": tuple(float(value) for value in current_attitude_offset_rad),
+        "notes": (
+            "Fan check modes do not update calibration files. Live Vicon fan translations are transformed "
+            "through the active arena transform before comparison. The fixed simulation targets mirror "
+            "03_Control/04_Scenarios/updraft_models.py; runtime replay fan positions are listed separately "
+            "because they are hardware-free placeholders, not the target for physical placement."
+        ),
+    }
+    logger.write_manifest("vicon_fan_position_check_manifest.json", manifest)
+
+    print(f"[FAN_CHECK] calibration_mode={calibration_mode}")
+    print(f"[FAN_CHECK] default Vicon fan subjects: {DEFAULT_FAN_VICON_SUBJECT_NAMES}")
+    print(f"[FAN_CHECK] active fan subjects for this check: {target_subjects}")
+    print(f"[FAN_CHECK] tolerance={tolerance:.3f} m over {axis}; print interval={interval:.1f}s")
+    print("[FAN_CHECK] simulation targets:")
+    for subject, target in targets.items():
+        print(f"  {subject}: target={_format_vector(target, unit='m')}")
+    print("[FAN_CHECK] runtime replay fan positions, for reference only:")
+    for subject, target in RUNTIME_REPLAY_FAN_TARGETS_M.items():
+        print(f"  {subject}: replay={_format_vector(target, unit='m')}")
+
+    latest_rows: list[dict[str, object]] = []
+    status = "not_started"
+    started = time.perf_counter()
+    check_index = 0
+    try:
+        reader.open()
+        while True:
+            check_index += 1
+            elapsed_s = time.perf_counter() - started
+            try:
+                if reader.client is not None:
+                    reader.client.GetFrame()
+                fans = reader.read_fans(target_subjects)
+            except Exception as exc:
+                fans = ()
+                latest_rows = [
+                    {
+                        "check_index": check_index,
+                        "elapsed_s": elapsed_s,
+                        "fan_subject": "",
+                        "visible": False,
+                        "reason": f"fan_tracker_failed:{type(exc).__name__}:{exc}",
+                        "within_tolerance": False,
+                        "all_within_tolerance": False,
+                    }
+                ]
+            rows = []
+            all_visible = True
+            all_within_tolerance = True
+            fans_by_subject = {fan.subject_name: fan for fan in fans}
+            for subject in target_subjects:
+                fan = fans_by_subject.get(subject)
+                target = np.asarray(targets[subject], dtype=float).reshape(3)
+                visible = bool(fan is not None and fan.visible and fan.position_m is not None)
+                reason = "fan_not_returned" if fan is None else fan.reason
+                raw = np.full(3, np.nan, dtype=float)
+                world = np.full(3, np.nan, dtype=float)
+                delta = np.full(3, np.nan, dtype=float)
+                error = float("nan")
+                within = False
+                frame_number = -1 if fan is None else int(fan.frame_number)
+                if visible and fan is not None and fan.position_m is not None:
+                    raw = np.asarray(fan.position_m, dtype=float).reshape(3)
+                    world = transform.position_to_world(raw)
+                    delta, error = _fan_position_error_m(world, target, error_axis=axis)
+                    within = bool(error <= tolerance)
+                all_visible = all_visible and visible
+                all_within_tolerance = all_within_tolerance and within
+                row = {
+                    "check_index": check_index,
+                    "elapsed_s": elapsed_s,
+                    "fan_subject": subject,
+                    "visible": visible,
+                    "reason": reason,
+                    "frame_number": frame_number,
+                    "target_x_w_m": float(target[0]),
+                    "target_y_w_m": float(target[1]),
+                    "target_z_w_m": float(target[2]),
+                    "raw_x_m": "" if not np.isfinite(raw[0]) else float(raw[0]),
+                    "raw_y_m": "" if not np.isfinite(raw[1]) else float(raw[1]),
+                    "raw_z_m": "" if not np.isfinite(raw[2]) else float(raw[2]),
+                    "x_w_m": "" if not np.isfinite(world[0]) else float(world[0]),
+                    "y_w_m": "" if not np.isfinite(world[1]) else float(world[1]),
+                    "z_w_m": "" if not np.isfinite(world[2]) else float(world[2]),
+                    "dx_m": "" if not np.isfinite(delta[0]) else float(delta[0]),
+                    "dy_m": "" if not np.isfinite(delta[1]) else float(delta[1]),
+                    "dz_m": "" if not np.isfinite(delta[2]) else float(delta[2]),
+                    "error_axis": axis,
+                    "error_m": "" if not np.isfinite(error) else float(error),
+                    "within_tolerance": within,
+                    "all_visible": False,
+                    "all_within_tolerance": False,
+                }
+                rows.append(row)
+            for row in rows:
+                row["all_visible"] = all_visible
+                row["all_within_tolerance"] = all_within_tolerance
+                logger.append_metric_row("vicon_fan_position_check.csv", row)
+            latest_rows = rows or latest_rows
+            status = "within_tolerance" if all_visible and all_within_tolerance else "waiting"
+            print(
+                f"[FAN_CHECK] check={check_index} elapsed={elapsed_s:.1f}s "
+                f"status={status} visible={sum(1 for row in rows if row['visible'])}/{len(target_subjects)}"
+            )
+            for row in rows:
+                if row["visible"]:
+                    print(
+                        f"  {row['fan_subject']}: pos="
+                        f"({_as_float_text(row['x_w_m'])}, {_as_float_text(row['y_w_m'])}, {_as_float_text(row['z_w_m'])}) m "
+                        f"target=({_as_float_text(row['target_x_w_m'])}, {_as_float_text(row['target_y_w_m'])}, "
+                        f"{_as_float_text(row['target_z_w_m'])}) m "
+                        f"delta=({_as_float_text(row['dx_m'])}, {_as_float_text(row['dy_m'])}, {_as_float_text(row['dz_m'])}) m "
+                        f"error_{axis}={_as_float_text(row['error_m'])} m "
+                        f"{'OK' if row['within_tolerance'] else 'MOVE'}"
+                    )
+                else:
+                    print(f"  {row['fan_subject']}: not visible ({row['reason']})")
+            if status == "within_tolerance":
+                print("[FAN_CHECK] all requested fans are within tolerance")
+                break
+            if timeout > 0.0 and elapsed_s >= timeout:
+                status = "timeout"
+                print("[FAN_CHECK] timeout before all requested fans were within tolerance")
+                break
+            print(f"[FAN_CHECK] adjust fan placement; next update in {interval:.1f}s")
+            time.sleep(interval)
+    finally:
+        reader.close()
+        result = dict(manifest)
+        result["status"] = status
+        result["check_count"] = int(check_index)
+        result["elapsed_s"] = float(time.perf_counter() - started)
+        result["latest_rows"] = latest_rows
+        logger.write_manifest("vicon_fan_position_check_manifest.json", result)
+        logger.write_report(
+            "vicon_fan_position_check_report.md",
+            [
+                "# Vicon Fan Position Check Report",
+                f"- Status: `{result['status']}`",
+                f"- Calibration mode: `{result['calibration_mode']}`",
+                f"- Error axis: `{result['error_axis']}`",
+                f"- Tolerance (m): `{result['tolerance_m']}`",
+                f"- Simulation target positions (m): `{result['simulation_target_positions_m']}`",
+                f"- Runtime replay fan positions for reference (m): `{result['runtime_replay_fan_positions_m']}`",
+                f"- Latest rows: `{result['latest_rows']}`",
+            ],
+        )
+        logger.close()
+    return result
+
+
+def _as_float_text(value: object) -> str:
+    try:
+        return f"{float(value):+.3f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
 def run_vicon_frame_calibration(
     *,
     known_arena_point_m: tuple[float, float, float],
@@ -210,6 +474,9 @@ def run_vicon_frame_calibration(
     raw_euler_samples: list[np.ndarray] = []
     transformed_euler_samples: list[np.ndarray] = []
     invalid_reasons: dict[str, int] = {}
+    loaded_active_position_offset = np.asarray(ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m, dtype=float).reshape(3)
+    current_position_offset = np.asarray(current_position_offset_m, dtype=float).reshape(3)
+    loaded_vs_current_offset_delta = current_position_offset - loaded_active_position_offset
 
     print("[CALIBRATE] Hold the glider still at the known arena point.")
     print(
@@ -220,6 +487,18 @@ def run_vicon_frame_calibration(
         f"[CALIBRATE] known roll/pitch/yaw = "
         f"{known_arena_attitude_deg[0]:.2f}, {known_arena_attitude_deg[1]:.2f}, "
         f"{known_arena_attitude_deg[2]:.2f} deg"
+    )
+    print("[CALIBRATE] loaded active calibration at script start:")
+    print(f"  profile id:              {ACTIVE_CALIBRATION_PROFILE.profile_id}")
+    print(f"  profile hash:            {ACTIVE_CALIBRATION_PROFILE.profile_hash()}")
+    print(f"  position file:           {POSITION_CALIBRATION_PATH}")
+    print(f"  attitude file:           {ATTITUDE_CALIBRATION_PATH}")
+    print(f"  last saved position off: {_format_vector(loaded_active_position_offset, unit='m')}")
+    print(f"  current offset in use:   {_format_vector(current_position_offset, unit='m')}")
+    print(f"  current - last saved:    {_format_vector(loaded_vs_current_offset_delta, unit='m')}")
+    print(
+        "  attitude off in use:     "
+        f"{_format_vector(tuple(float(np.rad2deg(value)) for value in current_attitude_offset_rad), unit='deg')}"
     )
     print(f"[CALIBRATE] collecting {sample_count} valid Vicon samples, timeout={timeout_s:.1f}s")
     try:
@@ -310,6 +589,7 @@ def run_vicon_frame_calibration(
     recommended_attitude_offset = _wrap_angle_vector(
         np.asarray(current_attitude_offset_rad, dtype=float).reshape(3) - transformed_attitude_error
     )
+    recommended_minus_loaded_active_offset = recommended_offset - loaded_active_position_offset
 
     result = {
         "status": "ok",
@@ -326,10 +606,28 @@ def run_vicon_frame_calibration(
         "current_transform_error_m": tuple(float(value) for value in transformed_error),
         "current_transformed_attitude_mean_rad": tuple(float(value) for value in transformed_euler_mean),
         "current_transformed_attitude_error_rad": tuple(float(value) for value in transformed_attitude_error),
+        "loaded_active_profile_id": ACTIVE_CALIBRATION_PROFILE.profile_id,
+        "loaded_active_profile_version": ACTIVE_CALIBRATION_PROFILE.profile_version,
+        "loaded_active_profile_hash": ACTIVE_CALIBRATION_PROFILE.profile_hash(),
+        "loaded_active_position_calibration_path": POSITION_CALIBRATION_PATH.as_posix(),
+        "loaded_active_attitude_calibration_path": ATTITUDE_CALIBRATION_PATH.as_posix(),
+        "loaded_active_position_offset_m": tuple(float(value) for value in loaded_active_position_offset),
         "current_position_offset_m": tuple(float(value) for value in current_position_offset_m),
+        "current_minus_loaded_active_position_offset_m": tuple(
+            float(value) for value in loaded_vs_current_offset_delta
+        ),
         "recommended_position_offset_m": tuple(float(value) for value in recommended_offset),
+        "recommended_minus_loaded_active_position_offset_m": tuple(
+            float(value) for value in recommended_minus_loaded_active_offset
+        ),
         "current_yaw_alignment_deg": float(current_yaw_alignment_deg),
         "current_attitude_signs_phi_theta_psi": tuple(float(value) for value in current_attitude_signs),
+        "loaded_active_attitude_offset_rad": tuple(
+            float(value) for value in ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
+        ),
+        "loaded_active_attitude_offset_deg": tuple(
+            float(np.rad2deg(value)) for value in ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
+        ),
         "current_attitude_offset_rad": tuple(float(value) for value in current_attitude_offset_rad),
         "recommended_attitude_offset_rad": tuple(float(value) for value in recommended_attitude_offset),
         "recommended_attitude_offset_deg": tuple(float(np.rad2deg(value)) for value in recommended_attitude_offset),
@@ -367,7 +665,15 @@ def run_vicon_frame_calibration(
             f"- Current transform error (m): `{result['current_transform_error_m']}`",
             f"- Current attitude mean (rad): `{result['current_transformed_attitude_mean_rad']}`",
             f"- Current attitude error (rad): `{result['current_transformed_attitude_error_rad']}`",
+            f"- Loaded active profile id: `{result['loaded_active_profile_id']}`",
+            f"- Loaded active profile hash: `{result['loaded_active_profile_hash']}`",
+            f"- Loaded active position calibration path: `{result['loaded_active_position_calibration_path']}`",
+            f"- Loaded active attitude calibration path: `{result['loaded_active_attitude_calibration_path']}`",
+            f"- Loaded active position offset (m): `{result['loaded_active_position_offset_m']}`",
+            f"- Current minus loaded active position offset (m): `{result['current_minus_loaded_active_position_offset_m']}`",
             f"- Recommended position offset (m): `{result['recommended_position_offset_m']}`",
+            f"- Recommended minus loaded active position offset (m): `{result['recommended_minus_loaded_active_position_offset_m']}`",
+            f"- Loaded active attitude offset (deg): `{result['loaded_active_attitude_offset_deg']}`",
             f"- Recommended attitude offset (rad): `{result['recommended_attitude_offset_rad']}`",
             f"- Recommended attitude offset (deg): `{result['recommended_attitude_offset_deg']}`",
             f"- Active profile position update requested: `{result['active_profile_position_update_requested']}`",
@@ -383,7 +689,21 @@ def run_vicon_frame_calibration(
     print(f"  current transformed mean: {result['current_transformed_mean_m']}")
     print(f"  current error m:          {result['current_transform_error_m']}")
     print(f"  current attitude error:   {result['current_transformed_attitude_error_rad']} rad")
-    print(f"  recommended offset m:     {result['recommended_position_offset_m']}")
+    print("[CALIBRATE] position calibration comparison")
+    print(f"  loaded profile id:        {result['loaded_active_profile_id']}")
+    print(f"  loaded profile hash:      {result['loaded_active_profile_hash']}")
+    print(f"  loaded position file:     {result['loaded_active_position_calibration_path']}")
+    print(f"  last saved offset m:      {_format_vector(result['loaded_active_position_offset_m'], unit='m')}")
+    print(f"  current offset in use m:  {_format_vector(result['current_position_offset_m'], unit='m')}")
+    print(
+        "  current - last saved m:   "
+        f"{_format_vector(result['current_minus_loaded_active_position_offset_m'], unit='m')}"
+    )
+    print(f"  recommended offset m:     {_format_vector(result['recommended_position_offset_m'], unit='m')}")
+    print(
+        "  recommended - last saved: "
+        f"{_format_vector(result['recommended_minus_loaded_active_position_offset_m'], unit='m')}"
+    )
     print(f"  recommended attitude off: {result['recommended_attitude_offset_deg']} deg")
     print()
     if update_active_position or update_active_attitude:
@@ -424,8 +744,17 @@ def _parse_args() -> argparse.Namespace:
         default=CALIBRATION_MODE,
         help=(
             "position writes only x/y/z; attitude writes only roll/pitch/yaw alignment; "
-            "pose writes both; diagnostic writes neither."
+            "pose writes both; diagnostic writes neither; single_fan/four_fan check live fan placement only."
         ),
+    )
+    parser.add_argument("--fan-position-tolerance-m", type=float, default=DEFAULT_FAN_POSITION_TOLERANCE_M)
+    parser.add_argument("--fan-check-interval-s", type=float, default=DEFAULT_FAN_CHECK_PRINT_INTERVAL_S)
+    parser.add_argument("--fan-check-timeout-s", type=float, default=DEFAULT_FAN_CHECK_TIMEOUT_S)
+    parser.add_argument(
+        "--fan-position-error-axis",
+        choices=("xy", "xyz"),
+        default=DEFAULT_FAN_POSITION_ERROR_AXIS,
+        help="Use xy to match simulation fan-centre geometry; xyz also checks marker height.",
     )
     parser.add_argument("--position-calibration-path", type=Path, default=POSITION_CALIBRATION_PATH)
     parser.add_argument("--attitude-calibration-path", type=Path, default=ATTITUDE_CALIBRATION_PATH)
@@ -441,6 +770,22 @@ def main() -> None:
         args.calibration_mode
     )
     print(f"[CALIBRATE] calibration_mode={args.calibration_mode}")
+    if args.calibration_mode in FAN_CHECK_MODES:
+        run_vicon_fan_position_check(
+            calibration_mode=str(args.calibration_mode),
+            current_position_offset_m=tuple(args.current_offset_m),
+            current_yaw_alignment_deg=float(args.yaw_deg),
+            current_attitude_signs=tuple(float(value) for value in args.attitude_signs),
+            current_attitude_offset_rad=tuple(float(np.deg2rad(value)) for value in args.current_attitude_offset_deg),
+            vicon_host=args.vicon_host,
+            subject_name=args.subject_name,
+            run_label=run_label,
+            tolerance_m=float(args.fan_position_tolerance_m),
+            print_interval_s=float(args.fan_check_interval_s),
+            timeout_s=float(args.fan_check_timeout_s),
+            error_axis=str(args.fan_position_error_axis),
+        )
+        return
     run_vicon_frame_calibration(
         known_arena_point_m=tuple(args.known_point_m),
         known_arena_attitude_deg=tuple(args.known_attitude_deg),
