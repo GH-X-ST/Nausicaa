@@ -232,6 +232,79 @@ def test_scaled_surface_command_applies_pairwise_gain_by_surface() -> None:
     assert command.tolist() == pytest.approx([1.0, 2.0, 3.0])
 
 
+def test_surface_scale_candidate_grid_includes_exact_aileron_active_baseline() -> None:
+    candidates = study.single_axis_surface_scale_candidates()
+
+    aileron_ids = [
+        candidate_id
+        for candidate_id, scale_by_surface in candidates.items()
+        if "aileron" in scale_by_surface
+    ]
+
+    assert len(candidates) == 22
+    assert len(aileron_ids) == 8
+    assert study.surface_scale_candidate_id("aileron", 1.0) in candidates
+    assert candidates[study.surface_scale_candidate_id("aileron", 1.0)] == {"aileron": pytest.approx(1.0)}
+    assert tuple(candidates[study.surface_scale_candidate_id("aileron", scale)]["aileron"] for scale in study.SURFACE_SCALE_CANDIDATE_GRIDS["aileron"]) == pytest.approx(
+        study.SURFACE_SCALE_CANDIDATE_GRIDS["aileron"]
+    )
+
+
+def test_surface_scale_candidate_scales_control_mix_without_changing_command_values() -> None:
+    aircraft = build_nausicaa_glider()
+    control_mix = np.asarray(aircraft.control_mix, dtype=float)
+    active_scales = study.active_surface_effectiveness_scales_by_surface()
+    command = np.asarray([0.2, -0.4, 0.6], dtype=float)
+
+    candidate = study.aircraft_with_surface_effectiveness_scales(
+        aircraft,
+        {"aileron": 0.75, "elevator": active_scales["elevator"], "rudder": active_scales["rudder"]},
+    )
+    unchanged_command = study.scaled_surface_command(command, None)
+
+    assert np.asarray(candidate.control_mix)[:, AILERON].tolist() == pytest.approx(
+        (control_mix[:, AILERON] * 0.75 / active_scales["aileron"]).tolist()
+    )
+    assert np.asarray(candidate.control_mix)[:, ELEVATOR].tolist() == pytest.approx(control_mix[:, ELEVATOR].tolist())
+    assert np.asarray(candidate.control_mix)[:, RUDDER].tolist() == pytest.approx(control_mix[:, RUDDER].tolist())
+    assert unchanged_command.tolist() == pytest.approx(command.tolist())
+
+
+def test_surface_scale_gate_rejects_aileron_when_primary_residual_worsens() -> None:
+    candidate_id = study.surface_scale_candidate_id("aileron", 0.75)
+    rows = synthetic_surface_replay_summary(candidate_id, primary=2.1, same_attitude=4.5)
+
+    gate = study.surface_scale_promotion_gate_rows(
+        rows,
+        {candidate_id: {"aileron": 0.75}},
+        study.active_surface_effectiveness_scales_by_surface(),
+    )
+
+    assert gate[0]["surface_axis"] == "aileron"
+    assert gate[0]["primary_improved"] is False
+    assert gate[0]["accepted"] is False
+    assert "primary_response_not_improved" in gate[0]["promotion_gate_status"]
+
+
+def test_surface_scale_gate_accepts_aileron_when_response_improves_and_limits_hold() -> None:
+    candidate_id = study.surface_scale_candidate_id("aileron", 0.75)
+    rows = synthetic_surface_replay_summary(candidate_id, primary=1.5, same_attitude=4.5)
+
+    gate = study.surface_scale_promotion_gate_rows(
+        rows,
+        {candidate_id: {"aileron": 0.75}},
+        study.active_surface_effectiveness_scales_by_surface(),
+    )
+    selected = study.selected_surface_scales_from_gate(gate, study.active_surface_effectiveness_scales_by_surface())
+
+    assert gate[0]["primary_improved"] is True
+    assert gate[0]["same_attitude_non_regression"] is True
+    assert gate[0]["trajectory_gate"] is True
+    assert gate[0]["cross_axis_gate"] is True
+    assert gate[0]["accepted"] is True
+    assert selected["aileron"] == pytest.approx(0.75)
+
+
 def test_pairwise_surface_gain_fit_uses_confidence_weighted_train_pairs() -> None:
     rows = [
         pairwise_effectiveness_row("confidence_weighted_train", "elevator", actual=0.5, sim=1.0),
@@ -260,16 +333,16 @@ def test_control_surface_replay_is_hardcoded_to_eight_workers() -> None:
     assert "worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)" in source
 
 
-def test_active_surface_effectiveness_promotes_elevator_and_rudder_scales() -> None:
+def test_active_surface_effectiveness_promotes_evidence_gated_surface_scales() -> None:
     glider = build_nausicaa_glider()
     control_mix = np.asarray(glider.control_mix, dtype=float)
 
-    assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
-    assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.60)
-    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.531)
-    assert np.max(np.abs(control_mix[:, AILERON])) == pytest.approx(1.0)
-    assert np.max(np.abs(control_mix[:, ELEVATOR])) == pytest.approx(0.60)
-    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(0.531)
+    assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.65)
+    assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.70)
+    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.45)
+    assert np.max(np.abs(control_mix[:, AILERON])) == pytest.approx(0.65)
+    assert np.max(np.abs(control_mix[:, ELEVATOR])) == pytest.approx(0.70)
+    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(0.45)
 
 
 def test_alpha_regime_candidates_share_rudder_post_stall_with_transition() -> None:
@@ -469,6 +542,36 @@ def pairwise_effectiveness_row(split: str, surface: str, *, actual: float, sim: 
         "actual_antisymmetric_response": actual,
         "sim_antisymmetric_response": sim,
     }
+
+
+def synthetic_surface_replay_summary(candidate_id: str, *, primary: float, same_attitude: float) -> list[dict[str, object]]:
+    baseline = {
+        "candidate_id": "C0_frozen_neutral",
+        "split": "heldout",
+        "surface_axis": "aileron",
+        "replay_count": 4,
+        "dx_mae_m": 0.20,
+        "dy_mae_m": 0.30,
+        "altitude_loss_mae_m": 0.40,
+        "final_phi_mae_deg": 5.0,
+        "final_theta_mae_deg": 3.0,
+        "final_psi_mae_deg": 4.0,
+        "primary_antisym_residual": 2.0,
+    }
+    candidate = {
+        "candidate_id": candidate_id,
+        "split": "heldout",
+        "surface_axis": "aileron",
+        "replay_count": 4,
+        "dx_mae_m": 0.22,
+        "dy_mae_m": 0.31,
+        "altitude_loss_mae_m": 0.41,
+        "final_phi_mae_deg": same_attitude,
+        "final_theta_mae_deg": 4.0,
+        "final_psi_mae_deg": 5.0,
+        "primary_antisym_residual": primary,
+    }
+    return [baseline, candidate]
 
 
 def state_row(t_s: float, *, x: float) -> dict[str, object]:

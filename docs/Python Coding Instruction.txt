@@ -59,7 +59,7 @@ W2 is GP-corrected annular-Gaussian only
 W3 is randomised GP-corrected annular-Gaussian only
 ```
 
-W labels are fidelity/evidence layers, not online branches. Single-fan, four-fan, fan-position, active-fan-count, and fan-power cases are environment instances, not separate algorithms. In R5, dry-air rows keep the W0 no-updraft environment but still use W3-style plant and implementation perturbations; the absence of updraft must not imply a nominal-only glider or latency/actuator case. Plant perturbations must match the active `plant_instance.py` implementation: mass scale, CG-offset strip moment-arm shift, diagonal inertia scaling, strip `cd0` scaling, flap-scale surface calibration, and axis-specific control-mix effectiveness multipliers (`aileron 0.50--1.00`, `elevator 0.50--1.00`, `rudder 0.50--1.00` around active scales `1.00`, `0.60`, and `0.531`), with cross-inertia logged as not perturbed.
+W labels are fidelity/evidence layers, not online branches. Single-fan, four-fan, fan-position, active-fan-count, and fan-power cases are environment instances, not separate algorithms. In R5, dry-air rows keep the W0 no-updraft environment but still use W3-style plant and implementation perturbations; the absence of updraft must not imply a nominal-only glider or latency/actuator case. Plant perturbations must match the active `plant_instance.py` implementation: mass scale, CG-offset strip moment-arm shift, diagonal inertia scaling, strip `cd0` scaling, flap-scale surface calibration, and axis-specific control-mix effectiveness multipliers (`aileron 0.50--1.00`, `elevator 0.50--1.00`, `rudder 0.50--1.00` around active scales `0.65`, `0.70`, and `0.45`), with cross-inertia logged as not perturbed.
 
 ## Primitive-local LQR variant learning
 

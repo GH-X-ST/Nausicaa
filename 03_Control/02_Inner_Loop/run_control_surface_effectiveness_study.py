@@ -48,7 +48,7 @@ from A_model_parameters import neutral_dry_air_calibration as active_calibration
 
 DEFAULT_INPUT_ROOT = ROOT / "04_Flight_Test" / "05_Results" / "cal"
 DEFAULT_OUTPUT_ROOT = ROOT / "03_Control" / "05_Results" / "control_surface_effectiveness"
-DEFAULT_RUN_LABEL = "control_surface_effectiveness_v3_0"
+DEFAULT_RUN_LABEL = "control_surface_effectiveness_v3_1_current_model_surface_refit"
 DEFAULT_DATASET_ROOTS = ("pa30", "pe30", "pr30")
 DEFAULT_RESPONSE_WINDOW_S = 0.65
 DEFAULT_MIN_RESPONSE_WINDOW_S = 0.25
@@ -77,12 +77,24 @@ LAUNCH_CONFIDENCE_R_ABS_MAX_RAD_S = 1.8
 DERIVATIVE_FIT_MIN_QBAR_PA = 2.0
 DERIVATIVE_FIT_MIN_SURFACE_RAD = 0.02
 DERIVATIVE_FIT_COEFF_ABS_BOUND = 12.0
-SURFACE_AERO_NORMAL_ALPHA_MAX_DEG = 12.0
-SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG = 22.0
+SURFACE_AERO_NORMAL_ALPHA_MAX_DEG = float(
+    getattr(active_calibration, "POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG", 12.0)
+)
+SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG = float(
+    getattr(active_calibration, "POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG", 22.0)
+)
 SURFACE_AERO_ALPHA_REGIMES = ("normal", "transition", "post_stall")
 PAIRWISE_GAIN_MIN = 0.25
 PAIRWISE_GAIN_MAX = 1.75
 PAIRWISE_GAIN_RIDGE_FRACTION = 0.25
+SURFACE_SCALE_CANDIDATE_GRIDS = {
+    "aileron": (0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00),
+    "elevator": (0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75),
+    "rudder": (0.40, 0.45, 0.50, 0.531, 0.55, 0.60, 0.65),
+}
+SURFACE_SCALE_TRAJECTORY_MAX_REGRESSION_M = 0.03
+SURFACE_SCALE_CROSS_AXIS_MAX_REGRESSION_DEG = 2.0
+SURFACE_SCALE_COMBINED_CANDIDATE_ID = "SCL_combined_accepted_surface_scales"
 
 COMMAND_AXIS_TO_SURFACE = {
     "delta_a": "aileron",
@@ -92,6 +104,21 @@ COMMAND_AXIS_TO_SURFACE = {
 SURFACE_TO_COMMAND_AXIS = {value: key for key, value in COMMAND_AXIS_TO_SURFACE.items()}
 COMMAND_AXIS_INDEX = {"delta_a": 0, "delta_e": 1, "delta_r": 2}
 SURFACE_COMMAND_INDEX = {"aileron": 0, "elevator": 1, "rudder": 2}
+SURFACE_SCALE_FIELD = {
+    "aileron": "delta_a_effectiveness_scale",
+    "elevator": "delta_e_effectiveness_scale",
+    "rudder": "delta_r_effectiveness_scale",
+}
+SURFACE_FINAL_ATTITUDE_FIELD = {
+    "aileron": "final_phi_mae_deg",
+    "elevator": "final_theta_mae_deg",
+    "rudder": "final_psi_mae_deg",
+}
+SURFACE_CROSS_ATTITUDE_FIELDS = {
+    "aileron": ("final_theta_mae_deg", "final_psi_mae_deg"),
+    "elevator": ("final_phi_mae_deg", "final_psi_mae_deg"),
+    "rudder": ("final_phi_mae_deg", "final_theta_mae_deg"),
+}
 
 PRIMARY_METRICS_BY_SURFACE = {
     "aileron": ("peak_p_rad_s", "p_impulse_rad", "phi_change_deg", "yaw_coupling_psi_change_deg", "response_dy_m"),
@@ -219,6 +246,9 @@ LAUNCH_CONFIDENCE_SUMMARY_FIELDS = [
 
 REPLAY_FIELDS = [
     "candidate_id",
+    "candidate_delta_a_effectiveness_scale",
+    "candidate_delta_e_effectiveness_scale",
+    "candidate_delta_r_effectiveness_scale",
     "split",
     "dataset_root",
     "session_label",
@@ -308,6 +338,30 @@ OPTIONAL_HELDOUT_FIELDS = [
     "baseline_abs_error",
     "candidate_abs_error",
     "improved",
+    "promotion_gate_status",
+]
+
+SURFACE_SCALE_GATE_FIELDS = [
+    "surface_axis",
+    "candidate_id",
+    "candidate_scale",
+    "active_scale",
+    "heldout_replay_count",
+    "baseline_primary_antisym_residual",
+    "candidate_primary_antisym_residual",
+    "primary_residual_delta",
+    "primary_improved",
+    "baseline_same_attitude_mae_deg",
+    "candidate_same_attitude_mae_deg",
+    "same_attitude_delta_deg",
+    "same_attitude_non_regression",
+    "dx_delta_m",
+    "dy_delta_m",
+    "altitude_loss_delta_m",
+    "trajectory_gate",
+    "cross_axis_attitude_max_delta_deg",
+    "cross_axis_gate",
+    "accepted",
     "promotion_gate_status",
 ]
 
@@ -617,7 +671,12 @@ def run_study(
 ) -> Path:
     output_dir = output_root / run_label
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "figures").mkdir(parents=True, exist_ok=True)
+    metrics_dir = output_dir / "metrics"
+    reports_dir = output_dir / "reports"
+    manifests_dir = output_dir / "manifests"
+    figures_dir = output_dir / "figures"
+    for directory in (metrics_dir, reports_dir, manifests_dir, figures_dir):
+        directory.mkdir(parents=True, exist_ok=True)
 
     inventory_rows = load_inventory_rows(
         input_root,
@@ -631,42 +690,45 @@ def run_study(
     effectiveness_rows = summarize_effectiveness(replay_rows)
     launch_confidence_rows = launch_confidence_summary(replay_rows, effectiveness_rows)
     pairwise_gain_rows = pairwise_surface_gain_fit(effectiveness_rows)
-    pairwise_gain_values = pairwise_surface_gain_values(pairwise_gain_rows)
     aero_coupling_rows = optional_surface_aero_coupling_fit(replay_rows)
-    aero_coupling_coefficients = surface_aero_coupling_coefficients(aero_coupling_rows)
-    candidate_coefficients = surface_aero_coupling_candidate_coefficients(aero_coupling_coefficients)
     replay_by_candidate = {"C0_frozen_neutral": replay_rows}
     effectiveness_by_candidate = {"C0_frozen_neutral": effectiveness_rows}
-    for candidate_id, gain_by_surface in pairwise_gain_candidate_gains(pairwise_gain_values).items():
+    active_surface_scales = active_surface_effectiveness_scales_by_surface()
+    surface_scale_candidates = single_axis_surface_scale_candidates()
+    for candidate_id, scale_by_surface in surface_scale_candidates.items():
         candidate_replay_rows = replay_kept_rows(
             kept_rows,
             replay_dt_s=replay_dt_s,
             candidate_id=candidate_id,
-            replay_policy=f"{candidate_id}_pairwise_response_gain_replay",
-            command_gain_by_surface=gain_by_surface,
+            replay_policy=f"{candidate_id}_surface_effectiveness_control_mix_replay",
+            surface_effectiveness_scale_by_surface=scale_by_surface,
         )
         replay_by_candidate[candidate_id] = candidate_replay_rows
         effectiveness_by_candidate[candidate_id] = summarize_effectiveness(candidate_replay_rows)
-    for candidate_id, coeffs in candidate_coefficients.items():
-        if candidate_id == "C0_frozen_neutral":
-            continue
-        candidate_replay_rows = replay_kept_rows(
-            kept_rows,
-            replay_dt_s=replay_dt_s,
-            candidate_id=candidate_id,
-            replay_policy=f"{candidate_id}_launch_confidence_weighted_surface_aero_coupling_replay",
-            derivative_coeffs=coeffs,
-        )
-        replay_by_candidate[candidate_id] = candidate_replay_rows
-        effectiveness_by_candidate[candidate_id] = summarize_effectiveness(candidate_replay_rows)
+    replay_error_summary_rows = replay_error_summary(replay_by_candidate, effectiveness_by_candidate)
+    surface_scale_gate_rows = surface_scale_promotion_gate_rows(
+        replay_error_summary_rows,
+        surface_scale_candidates,
+        active_surface_scales,
+    )
+    selected_surface_scales = selected_surface_scales_from_gate(surface_scale_gate_rows, active_surface_scales)
+    combined_replay_rows = replay_kept_rows(
+        kept_rows,
+        replay_dt_s=replay_dt_s,
+        candidate_id=SURFACE_SCALE_COMBINED_CANDIDATE_ID,
+        replay_policy=f"{SURFACE_SCALE_COMBINED_CANDIDATE_ID}_surface_effectiveness_control_mix_replay",
+        surface_effectiveness_scale_by_surface=selected_surface_scales,
+    )
+    replay_by_candidate[SURFACE_SCALE_COMBINED_CANDIDATE_ID] = combined_replay_rows
+    effectiveness_by_candidate[SURFACE_SCALE_COMBINED_CANDIDATE_ID] = summarize_effectiveness(combined_replay_rows)
+    replay_error_summary_rows = replay_error_summary(replay_by_candidate, effectiveness_by_candidate)
+    regime_ladder_error_rows = regime_ladder_error_summary(replay_by_candidate)
     candidate_sweep_replay_rows = [
         row
         for candidate_id, candidate_rows in replay_by_candidate.items()
         if candidate_id != "C0_frozen_neutral"
         for row in candidate_rows
     ]
-    replay_error_summary_rows = replay_error_summary(replay_by_candidate, effectiveness_by_candidate)
-    regime_ladder_error_rows = regime_ladder_error_summary(replay_by_candidate)
     symmetric_rows = [
         {
             **row,
@@ -682,28 +744,30 @@ def run_study(
     )
     append_pairwise_gain_candidates(optional_candidates, optional_heldout, pairwise_gain_rows)
     append_surface_aero_coupling_candidate(optional_candidates, optional_heldout, aero_coupling_rows)
+    append_surface_scale_gate_candidate(optional_candidates, optional_heldout, surface_scale_gate_rows, selected_surface_scales)
     append_active_surface_effectiveness_candidate(optional_candidates)
     filtering_summary_rows = filtering_summary(inventory_rows)
 
-    write_csv(output_dir / "control_surface_inventory.csv", inventory_rows, INVENTORY_FIELDS)
-    write_csv(output_dir / "control_surface_filtering_summary.csv", filtering_summary_rows, FILTER_SUMMARY_FIELDS)
-    write_csv(output_dir / "control_surface_replay_metrics.csv", replay_rows, REPLAY_FIELDS)
-    write_csv(output_dir / "control_surface_replay_metrics_candidate_sweep.csv", candidate_sweep_replay_rows, REPLAY_FIELDS)
-    write_csv(output_dir / "control_surface_replay_error_summary.csv", replay_error_summary_rows, REPLAY_ERROR_SUMMARY_FIELDS)
-    write_csv(output_dir / "control_surface_regime_ladder_error_summary.csv", regime_ladder_error_rows, REGIME_LADDER_ERROR_FIELDS)
-    write_csv(output_dir / "control_surface_effectiveness_summary.csv", effectiveness_rows, EFFECTIVENESS_FIELDS)
-    write_csv(output_dir / "control_surface_launch_confidence_summary.csv", launch_confidence_rows, LAUNCH_CONFIDENCE_SUMMARY_FIELDS)
+    write_csv(metrics_dir / "inventory.csv", inventory_rows, INVENTORY_FIELDS)
+    write_csv(metrics_dir / "filter.csv", filtering_summary_rows, FILTER_SUMMARY_FIELDS)
+    write_csv(metrics_dir / "replay.csv", replay_rows, REPLAY_FIELDS)
+    write_csv(metrics_dir / "cand_replay.csv", candidate_sweep_replay_rows, REPLAY_FIELDS)
+    write_csv(metrics_dir / "replay_err.csv", replay_error_summary_rows, REPLAY_ERROR_SUMMARY_FIELDS)
+    write_csv(metrics_dir / "regime_err.csv", regime_ladder_error_rows, REGIME_LADDER_ERROR_FIELDS)
+    write_csv(metrics_dir / "effect.csv", effectiveness_rows, EFFECTIVENESS_FIELDS)
+    write_csv(metrics_dir / "launch_conf.csv", launch_confidence_rows, LAUNCH_CONFIDENCE_SUMMARY_FIELDS)
     write_csv(
-        output_dir / "control_surface_symmetric_contamination_summary.csv",
+        metrics_dir / "symmetry.csv",
         symmetric_rows,
         EFFECTIVENESS_FIELDS,
     )
-    write_csv(output_dir / "optional_surface_fit_candidates.csv", optional_candidates, OPTIONAL_CANDIDATE_FIELDS)
-    write_csv(output_dir / "optional_surface_fit_heldout_summary.csv", optional_heldout, OPTIONAL_HELDOUT_FIELDS)
-    write_csv(output_dir / "pairwise_surface_gain_fit.csv", pairwise_gain_rows, PAIRWISE_GAIN_FIT_FIELDS)
-    write_csv(output_dir / "optional_surface_aero_coupling_fit.csv", aero_coupling_rows, OPTIONAL_AERO_COUPLING_FIT_FIELDS)
+    write_csv(metrics_dir / "opt_cands.csv", optional_candidates, OPTIONAL_CANDIDATE_FIELDS)
+    write_csv(metrics_dir / "opt_heldout.csv", optional_heldout, OPTIONAL_HELDOUT_FIELDS)
+    write_csv(metrics_dir / "scale_gate.csv", surface_scale_gate_rows, SURFACE_SCALE_GATE_FIELDS)
+    write_csv(metrics_dir / "gain_fit.csv", pairwise_gain_rows, PAIRWISE_GAIN_FIT_FIELDS)
+    write_csv(metrics_dir / "aero_fit.csv", aero_coupling_rows, OPTIONAL_AERO_COUPLING_FIT_FIELDS)
 
-    figures = write_figures(output_dir / "figures", inventory_rows, replay_rows, effectiveness_rows, launch_confidence_rows, optional_heldout)
+    figures = write_figures(figures_dir, inventory_rows, replay_rows, effectiveness_rows, launch_confidence_rows, optional_heldout)
     manifest = build_manifest(
         input_root=input_root,
         dataset_roots=dataset_roots,
@@ -716,6 +780,8 @@ def run_study(
         effectiveness_rows=effectiveness_rows,
         launch_confidence_rows=launch_confidence_rows,
         pairwise_gain_rows=pairwise_gain_rows,
+        surface_scale_gate_rows=surface_scale_gate_rows,
+        selected_surface_scales=selected_surface_scales,
         aero_coupling_rows=aero_coupling_rows,
         filtering_summary_rows=filtering_summary_rows,
         optional_candidates=optional_candidates,
@@ -726,12 +792,12 @@ def run_study(
         min_response_window_s=min_response_window_s,
         heldout_seed=heldout_seed,
     )
-    (output_dir / "control_surface_effectiveness_manifest.json").write_text(
+    write_text_file(
+        manifests_dir / "manifest.json",
         json.dumps(manifest, indent=2) + "\n",
-        encoding="utf-8",
     )
     write_report(
-        output_dir / "control_surface_effectiveness_report.md",
+        reports_dir / "report.md",
         inventory_rows=inventory_rows,
         replay_rows=replay_rows,
         candidate_sweep_replay_rows=candidate_sweep_replay_rows,
@@ -740,6 +806,7 @@ def run_study(
         effectiveness_rows=effectiveness_rows,
         launch_confidence_rows=launch_confidence_rows,
         pairwise_gain_rows=pairwise_gain_rows,
+        surface_scale_gate_rows=surface_scale_gate_rows,
         aero_coupling_rows=aero_coupling_rows,
         optional_candidates=optional_candidates,
         optional_heldout=optional_heldout,
@@ -967,8 +1034,26 @@ def replay_worker_aircraft() -> Any:
     return _REPLAY_WORKER_AIRCRAFT
 
 
-def replay_worker_task(args: tuple[dict[str, Any], float, str, str, dict[str, float] | None, dict[str, float] | None]) -> dict[str, Any]:
-    row, replay_dt_s, candidate_id, replay_policy, derivative_coeffs, command_gain_by_surface = args
+def replay_worker_task(
+    args: tuple[
+        dict[str, Any],
+        float,
+        str,
+        str,
+        dict[str, float] | None,
+        dict[str, float] | None,
+        dict[str, float] | None,
+    ],
+) -> dict[str, Any]:
+    (
+        row,
+        replay_dt_s,
+        candidate_id,
+        replay_policy,
+        derivative_coeffs,
+        command_gain_by_surface,
+        surface_effectiveness_scale_by_surface,
+    ) = args
     return replay_throw(
         row,
         aircraft=replay_worker_aircraft(),
@@ -977,6 +1062,7 @@ def replay_worker_task(args: tuple[dict[str, Any], float, str, str, dict[str, fl
         replay_policy=replay_policy,
         derivative_coeffs=derivative_coeffs,
         command_gain_by_surface=command_gain_by_surface,
+        surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
     )
 
 
@@ -988,12 +1074,21 @@ def replay_kept_rows(
     replay_policy: str = "frozen_active_calibrated_model_exact_measured_launch_state_same_command_history_same_duration",
     derivative_coeffs: dict[str, float] | None = None,
     command_gain_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     if not rows:
         return []
     worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)
     tasks = [
-        (row, replay_dt_s, candidate_id, replay_policy, derivative_coeffs, command_gain_by_surface)
+        (
+            row,
+            replay_dt_s,
+            candidate_id,
+            replay_policy,
+            derivative_coeffs,
+            command_gain_by_surface,
+            surface_effectiveness_scale_by_surface,
+        )
         for row in rows
     ]
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
@@ -1009,23 +1104,48 @@ def replay_throw(
     replay_policy: str,
     derivative_coeffs: dict[str, float] | None = None,
     command_gain_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     throw_dir = Path(str(row.get("_throw_dir", "")))
     sample_rows = read_csv(throw_dir / "metrics" / "state_samples.csv")
     if not sample_rows:
-        return blocked_replay_row(row, "missing_state_samples", replay_dt_s, candidate_id=candidate_id)
+        return blocked_replay_row(
+            row,
+            "missing_state_samples",
+            replay_dt_s,
+            candidate_id=candidate_id,
+            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        )
     try:
         actual_state0 = prep._state_vector_from_sample_row(sample_rows[0])
     except Exception:
-        return blocked_replay_row(row, "nonfinite_initial_state", replay_dt_s, candidate_id=candidate_id)
+        return blocked_replay_row(
+            row,
+            "nonfinite_initial_state",
+            replay_dt_s,
+            candidate_id=candidate_id,
+            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        )
     if not np.all(np.isfinite(actual_state0)):
-        return blocked_replay_row(row, "nonfinite_initial_state", replay_dt_s, candidate_id=candidate_id)
+        return blocked_replay_row(
+            row,
+            "nonfinite_initial_state",
+            replay_dt_s,
+            candidate_id=candidate_id,
+            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        )
 
     t0 = to_float(sample_rows[0].get("t_s"), 0.0)
     t1 = to_float(sample_rows[-1].get("t_s"), t0)
     duration_s = max(0.0, t1 - t0)
     if not math.isfinite(duration_s) or duration_s <= 0.0:
-        return blocked_replay_row(row, "invalid_duration", replay_dt_s, candidate_id=candidate_id)
+        return blocked_replay_row(
+            row,
+            "invalid_duration",
+            replay_dt_s,
+            candidate_id=candidate_id,
+            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        )
 
     manifest = load_json(throw_dir / "manifests" / "glider_calibration_throw_manifest.json")
     actuator_tau_s = prep._actuator_tau_from_manifest(manifest)
@@ -1035,10 +1155,14 @@ def replay_throw(
         row,
         command_onset_delay_s=command_onset_delay_s,
     )
+    candidate_aircraft = aircraft_with_surface_effectiveness_scales(
+        aircraft,
+        surface_effectiveness_scale_by_surface,
+    )
     sim_trace, sim_status = simulate_trace(
         actual_state0,
         command_schedule,
-        aircraft=aircraft,
+        aircraft=candidate_aircraft,
         actuator_tau_s=actuator_tau_s,
         duration_s=duration_s,
         replay_dt_s=replay_dt_s,
@@ -1046,7 +1170,13 @@ def replay_throw(
         command_gain_by_surface=command_gain_by_surface,
     )
     if sim_status != "ok":
-        return blocked_replay_row(row, sim_status, replay_dt_s, candidate_id=candidate_id)
+        return blocked_replay_row(
+            row,
+            sim_status,
+            replay_dt_s,
+            candidate_id=candidate_id,
+            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        )
 
     response_start_s = to_float(row.get("usable_window_start_s"))
     response_end_s = to_float(row.get("usable_window_end_s"))
@@ -1061,7 +1191,12 @@ def replay_throw(
     sim_dy = float(sim_final[1] - actual_state0[1])
     sim_altitude_loss = float(actual_state0[2] - sim_final[2])
 
-    out = base_replay_row(row, replay_dt_s, candidate_id=candidate_id)
+    out = base_replay_row(
+        row,
+        replay_dt_s,
+        candidate_id=candidate_id,
+        surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+    )
     out.update(
         {
             "replay_status": "ok",
@@ -1165,6 +1300,58 @@ def scaled_surface_command(command: np.ndarray, command_gain_by_surface: dict[st
         if math.isfinite(gain):
             out[index] *= float(gain)
     return out
+
+
+def active_surface_effectiveness_scales_by_surface() -> dict[str, float]:
+    return {
+        "aileron": float(getattr(active_calibration, "DELTA_A_AERO_EFFECTIVENESS_SCALE", 1.0)),
+        "elevator": float(getattr(active_calibration, "DELTA_E_AERO_EFFECTIVENESS_SCALE", 1.0)),
+        "rudder": float(getattr(active_calibration, "DELTA_R_AERO_EFFECTIVENESS_SCALE", 1.0)),
+    }
+
+
+def aircraft_with_surface_effectiveness_scales(
+    aircraft: Any,
+    scale_by_surface: dict[str, float] | None,
+) -> Any:
+    if not scale_by_surface:
+        return aircraft
+    active_scales = active_surface_effectiveness_scales_by_surface()
+    multipliers = np.ones(3, dtype=float)
+    for surface, index in SURFACE_COMMAND_INDEX.items():
+        target_scale = to_float(scale_by_surface.get(surface), active_scales[surface])
+        active_scale = to_float(active_scales.get(surface), 1.0)
+        if not all_finite(target_scale, active_scale) or abs(active_scale) < 1e-12:
+            continue
+        multipliers[index] = float(target_scale) / float(active_scale)
+    control_mix = np.asarray(aircraft.control_mix, dtype=float).copy() * multipliers.reshape(1, 3)
+    return replace(aircraft, control_mix=control_mix)
+
+
+def scale_token(value: float) -> str:
+    text = f"{float(value):.3f}".rstrip("0").rstrip(".")
+    return text.replace("-", "m").replace(".", "p")
+
+
+def surface_scale_candidate_id(surface: str, scale: float) -> str:
+    return f"SCL_{surface}_s{scale_token(scale)}"
+
+
+def single_axis_surface_scale_candidates() -> dict[str, dict[str, float]]:
+    candidates: dict[str, dict[str, float]] = {}
+    for surface, grid in SURFACE_SCALE_CANDIDATE_GRIDS.items():
+        for scale in grid:
+            candidates[surface_scale_candidate_id(surface, float(scale))] = {surface: float(scale)}
+    return candidates
+
+
+def surface_scale_for_replay_field(
+    surface: str,
+    scale_by_surface: dict[str, float] | None,
+) -> float:
+    active_scales = active_surface_effectiveness_scales_by_surface()
+    value = to_float((scale_by_surface or {}).get(surface), active_scales[surface])
+    return float(value) if math.isfinite(value) else float("nan")
 
 
 def rk4_step_surface_aero_coupling(
@@ -1701,6 +1888,260 @@ def append_pairwise_gain_candidates(
         )
 
 
+def surface_scale_promotion_gate_rows(
+    replay_error_summary_rows: list[dict[str, Any]],
+    candidate_scale_specs: dict[str, dict[str, float]],
+    active_scales: dict[str, float],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for candidate_id, scale_by_surface in candidate_scale_specs.items():
+        if len(scale_by_surface) != 1:
+            continue
+        surface, candidate_scale = next(iter(scale_by_surface.items()))
+        baseline = replay_summary_row(replay_error_summary_rows, "C0_frozen_neutral", "heldout", surface)
+        candidate = replay_summary_row(replay_error_summary_rows, candidate_id, "heldout", surface)
+        if not baseline or not candidate:
+            rows.append(missing_surface_scale_gate_row(surface, candidate_id, candidate_scale, active_scales))
+            continue
+        baseline_primary = to_float(baseline.get("primary_antisym_residual"))
+        candidate_primary = to_float(candidate.get("primary_antisym_residual"))
+        primary_delta = candidate_primary - baseline_primary if all_finite(candidate_primary, baseline_primary) else float("nan")
+        primary_improved = bool(all_finite(primary_delta) and primary_delta < 0.0)
+
+        same_field = SURFACE_FINAL_ATTITUDE_FIELD[surface]
+        baseline_same_attitude = to_float(baseline.get(same_field))
+        candidate_same_attitude = to_float(candidate.get(same_field))
+        same_attitude_delta = (
+            candidate_same_attitude - baseline_same_attitude
+            if all_finite(candidate_same_attitude, baseline_same_attitude)
+            else float("nan")
+        )
+        same_attitude_non_regression = bool(all_finite(same_attitude_delta) and same_attitude_delta <= 1e-12)
+
+        dx_delta = metric_delta(candidate, baseline, "dx_mae_m")
+        dy_delta = metric_delta(candidate, baseline, "dy_mae_m")
+        altitude_delta = metric_delta(candidate, baseline, "altitude_loss_mae_m")
+        trajectory_gate = bool(
+            all_finite(dx_delta, dy_delta, altitude_delta)
+            and dx_delta <= SURFACE_SCALE_TRAJECTORY_MAX_REGRESSION_M
+            and dy_delta <= SURFACE_SCALE_TRAJECTORY_MAX_REGRESSION_M
+            and altitude_delta <= SURFACE_SCALE_TRAJECTORY_MAX_REGRESSION_M
+        )
+
+        cross_deltas = [
+            metric_delta(candidate, baseline, field)
+            for field in SURFACE_CROSS_ATTITUDE_FIELDS[surface]
+        ]
+        cross_axis_max_delta = safe_max(cross_deltas)
+        cross_axis_gate = bool(
+            math.isfinite(cross_axis_max_delta)
+            and cross_axis_max_delta <= SURFACE_SCALE_CROSS_AXIS_MAX_REGRESSION_DEG
+        )
+        accepted = bool(primary_improved and same_attitude_non_regression and trajectory_gate and cross_axis_gate)
+        rows.append(
+            {
+                "surface_axis": surface,
+                "candidate_id": candidate_id,
+                "candidate_scale": float(candidate_scale),
+                "active_scale": float(active_scales.get(surface, float("nan"))),
+                "heldout_replay_count": candidate.get("replay_count", 0),
+                "baseline_primary_antisym_residual": baseline_primary,
+                "candidate_primary_antisym_residual": candidate_primary,
+                "primary_residual_delta": primary_delta,
+                "primary_improved": primary_improved,
+                "baseline_same_attitude_mae_deg": baseline_same_attitude,
+                "candidate_same_attitude_mae_deg": candidate_same_attitude,
+                "same_attitude_delta_deg": same_attitude_delta,
+                "same_attitude_non_regression": same_attitude_non_regression,
+                "dx_delta_m": dx_delta,
+                "dy_delta_m": dy_delta,
+                "altitude_loss_delta_m": altitude_delta,
+                "trajectory_gate": trajectory_gate,
+                "cross_axis_attitude_max_delta_deg": cross_axis_max_delta,
+                "cross_axis_gate": cross_axis_gate,
+                "accepted": accepted,
+                "promotion_gate_status": surface_scale_gate_status(
+                    primary_improved=primary_improved,
+                    same_attitude_non_regression=same_attitude_non_regression,
+                    trajectory_gate=trajectory_gate,
+                    cross_axis_gate=cross_axis_gate,
+                ),
+            }
+        )
+    return rows
+
+
+def replay_summary_row(
+    rows: list[dict[str, Any]],
+    candidate_id: str,
+    split: str,
+    surface: str,
+) -> dict[str, Any]:
+    return next(
+        (
+            row
+            for row in rows
+            if row.get("candidate_id") == candidate_id
+            and row.get("split") == split
+            and row.get("surface_axis") == surface
+        ),
+        {},
+    )
+
+
+def metric_delta(candidate: dict[str, Any], baseline: dict[str, Any], field: str) -> float:
+    candidate_value = to_float(candidate.get(field))
+    baseline_value = to_float(baseline.get(field))
+    return candidate_value - baseline_value if all_finite(candidate_value, baseline_value) else float("nan")
+
+
+def surface_scale_gate_status(
+    *,
+    primary_improved: bool,
+    same_attitude_non_regression: bool,
+    trajectory_gate: bool,
+    cross_axis_gate: bool,
+) -> str:
+    if primary_improved and same_attitude_non_regression and trajectory_gate and cross_axis_gate:
+        return "accepted_surface_effectiveness_scale"
+    failures: list[str] = []
+    if not primary_improved:
+        failures.append("primary_response_not_improved")
+    if not same_attitude_non_regression:
+        failures.append("same_surface_attitude_regression")
+    if not trajectory_gate:
+        failures.append("trajectory_regression")
+    if not cross_axis_gate:
+        failures.append("cross_axis_attitude_regression")
+    return "rejected_" + "_and_".join(failures)
+
+
+def missing_surface_scale_gate_row(
+    surface: str,
+    candidate_id: str,
+    candidate_scale: float,
+    active_scales: dict[str, float],
+) -> dict[str, Any]:
+    return {
+        "surface_axis": surface,
+        "candidate_id": candidate_id,
+        "candidate_scale": float(candidate_scale),
+        "active_scale": float(active_scales.get(surface, float("nan"))),
+        "heldout_replay_count": 0,
+        "baseline_primary_antisym_residual": float("nan"),
+        "candidate_primary_antisym_residual": float("nan"),
+        "primary_residual_delta": float("nan"),
+        "primary_improved": False,
+        "baseline_same_attitude_mae_deg": float("nan"),
+        "candidate_same_attitude_mae_deg": float("nan"),
+        "same_attitude_delta_deg": float("nan"),
+        "same_attitude_non_regression": False,
+        "dx_delta_m": float("nan"),
+        "dy_delta_m": float("nan"),
+        "altitude_loss_delta_m": float("nan"),
+        "trajectory_gate": False,
+        "cross_axis_attitude_max_delta_deg": float("nan"),
+        "cross_axis_gate": False,
+        "accepted": False,
+        "promotion_gate_status": "rejected_missing_heldout_replay",
+    }
+
+
+def selected_surface_scales_from_gate(
+    gate_rows: list[dict[str, Any]],
+    active_scales: dict[str, float],
+) -> dict[str, float]:
+    selected = dict(active_scales)
+    for surface in ("aileron", "elevator", "rudder"):
+        accepted = [
+            row
+            for row in gate_rows
+            if row.get("surface_axis") == surface and bool(row.get("accepted"))
+        ]
+        if not accepted:
+            continue
+        best = sorted(
+            accepted,
+            key=lambda row: (
+                to_float(row.get("candidate_primary_antisym_residual"), float("inf")),
+                to_float(row.get("candidate_same_attitude_mae_deg"), float("inf")),
+                sum(
+                    max(0.0, to_float(row.get(field), 0.0))
+                    for field in ("dx_delta_m", "dy_delta_m", "altitude_loss_delta_m")
+                ),
+                abs(to_float(row.get("candidate_scale")) - to_float(active_scales.get(surface), 1.0)),
+            ),
+        )[0]
+        selected[surface] = float(to_float(best.get("candidate_scale"), active_scales[surface]))
+    return selected
+
+
+def append_surface_scale_gate_candidate(
+    candidates: list[dict[str, Any]],
+    heldout_rows: list[dict[str, Any]],
+    gate_rows: list[dict[str, Any]],
+    selected_scales: dict[str, float],
+) -> None:
+    active_scales = active_surface_effectiveness_scales_by_surface()
+    accepted_surfaces = {
+        str(row.get("surface_axis"))
+        for row in gate_rows
+        if bool(row.get("accepted"))
+        and abs(to_float(row.get("candidate_scale")) - to_float(row.get("active_scale"))) > 1e-12
+    }
+    promoted = bool(accepted_surfaces)
+    candidates.append(
+        {
+            "candidate_id": "S3_evidence_gated_surface_effectiveness_scales",
+            "status": (
+                "accepted_evidence_gated_surface_effectiveness_scales"
+                if promoted
+                else "evaluated_surface_effectiveness_scales_no_new_scale_promoted"
+            ),
+            "promoted": promoted,
+            "delta_a_effectiveness_scale": selected_scales.get("aileron", active_scales["aileron"]),
+            "delta_e_effectiveness_scale": selected_scales.get("elevator", active_scales["elevator"]),
+            "delta_r_effectiveness_scale": selected_scales.get("rudder", active_scales["rudder"]),
+            "delta_a_neutral_bias_rad": 0.0,
+            "delta_e_neutral_bias_rad": 0.0,
+            "delta_r_neutral_bias_rad": 0.0,
+            "aileron_left_right_asymmetry": "",
+            "actuator_time_constant_scale": "",
+            "command_delay_offset_s": "",
+            "evidence_summary": surface_scale_gate_summary_text(gate_rows, selected_scales),
+            "claim_boundary": "surface-effectiveness scalar replay gate only; no derivative, schedule, command conversion, or hardware mapping change",
+        }
+    )
+    for row in gate_rows:
+        heldout_rows.append(
+            {
+                "candidate_id": row.get("candidate_id", ""),
+                "surface_axis": row.get("surface_axis", ""),
+                "metric": PRIMARY_METRICS_BY_SURFACE.get(str(row.get("surface_axis")), ("",))[0],
+                "heldout_count": row.get("heldout_replay_count", 0),
+                "baseline_abs_error": row.get("baseline_primary_antisym_residual", float("nan")),
+                "candidate_abs_error": row.get("candidate_primary_antisym_residual", float("nan")),
+                "improved": bool(row.get("primary_improved")),
+                "promotion_gate_status": row.get("promotion_gate_status", ""),
+            }
+        )
+
+
+def surface_scale_gate_summary_text(
+    gate_rows: list[dict[str, Any]],
+    selected_scales: dict[str, float],
+) -> str:
+    parts: list[str] = []
+    for surface in ("aileron", "elevator", "rudder"):
+        accepted = [row for row in gate_rows if row.get("surface_axis") == surface and bool(row.get("accepted"))]
+        if accepted:
+            selected = to_float(selected_scales.get(surface))
+            parts.append(f"{surface} selected {selected:g}")
+        else:
+            parts.append(f"{surface} fitted but not promoted")
+    return "; ".join(parts)
+
+
 def candidate_not_run(candidate_id: str, reason: str) -> dict[str, Any]:
     return {
         "candidate_id": candidate_id,
@@ -1768,10 +2209,23 @@ def append_active_surface_effectiveness_candidate(candidates: list[dict[str, Any
     delta_e_scale = float(getattr(active_calibration, "DELTA_E_AERO_EFFECTIVENESS_SCALE", 1.0))
     delta_r_scale = float(getattr(active_calibration, "DELTA_R_AERO_EFFECTIVENESS_SCALE", 1.0))
     promoted = any(abs(value - 1.0) > 1e-12 for value in (delta_a_scale, delta_e_scale, delta_r_scale))
+    promoted_surfaces = [
+        surface
+        for surface, value in (
+            ("aileron", delta_a_scale),
+            ("elevator", delta_e_scale),
+            ("rudder", delta_r_scale),
+        )
+        if abs(value - 1.0) > 1e-12
+    ]
     candidates.append(
         {
             "candidate_id": "M0_active_surface_aero_effectiveness_scale",
-            "status": "promoted_conservative_elevator_rudder_effectiveness" if promoted else "not_promoted_unity_surface_scale",
+            "status": (
+                "active_evidence_gated_surface_effectiveness_scales"
+                if promoted
+                else "not_promoted_unity_surface_scale"
+            ),
             "promoted": bool(promoted),
             "delta_a_effectiveness_scale": delta_a_scale,
             "delta_e_effectiveness_scale": delta_e_scale,
@@ -1783,8 +2237,8 @@ def append_active_surface_effectiveness_candidate(candidates: list[dict[str, Any
             "actuator_time_constant_scale": "",
             "command_delay_offset_s": "",
             "evidence_summary": (
-                "conservative elevator and rudder aero effectiveness scales; "
-                "aileron pulse evidence retained as diagnostic"
+                "active evidence-gated aero effectiveness scales: "
+                f"{', '.join(promoted_surfaces) if promoted_surfaces else 'none'}"
             ),
             "claim_boundary": "surface effectiveness replay alignment only; no broad aero or lateral/coupling SysID",
         }
@@ -1840,14 +2294,18 @@ def replay_error_summary(
                         "final_theta_mae_deg": mae(surface_rows, "final_theta_residual_actual_minus_sim_deg"),
                         "final_psi_mae_deg": mae(surface_rows, "final_psi_residual_actual_minus_sim_deg"),
                         "primary_antisym_residual": mean_abs_primary_antisym_residual(effectiveness_rows, split, surface, "all"),
-                        "claim_boundary": (
-                            "frozen active calibrated replay"
-                            if candidate_id == "C0_frozen_neutral"
-                            else "diagnostic launch-confidence-weighted surface aero/coupling replay only; not promoted"
-                        ),
+                        "claim_boundary": replay_candidate_claim_boundary(candidate_id),
                     }
                 )
     return rows
+
+
+def replay_candidate_claim_boundary(candidate_id: str) -> str:
+    if candidate_id == "C0_frozen_neutral":
+        return "frozen active calibrated replay"
+    if candidate_id.startswith("SCL_"):
+        return "surface-effectiveness scalar control_mix replay; eligible only through held-out promotion gate"
+    return "diagnostic launch-confidence-weighted surface aero/coupling replay only; not promoted"
 
 
 def regime_ladder_error_summary(replay_by_candidate: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -1924,7 +2382,7 @@ def regime_ladder_error_summary(replay_by_candidate: dict[str, list[dict[str, An
                                 "claim_boundary": (
                                     "frozen active calibrated replay"
                                     if candidate_id == "C0_frozen_neutral"
-                                    else "diagnostic alpha-regime command-ladder replay summary only; not promoted"
+                                    else "alpha-regime command-ladder replay summary; promotion only via held-out surface-scale gate"
                                 ),
                             }
                         )
@@ -2304,8 +2762,8 @@ def write_inventory_plot(figure_dir: Path, rows: list[dict[str, Any]]) -> Path:
     ax.set_xticklabels(labels, rotation=35, ha="right")
     ax.legend()
     fig.tight_layout()
-    path = figure_dir / "command_ladder_inventory.png"
-    fig.savefig(path, dpi=160)
+    path = figure_dir / "inventory.png"
+    fig.savefig(filesystem_path(path), dpi=160)
     plt.close(fig)
     return path
 
@@ -2330,8 +2788,8 @@ def write_surface_effectiveness_plot(figure_dir: Path, rows: list[dict[str, Any]
     axes[-1].set_xlabel("normalised command magnitude")
     axes[0].legend()
     fig.tight_layout()
-    path = figure_dir / f"{surface}_effectiveness.png"
-    fig.savefig(path, dpi=160)
+    path = figure_dir / f"{surface}_eff.png"
+    fig.savefig(filesystem_path(path), dpi=160)
     plt.close(fig)
     return path
 
@@ -2353,8 +2811,8 @@ def write_symmetric_contamination_plot(figure_dir: Path, rows: list[dict[str, An
     ax.set_xticks(np.arange(len(labels)))
     ax.set_xticklabels(labels, rotation=35, ha="right")
     fig.tight_layout()
-    path = figure_dir / "symmetric_contamination.png"
-    fig.savefig(path, dpi=160)
+    path = figure_dir / "symmetry.png"
+    fig.savefig(filesystem_path(path), dpi=160)
     plt.close(fig)
     return path
 
@@ -2388,8 +2846,8 @@ def write_launch_confidence_plot(figure_dir: Path, rows: list[dict[str, Any]]) -
     ax.set_ylabel("mean abs primary antisymmetric residual")
     ax.grid(True, axis="y", alpha=0.25)
     fig.tight_layout()
-    path = figure_dir / "launch_confidence_effectiveness_residuals.png"
-    fig.savefig(path, dpi=160)
+    path = figure_dir / "launch_conf.png"
+    fig.savefig(filesystem_path(path), dpi=160)
     plt.close(fig)
     return path
 
@@ -2413,8 +2871,8 @@ def write_heldout_summary_plot(figure_dir: Path, rows: list[dict[str, Any]]) -> 
     ax.set_title("Held-Out Optional Surface Candidate Summary")
     ax.set_ylabel("absolute antisymmetric error")
     fig.tight_layout()
-    path = figure_dir / "heldout_optional_surface_candidate.png"
-    fig.savefig(path, dpi=160)
+    path = figure_dir / "heldout.png"
+    fig.savefig(filesystem_path(path), dpi=160)
     plt.close(fig)
     return path
 
@@ -2469,8 +2927,8 @@ def write_representative_replay_plots(figure_dir: Path, replay_rows: list[dict[s
         ax.grid(True, alpha=0.25)
         ax.legend()
         fig.tight_layout()
-        path = figure_dir / f"{surface}_representative_replay.png"
-        fig.savefig(path, dpi=160)
+        path = figure_dir / f"{surface}_replay.png"
+        fig.savefig(filesystem_path(path), dpi=160)
         plt.close(fig)
         paths.append(path)
     return paths
@@ -2489,6 +2947,8 @@ def build_manifest(
     effectiveness_rows: list[dict[str, Any]],
     launch_confidence_rows: list[dict[str, Any]],
     pairwise_gain_rows: list[dict[str, Any]],
+    surface_scale_gate_rows: list[dict[str, Any]],
+    selected_surface_scales: dict[str, float],
     aero_coupling_rows: list[dict[str, Any]],
     filtering_summary_rows: list[dict[str, Any]],
     optional_candidates: list[dict[str, Any]],
@@ -2518,9 +2978,23 @@ def build_manifest(
             promoted_rudder_effectiveness,
         )
     )
+    accepted_surface_scale_rows = [row for row in surface_scale_gate_rows if bool(row.get("accepted"))]
+    accepted_surface_scale_surfaces = sorted({str(row.get("surface_axis")) for row in accepted_surface_scale_rows})
+    selected_surface_scale_fields = {
+        "delta_a_aero_effectiveness_scale": float(selected_surface_scales.get("aileron", active_aileron_surface_scale)),
+        "delta_e_aero_effectiveness_scale": float(selected_surface_scales.get("elevator", active_elevator_surface_scale)),
+        "delta_r_aero_effectiveness_scale": float(selected_surface_scales.get("rudder", active_rudder_surface_scale)),
+    }
+    selected_differs_from_active = any(
+        abs(
+            selected_surface_scale_fields[field] - surface_effectiveness_scales[field]
+        )
+        > 1e-12
+        for field in selected_surface_scale_fields
+    )
     promoted = promoted_active_surface_effectiveness or any(bool(row.get("promoted")) for row in optional_candidates)
     return {
-        "task": "Real-Flight Control Surface Effectiveness Study v3.0",
+        "task": "Real-Flight Control Surface Effectiveness Study v3.1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "git_commit_hash": git_commit_hash(),
         "input_root": input_root.as_posix(),
@@ -2530,13 +3004,34 @@ def build_manifest(
         "current_neutral_model_calibration_id": getattr(active_calibration, "CALIBRATION_ID", "unknown"),
         "current_neutral_model_claim_boundary": getattr(active_calibration, "CLAIM_BOUNDARY", "unknown"),
         "active_surface_effectiveness_scales": surface_effectiveness_scales,
+        "surface_scale_candidate_grids": {
+            surface: list(grid)
+            for surface, grid in SURFACE_SCALE_CANDIDATE_GRIDS.items()
+        },
+        "surface_scale_promotion_gates": {
+            "primary_metric_improvement_required": {
+                "aileron": "peak_p_rad_s",
+                "elevator": "peak_q_rad_s",
+                "rudder": "peak_r_rad_s",
+            },
+            "same_surface_attitude_non_regression_required": {
+                "aileron": "final_phi",
+                "elevator": "final_theta",
+                "rudder": "final_psi",
+            },
+            "trajectory_max_regression_m": SURFACE_SCALE_TRAJECTORY_MAX_REGRESSION_M,
+            "cross_axis_attitude_max_regression_deg": SURFACE_SCALE_CROSS_AXIS_MAX_REGRESSION_DEG,
+        },
+        "selected_surface_effectiveness_scales": selected_surface_scale_fields,
+        "accepted_surface_scale_surfaces": accepted_surface_scale_surfaces,
+        "selected_surface_scales_differ_from_active_baseline": selected_differs_from_active,
         "promoted_surface_effectiveness": {
             "delta_a_aero_effectiveness_scale": active_aileron_surface_scale,
             "delta_e_aero_effectiveness_scale": active_elevator_surface_scale,
             "delta_r_aero_effectiveness_scale": active_rudder_surface_scale,
-            "delta_a_status": "promoted" if promoted_aileron_effectiveness else "diagnostic_only_not_promoted",
-            "delta_e_status": "promoted_conservative_elevator_only" if promoted_elevator_effectiveness else "unity_not_promoted",
-            "delta_r_status": "promoted_conservative_weak_rudder" if promoted_rudder_effectiveness else "unity_not_promoted",
+            "delta_a_status": "active_promoted" if promoted_aileron_effectiveness else "active_unity_or_not_yet_promoted",
+            "delta_e_status": "active_promoted" if promoted_elevator_effectiveness else "active_unity_or_not_yet_promoted",
+            "delta_r_status": "active_promoted" if promoted_rudder_effectiveness else "active_unity_or_not_yet_promoted",
         },
         "replay_script": "03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
         "replay_policy": "frozen active calibrated model, measured launch state, logged command schedule, existing command delay and actuator lag",
@@ -2575,29 +3070,38 @@ def build_manifest(
             "successful_candidate_sweep_replays": sum(1 for row in candidate_sweep_replay_rows if row.get("replay_status") == "ok"),
         },
         "output_files": {
-            "inventory": "control_surface_inventory.csv",
-            "filtering_summary": "control_surface_filtering_summary.csv",
-            "replay_metrics": "control_surface_replay_metrics.csv",
-            "candidate_sweep_replay_metrics": "control_surface_replay_metrics_candidate_sweep.csv",
-            "replay_error_summary": "control_surface_replay_error_summary.csv",
-            "regime_ladder_error_summary": "control_surface_regime_ladder_error_summary.csv",
-            "effectiveness_summary": "control_surface_effectiveness_summary.csv",
-            "launch_confidence_summary": "control_surface_launch_confidence_summary.csv",
-            "symmetric_contamination_summary": "control_surface_symmetric_contamination_summary.csv",
-            "optional_surface_fit_candidates": "optional_surface_fit_candidates.csv",
-            "optional_surface_fit_heldout_summary": "optional_surface_fit_heldout_summary.csv",
-            "pairwise_surface_gain_fit": "pairwise_surface_gain_fit.csv",
-            "optional_surface_aero_coupling_fit": "optional_surface_aero_coupling_fit.csv",
-            "report": "control_surface_effectiveness_report.md",
+            "inventory": "metrics/inventory.csv",
+            "filtering_summary": "metrics/filter.csv",
+            "replay_metrics": "metrics/replay.csv",
+            "candidate_sweep_replay_metrics": "metrics/cand_replay.csv",
+            "replay_error_summary": "metrics/replay_err.csv",
+            "regime_ladder_error_summary": "metrics/regime_err.csv",
+            "effectiveness_summary": "metrics/effect.csv",
+            "launch_confidence_summary": "metrics/launch_conf.csv",
+            "symmetric_contamination_summary": "metrics/symmetry.csv",
+            "optional_surface_fit_candidates": "metrics/opt_cands.csv",
+            "optional_surface_fit_heldout_summary": "metrics/opt_heldout.csv",
+            "surface_scale_promotion_gate": "metrics/scale_gate.csv",
+            "pairwise_surface_gain_fit": "metrics/gain_fit.csv",
+            "optional_surface_aero_coupling_fit": "metrics/aero_fit.csv",
+            "report": "reports/report.md",
+            "manifest": "manifests/manifest.json",
             "figures": figures,
         },
         "promotion_decision": (
-            "promoted_conservative_elevator_rudder_effectiveness"
-            if promoted_elevator_effectiveness and promoted_rudder_effectiveness and not promoted_aileron_effectiveness
-            else ("promoted" if promoted else "not_promoted")
+            "candidate_surface_effectiveness_scales_passed_gate_pending_code_promotion"
+            if selected_differs_from_active
+            else (
+                "active_model_matches_evidence_gated_surface_scales"
+                if accepted_surface_scale_rows
+                else ("active_surface_effectiveness_already_promoted" if promoted else "not_promoted")
+            )
         ),
-        "claim_boundary": "neutral aero replay alignment plus conservative elevator and rudder surface effectiveness; aileron and lateral/coupling terms diagnostic only; no broad aero SysID",
+        "claim_boundary": "neutral aero replay alignment plus evidence-gated surface-effectiveness scalars; derivative/coupling rows and alpha-regime schedules diagnostic only; no broad aero SysID",
         "filtering_summary_groups": len(filtering_summary_rows),
+        "surface_scale_candidate_count": len(single_axis_surface_scale_candidates()),
+        "surface_scale_gate_rows": len(surface_scale_gate_rows),
+        "surface_scale_accepted_rows": len(accepted_surface_scale_rows),
         "candidate_families": {candidate_id: list(parameters) for candidate_id, parameters in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES.items()},
         "pairwise_gain_candidate_families": {candidate_id: list(surfaces) for candidate_id, surfaces in PAIRWISE_GAIN_CANDIDATE_FAMILIES.items()},
         "replay_error_summary_rows": len(replay_error_summary_rows),
@@ -2621,6 +3125,7 @@ def write_report(
     effectiveness_rows: list[dict[str, Any]],
     launch_confidence_rows: list[dict[str, Any]],
     pairwise_gain_rows: list[dict[str, Any]],
+    surface_scale_gate_rows: list[dict[str, Any]],
     aero_coupling_rows: list[dict[str, Any]],
     optional_candidates: list[dict[str, Any]],
     optional_heldout: list[dict[str, Any]],
@@ -2632,16 +3137,17 @@ def write_report(
     successful_replays = [row for row in replay_rows if row.get("replay_status") == "ok"]
     successful_candidate_sweep_replays = [row for row in candidate_sweep_replay_rows if row.get("replay_status") == "ok"]
     lines = [
-        "# Real-Flight Control Surface Effectiveness Study v3.0",
+        "# Real-Flight Control Surface Effectiveness Study v3.1",
         "",
         "## 1. Purpose and Claim Boundary",
         "",
-        "The neutral aero fit remains frozen. Deflection ladder throws support one conservative elevator aerodynamic-effectiveness correction in the active plant model; aileron, rudder, and cross-axis terms remain diagnostic. This is not broad aerodynamic SysID and does not claim accurate full 6-DoF lateral derivative identification.",
+        "The neutral aero fit remains frozen. Deflection ladder throws are replayed against the current promoted 40 ms dry-air model to evaluate aerodynamic surface-effectiveness scalar changes only. Aileron, elevator, and rudder are all eligible for evidence-gated scalar promotion; lateral/cross-axis derivatives, command conversion, measured surface angles, and alpha-regime schedules remain diagnostic. This is not broad aerodynamic SysID and does not claim accurate full 6-DoF lateral derivative identification.",
         "",
         f"- active calibrated model: `{manifest.get('current_neutral_model_calibration_id')}`",
         f"- claim boundary: `{manifest.get('claim_boundary')}`",
         f"- promotion decision: `{manifest.get('promotion_decision')}`",
         f"- active surface-effectiveness scales: `{manifest.get('active_surface_effectiveness_scales')}`",
+        f"- selected surface-effectiveness scales from this gate: `{manifest.get('selected_surface_effectiveness_scales')}`",
         "",
         "## 2. Data Inventory",
         "",
@@ -2659,7 +3165,7 @@ def write_report(
         "",
         "## 4. Frozen-Model Replay Setup",
         "",
-        "Each usable throw is replayed from its measured launch state using the active calibrated model, logged command schedule, nominal command-onset delay, and actuator lag from the throw manifest. The command conversion and measured surface-angle convention are unchanged; the promoted elevator update scales only the aerodynamic effectiveness in the strip model.",
+        "Each usable throw is replayed from its measured launch state using the active calibrated model, logged command schedule, nominal command-onset delay, and actuator lag from the throw manifest. Candidate scales are applied only by multiplying the aircraft `control_mix` columns relative to the active model. The command conversion, logged command values, measured surface-angle convention, actuator lag, and hardware packet mapping are unchanged.",
         "",
         f"- successful replays: `{len(successful_replays)}` / `{len(replay_rows)}`",
         f"- replay workers: `{manifest.get('worker_count')}` / max `{manifest.get('max_workers')}`",
@@ -2669,47 +3175,51 @@ def write_report(
         "",
         "## 5. Candidate Replay Error Summary",
         "",
-        "The candidate comparison now puts simple pairwise +/- response-gain replay first, then keeps the launch-confidence-weighted residual surface aero/coupling derivatives as diagnostic comparisons. C0 is the frozen active calibrated model, including the promoted conservative elevator effectiveness scale. P1-P4 are extra pairwise response-gain replays. C1-C8 are derivative/coupling diagnostics. No aileron, rudder, lateral/coupling, or regime-scheduled candidate is promoted by this report.",
+        "The active sweep replays single-axis surface-scale candidates and one combined accepted-scale candidate. C0 is the frozen active calibrated model. `SCL_*` rows are control-mix surface-effectiveness candidates. The combined row uses the best accepted scale per surface and retains the active value for any failed surface. Pairwise response-gain and derivative/coupling fits are reported later as diagnostics, not as promoted model families.",
         "",
         f"- successful candidate-family replays: `{len(successful_candidate_sweep_replays)}` / `{len(candidate_sweep_replay_rows)}`",
         "",
         replay_error_report_lines(replay_error_summary_rows),
         "",
-        "## 6. Alpha-Regime Command-Ladder Replay Error",
+        "## 6. Surface-Scale Promotion Gate",
         "",
-        "Replay error is also reported as an explicit candidate/surface/alpha-regime/20 percent command ladder. Regime is assigned from measured response-window `actual_max_abs_alpha_deg`: normal `<12 deg`, transition `12-22 deg`, and post-stall `>=22 deg`. Empty cells are retained in `control_surface_regime_ladder_error_summary.csv` with `replay_count=0` so missing support is visible.",
+        surface_scale_gate_report_lines(surface_scale_gate_rows),
+        "",
+        "## 7. Alpha-Regime Command-Ladder Replay Error",
+        "",
+        f"Replay error is also reported as an explicit candidate/surface/alpha-regime/20 percent command ladder. Regime is assigned from measured response-window `actual_max_abs_alpha_deg`: normal `<{format_value(SURFACE_AERO_NORMAL_ALPHA_MAX_DEG)} deg`, transition `{format_value(SURFACE_AERO_NORMAL_ALPHA_MAX_DEG)}-{format_value(SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG)} deg`, and post-stall `>={format_value(SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG)} deg`, using the active residual-blend boundary. Empty cells are retained in `metrics/regime_err.csv` with `replay_count=0` so missing support is visible.",
         "",
         regime_ladder_report_lines(regime_ladder_error_rows),
         "",
-        "## 7. Launch-Confidence Diagnostic",
+        "## 8. Launch-Confidence Diagnostic",
         "",
         "Launch confidence is a diagnostic weight and grouping variable, not a new acceptance gate. It reuses the neutral SysID lateral-contamination strategy with reference `phi0=psi0=v0=p0=r0=0`, so the study can test whether real-vs-replay mismatch is launch-condition driven.",
         "",
         launch_confidence_report_lines(launch_confidence_rows),
         "",
-        "## 8. Aileron Effectiveness",
+        "## 9. Aileron Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "aileron"),
         "",
-        "## 9. Elevator Effectiveness",
+        "## 10. Elevator Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "elevator"),
         "",
-        "## 10. Rudder Effectiveness",
+        "## 11. Rudder Effectiveness",
         "",
         effectiveness_report_lines(effectiveness_rows, "rudder"),
         "",
-        "## 11. Cross-Coupling Observations",
+        "## 12. Cross-Coupling Observations",
         "",
         "Aileron yaw response and rudder roll response are reported as diagnostic coupling evidence. They are not promoted as lateral transition aerodynamic derivatives by this study.",
         "",
-        "## 12. Symmetric Launch/Trim Contamination",
+        "## 13. Symmetric Launch/Trim Contamination",
         "",
         "Symmetric response is separated from antisymmetric response. Large symmetric terms are interpreted as launch, trim, hardware, or model-mismatch contamination rather than hidden inside a surface effectiveness scale.",
         "",
         symmetric_report_lines(effectiveness_rows),
         "",
-        "## 13. Optional Surface/Aero Fit Result",
+        "## 14. Optional Surface/Aero Fit Result",
         "",
         optional_candidate_report_lines(optional_candidates, optional_heldout),
         "",
@@ -2717,11 +3227,11 @@ def write_report(
         "",
         surface_aero_coupling_report_lines(aero_coupling_rows),
         "",
-        "## 14. Promotion Decision",
+        "## 15. Promotion Decision",
         "",
-        "The conservative elevator and rudder aerodynamic-effectiveness scales are promoted in the active model. Aileron effectiveness, lateral/cross-axis derivatives, and alpha-regime schedules remain diagnostic because their held-out replay trade-offs are mixed and launch-condition contaminated.",
+        promotion_decision_report_text(surface_scale_gate_rows, manifest),
         "",
-        "## 15. Limitations",
+        "## 16. Limitations",
         "",
         "- Launch-condition contamination remains visible in the symmetric response.",
         "- Deflection data are sustained pulse-ladder throws, not a broad aero excitation design.",
@@ -2731,7 +3241,7 @@ def write_report(
         "- S1/S2 surface-scale rows are disabled by default because measured surface magnitudes are already used.",
         "- R5/R7/R8/R10/R11 semantics are unchanged.",
         "",
-        "## 16. Reproducibility Commands",
+        "## 17. Reproducibility Commands",
         "",
         "```powershell",
         "# Replay execution is hard-coded to 8 workers inside the study runner.",
@@ -2740,7 +3250,7 @@ def write_report(
         "pytest 03_Control/tests/test_neutral_aero_residual_sysid_contract.py",
         "```",
     ]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_file(path, "\n".join(lines) + "\n")
 
 
 def filter_summary_lines(rows: list[dict[str, Any]]) -> str:
@@ -2783,6 +3293,75 @@ def launch_confidence_report_lines(rows: list[dict[str, Any]]) -> str:
             f"weighted `{format_value(row.get('confidence_weighted_abs_antisym_residual'))}` "
             f"(delta `{format_value(row.get('weighted_minus_all_abs_residual'))}`)"
         )
+    return "\n".join(lines)
+
+
+def surface_scale_gate_report_lines(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "- no surface-scale gate rows available"
+    lines = [
+        "- held-out gate rows; lower primary residual is better:",
+        "`surface | candidate | scale | primary delta | same-att delta | dx delta | dy delta | alt delta | cross-att max delta | accepted | status`",
+    ]
+    surface_order = {"aileron": 0, "elevator": 1, "rudder": 2}
+    for row in sorted(
+        rows,
+        key=lambda item: (
+            surface_order.get(str(item.get("surface_axis")), 999),
+            to_float(item.get("candidate_scale")),
+        ),
+    ):
+        lines.append(
+            "- "
+            f"`{row.get('surface_axis')} | "
+            f"{row.get('candidate_id')} | "
+            f"{format_value(row.get('candidate_scale'))} | "
+            f"{format_value(row.get('primary_residual_delta'))} | "
+            f"{format_value(row.get('same_attitude_delta_deg'))} | "
+            f"{format_value(row.get('dx_delta_m'))} | "
+            f"{format_value(row.get('dy_delta_m'))} | "
+            f"{format_value(row.get('altitude_loss_delta_m'))} | "
+            f"{format_value(row.get('cross_axis_attitude_max_delta_deg'))} | "
+            f"{row.get('accepted')} | "
+            f"{row.get('promotion_gate_status')}`"
+        )
+    return "\n".join(lines)
+
+
+def promotion_decision_report_text(rows: list[dict[str, Any]], manifest: dict[str, Any]) -> str:
+    selected = manifest.get("selected_surface_effectiveness_scales", {})
+    accepted_surfaces = manifest.get("accepted_surface_scale_surfaces", [])
+    lines = [
+        f"- gate decision: `{manifest.get('promotion_decision')}`",
+        f"- selected scales: `{selected}`",
+        f"- accepted surfaces: `{accepted_surfaces}`",
+    ]
+    for surface in ("aileron", "elevator", "rudder"):
+        accepted = [row for row in rows if row.get("surface_axis") == surface and bool(row.get("accepted"))]
+        if accepted:
+            best = sorted(
+                accepted,
+                key=lambda row: to_float(row.get("candidate_primary_antisym_residual"), float("inf")),
+            )[0]
+            lines.append(
+                "- "
+                f"{surface}: accepted scale `{format_value(best.get('candidate_scale'))}` "
+                f"with primary residual delta `{format_value(best.get('primary_residual_delta'))}`"
+            )
+        else:
+            failed = [
+                str(row.get("promotion_gate_status"))
+                for row in rows
+                if row.get("surface_axis") == surface
+            ]
+            lines.append(
+                "- "
+                f"{surface}: fitted but not promoted by this gate"
+                + (f"; statuses `{sorted(set(failed))}`" if failed else "")
+            )
+    lines.append(
+        "- lateral/cross-axis derivatives, side-force terms, and alpha-regime surface schedules remain diagnostic and are not promoted by this report."
+    )
     return "\n".join(lines)
 
 
@@ -2867,6 +3446,12 @@ def replay_error_report_lines(rows: list[dict[str, Any]]) -> str:
 
 def ordered_candidate_ids(rows: list[dict[str, Any]]) -> list[str]:
     base_order = ["C0_frozen_neutral"]
+    base_order.extend(
+        surface_scale_candidate_id(surface, float(scale))
+        for surface, grid in SURFACE_SCALE_CANDIDATE_GRIDS.items()
+        for scale in grid
+    )
+    base_order.append(SURFACE_SCALE_COMBINED_CANDIDATE_ID)
     base_order.extend(PAIRWISE_GAIN_CANDIDATE_FAMILIES)
     base_order.extend(candidate_id for candidate_id in SURFACE_AERO_COUPLING_CANDIDATE_FAMILIES if candidate_id != "C0_frozen_neutral")
     ordered = [candidate_id for candidate_id in base_order if any(row.get("candidate_id") == candidate_id for row in rows)]
@@ -2929,7 +3514,7 @@ def pairwise_gain_report_lines(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "- Pairwise response-gain diagnostic was not run."
     lines = [
-        "- Pairwise response-gain diagnostic fits `real_antisym ~= gain * frozen_sim_antisym` from confidence-weighted train ladder pairs; replay candidates P1-P4 are diagnostic only."
+        "- Pairwise response-gain diagnostic fits `real_antisym ~= gain * frozen_sim_antisym` from confidence-weighted train ladder pairs; it is retained as metric-space support only and is not used for candidate replay or promotion."
     ]
     for row in rows:
         lines.append(
@@ -3000,8 +3585,9 @@ def command_schedule_audit(
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
+    safe_path = filesystem_path(path)
+    safe_path.parent.mkdir(parents=True, exist_ok=True)
+    with safe_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
@@ -3009,22 +3595,57 @@ def write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> 
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
-    if not path.exists():
+    safe_path = filesystem_path(path)
+    if not safe_path.exists():
         return []
-    with path.open("r", newline="", encoding="utf-8") as handle:
+    with safe_path.open("r", newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
+    safe_path = filesystem_path(path)
+    if not safe_path.exists():
         return {}
-    with path.open("r", encoding="utf-8") as handle:
+    with safe_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
-def base_replay_row(row: dict[str, Any], replay_dt_s: float, *, candidate_id: str = "C0_frozen_neutral") -> dict[str, Any]:
+def write_text_file(path: Path, text: str) -> None:
+    safe_path = filesystem_path(path)
+    safe_path.parent.mkdir(parents=True, exist_ok=True)
+    safe_path.write_text(text, encoding="utf-8")
+
+
+def filesystem_path(path: Path) -> Path:
+    path = Path(path)
+    if sys.platform.startswith("win"):
+        text = str(path.resolve())
+        if not text.startswith("\\\\?\\"):
+            return Path("\\\\?\\" + text)
+    return path
+
+
+def base_replay_row(
+    row: dict[str, Any],
+    replay_dt_s: float,
+    *,
+    candidate_id: str = "C0_frozen_neutral",
+    surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
+) -> dict[str, Any]:
     return {
         "candidate_id": candidate_id,
+        "candidate_delta_a_effectiveness_scale": surface_scale_for_replay_field(
+            "aileron",
+            surface_effectiveness_scale_by_surface,
+        ),
+        "candidate_delta_e_effectiveness_scale": surface_scale_for_replay_field(
+            "elevator",
+            surface_effectiveness_scale_by_surface,
+        ),
+        "candidate_delta_r_effectiveness_scale": surface_scale_for_replay_field(
+            "rudder",
+            surface_effectiveness_scale_by_surface,
+        ),
         "split": row.get("split", ""),
         "dataset_root": row.get("dataset_root", ""),
         "session_label": row.get("session_label", ""),
@@ -3055,8 +3676,14 @@ def blocked_replay_row(
     replay_dt_s: float,
     *,
     candidate_id: str = "C0_frozen_neutral",
+    surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    out = base_replay_row(row, replay_dt_s, candidate_id=candidate_id)
+    out = base_replay_row(
+        row,
+        replay_dt_s,
+        candidate_id=candidate_id,
+        surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+    )
     out["replay_status"] = status
     out["replay_policy"] = "blocked_before_replay"
     return out

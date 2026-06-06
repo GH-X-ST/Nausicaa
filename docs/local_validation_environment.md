@@ -85,7 +85,7 @@ normal / transition / post-stall regime-mismatch risk as a bounded score penalty
 and memory-shield non-regression diagnostic. The risk boundary is read from the
 active `neutral_dry_air_calibration.py` residual-blend limits, currently
 14--18 deg for the promoted
-`neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1`
+`neutral_dry_air_replay_040_local_s5_yaw0p75_clr0p60_surface_scale_v3p1_a0p65_e0p70_r0p45`
 model, and candidate/selector logs record the source calibration ID plus boundary
 values. High-AoA lift exploitation remains possible only when it earns enough
 mission value to justify the active-model mismatch exposure.

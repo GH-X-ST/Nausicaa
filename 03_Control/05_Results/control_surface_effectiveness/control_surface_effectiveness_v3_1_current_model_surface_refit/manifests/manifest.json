@@ -1,0 +1,255 @@
+{
+  "task": "Real-Flight Control Surface Effectiveness Study v3.1",
+  "generated_at": "2026-06-06T04:30:54",
+  "git_commit_hash": "f09e8f2b5a3618c66e5e0d44866bc0cecbcb6712",
+  "input_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal",
+  "input_data_roots": [
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pa30",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pe30",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pr30"
+  ],
+  "output_dir": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit",
+  "current_neutral_model_coefficient_source": "03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py",
+  "current_neutral_model_calibration_id": "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1",
+  "current_neutral_model_claim_boundary": "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_and_post_stall_clr_corrections_conservative_elevator_and_rudder_effectiveness",
+  "active_surface_effectiveness_scales": {
+    "delta_a_aero_effectiveness_scale": 1.0,
+    "delta_e_aero_effectiveness_scale": 0.6,
+    "delta_r_aero_effectiveness_scale": 0.531
+  },
+  "surface_scale_candidate_grids": {
+    "aileron": [
+      0.65,
+      0.7,
+      0.75,
+      0.8,
+      0.85,
+      0.9,
+      0.95,
+      1.0
+    ],
+    "elevator": [
+      0.45,
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7,
+      0.75
+    ],
+    "rudder": [
+      0.4,
+      0.45,
+      0.5,
+      0.531,
+      0.55,
+      0.6,
+      0.65
+    ]
+  },
+  "surface_scale_promotion_gates": {
+    "primary_metric_improvement_required": {
+      "aileron": "peak_p_rad_s",
+      "elevator": "peak_q_rad_s",
+      "rudder": "peak_r_rad_s"
+    },
+    "same_surface_attitude_non_regression_required": {
+      "aileron": "final_phi",
+      "elevator": "final_theta",
+      "rudder": "final_psi"
+    },
+    "trajectory_max_regression_m": 0.03,
+    "cross_axis_attitude_max_regression_deg": 2.0
+  },
+  "selected_surface_effectiveness_scales": {
+    "delta_a_aero_effectiveness_scale": 0.65,
+    "delta_e_aero_effectiveness_scale": 0.7,
+    "delta_r_aero_effectiveness_scale": 0.45
+  },
+  "accepted_surface_scale_surfaces": [
+    "aileron",
+    "elevator",
+    "rudder"
+  ],
+  "selected_surface_scales_differ_from_active_baseline": true,
+  "promoted_surface_effectiveness": {
+    "delta_a_aero_effectiveness_scale": 1.0,
+    "delta_e_aero_effectiveness_scale": 0.6,
+    "delta_r_aero_effectiveness_scale": 0.531,
+    "delta_a_status": "active_unity_or_not_yet_promoted",
+    "delta_e_status": "active_promoted",
+    "delta_r_status": "active_promoted"
+  },
+  "replay_script": "03_Control/02_Inner_Loop/run_control_surface_effectiveness_study.py",
+  "replay_policy": "frozen active calibrated model, measured launch state, logged command schedule, existing command delay and actuator lag",
+  "replay_dt_s": 0.005,
+  "worker_count": 8,
+  "max_workers": 8,
+  "worker_count_decision": "hard-coded 8-worker replay for baseline and all diagnostic candidates",
+  "filtering_thresholds": {
+    "min_response_window_s": 0.25,
+    "response_window_s": 0.65,
+    "u0_range_m_s": [
+      3.0,
+      8.0
+    ],
+    "abs_v0_max_m_s": 1.5,
+    "abs_w0_max_m_s": 0.9,
+    "max_response_spike_fraction": 0.2,
+    "deep_post_stall_alpha_deg": 30.0,
+    "launch_confidence_high_threshold": 0.75,
+    "launch_confidence_medium_threshold": 0.55,
+    "launch_confidence_min_weight": 0.25,
+    "launch_confidence_exponent": 1.5,
+    "launch_confidence_reference": "same lateral-contamination strategy as neutral SysID: phi0=psi0=v0=p0=r0=0",
+    "derivative_fit_min_qbar_pa": 2.0,
+    "derivative_fit_min_surface_rad": 0.02,
+    "surface_aero_normal_alpha_max_deg": 14.0,
+    "surface_aero_transition_alpha_max_deg": 18.0,
+    "rudder_post_stall_schedule": "uses transition coefficient fallback; no independent rudder post-stall coefficient is fitted"
+  },
+  "train_heldout_split_method": "launch-level one held-out launch per sign within each surface/magnitude ladder pair when available",
+  "heldout_seed": 606,
+  "throw_counts": {
+    "inventoried": 214,
+    "kept": 174,
+    "filtered": 40,
+    "train": 144,
+    "heldout": 30,
+    "successful_replays": 174,
+    "successful_candidate_sweep_replays": 4002
+  },
+  "output_files": {
+    "inventory": "metrics/inventory.csv",
+    "filtering_summary": "metrics/filter.csv",
+    "replay_metrics": "metrics/replay.csv",
+    "candidate_sweep_replay_metrics": "metrics/cand_replay.csv",
+    "replay_error_summary": "metrics/replay_err.csv",
+    "regime_ladder_error_summary": "metrics/regime_err.csv",
+    "effectiveness_summary": "metrics/effect.csv",
+    "launch_confidence_summary": "metrics/launch_conf.csv",
+    "symmetric_contamination_summary": "metrics/symmetry.csv",
+    "optional_surface_fit_candidates": "metrics/opt_cands.csv",
+    "optional_surface_fit_heldout_summary": "metrics/opt_heldout.csv",
+    "surface_scale_promotion_gate": "metrics/scale_gate.csv",
+    "pairwise_surface_gain_fit": "metrics/gain_fit.csv",
+    "optional_surface_aero_coupling_fit": "metrics/aero_fit.csv",
+    "report": "reports/report.md",
+    "manifest": "manifests/manifest.json",
+    "figures": [
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/inventory.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/aileron_eff.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/elevator_eff.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/rudder_eff.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/symmetry.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/launch_conf.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/heldout.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/aileron_replay.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/elevator_replay.png",
+      "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit/figures/rudder_replay.png"
+    ]
+  },
+  "promotion_decision": "candidate_surface_effectiveness_scales_passed_gate_pending_code_promotion",
+  "claim_boundary": "neutral aero replay alignment plus evidence-gated surface-effectiveness scalars; derivative/coupling rows and alpha-regime schedules diagnostic only; no broad aero SysID",
+  "filtering_summary_groups": 19,
+  "surface_scale_candidate_count": 22,
+  "surface_scale_gate_rows": 22,
+  "surface_scale_accepted_rows": 11,
+  "candidate_families": {
+    "C0_frozen_neutral": [],
+    "C1_primary_moment_derivatives": [
+      "Cl_delta_a_residual",
+      "Cm_delta_e_residual",
+      "Cn_delta_r_residual"
+    ],
+    "C2_c1_plus_aileron_adverse_yaw": [
+      "Cl_delta_a_residual",
+      "Cm_delta_e_residual",
+      "Cn_delta_r_residual",
+      "Cn_delta_a_residual"
+    ],
+    "C3_c1_plus_rudder_roll": [
+      "Cl_delta_a_residual",
+      "Cm_delta_e_residual",
+      "Cn_delta_r_residual",
+      "Cl_delta_r_residual"
+    ],
+    "C4_c1_plus_surface_side_force": [
+      "Cl_delta_a_residual",
+      "Cm_delta_e_residual",
+      "Cn_delta_r_residual",
+      "CY_delta_a_residual",
+      "CY_delta_r_residual"
+    ],
+    "C5_c2_plus_surface_side_force": [
+      "Cl_delta_a_residual",
+      "Cm_delta_e_residual",
+      "Cn_delta_r_residual",
+      "Cn_delta_a_residual",
+      "CY_delta_a_residual",
+      "CY_delta_r_residual"
+    ],
+    "C6_alpha_regime_primary_derivatives": [
+      "Cl_delta_a_residual@normal",
+      "Cl_delta_a_residual@transition",
+      "Cl_delta_a_residual@post_stall",
+      "Cm_delta_e_residual@normal",
+      "Cm_delta_e_residual@transition",
+      "Cm_delta_e_residual@post_stall",
+      "Cn_delta_r_residual@normal",
+      "Cn_delta_r_residual@transition"
+    ],
+    "C7_c6_plus_alpha_regime_aileron_yaw": [
+      "Cl_delta_a_residual@normal",
+      "Cl_delta_a_residual@transition",
+      "Cl_delta_a_residual@post_stall",
+      "Cm_delta_e_residual@normal",
+      "Cm_delta_e_residual@transition",
+      "Cm_delta_e_residual@post_stall",
+      "Cn_delta_r_residual@normal",
+      "Cn_delta_r_residual@transition",
+      "Cn_delta_a_residual@normal",
+      "Cn_delta_a_residual@transition",
+      "Cn_delta_a_residual@post_stall"
+    ],
+    "C8_c7_plus_alpha_regime_aileron_side_force": [
+      "Cl_delta_a_residual@normal",
+      "Cl_delta_a_residual@transition",
+      "Cl_delta_a_residual@post_stall",
+      "Cm_delta_e_residual@normal",
+      "Cm_delta_e_residual@transition",
+      "Cm_delta_e_residual@post_stall",
+      "Cn_delta_r_residual@normal",
+      "Cn_delta_r_residual@transition",
+      "Cn_delta_a_residual@normal",
+      "Cn_delta_a_residual@transition",
+      "Cn_delta_a_residual@post_stall",
+      "CY_delta_a_residual@normal",
+      "CY_delta_a_residual@transition",
+      "CY_delta_a_residual@post_stall"
+    ]
+  },
+  "pairwise_gain_candidate_families": {
+    "P1_pairwise_aileron_gain": [
+      "aileron"
+    ],
+    "P2_pairwise_elevator_gain": [
+      "elevator"
+    ],
+    "P3_pairwise_rudder_gain": [
+      "rudder"
+    ],
+    "P4_pairwise_all_surface_gains": [
+      "aileron",
+      "elevator",
+      "rudder"
+    ]
+  },
+  "replay_error_summary_rows": 288,
+  "regime_ladder_error_summary_rows": 3240,
+  "effectiveness_summary_rows": 635,
+  "launch_confidence_summary_rows": 57,
+  "pairwise_surface_gain_fit_rows": 3,
+  "optional_surface_aero_coupling_fit_rows": 21,
+  "optional_heldout_rows": 46
+}
