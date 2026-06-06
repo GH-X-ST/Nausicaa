@@ -49,6 +49,8 @@ from A_model_parameters import neutral_dry_air_calibration as active_calibration
 DEFAULT_INPUT_ROOT = ROOT / "04_Flight_Test" / "05_Results" / "cal"
 DEFAULT_OUTPUT_ROOT = ROOT / "03_Control" / "05_Results" / "control_surface_effectiveness"
 DEFAULT_RUN_LABEL = "control_surface_effectiveness_v3_1_current_model_surface_refit"
+DEFAULT_STAGE_WISE_RUN_LABEL = "cse_v3_2_stage_fit"
+DEFAULT_CONSTRAINED_STAGE_RUN_LABEL = "cse_v3_3_constrained_stage_schedule"
 DEFAULT_DATASET_ROOTS = ("pa30", "pe30", "pr30")
 DEFAULT_RESPONSE_WINDOW_S = 0.65
 DEFAULT_MIN_RESPONSE_WINDOW_S = 0.25
@@ -92,9 +94,69 @@ SURFACE_SCALE_CANDIDATE_GRIDS = {
     "elevator": (0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75),
     "rudder": (0.40, 0.45, 0.50, 0.531, 0.55, 0.60, 0.65),
 }
+STAGE_SURFACE_SCALE_GRID = (
+    0.40,
+    0.45,
+    0.50,
+    0.55,
+    0.60,
+    0.65,
+    0.70,
+    0.75,
+    0.80,
+    0.85,
+    0.90,
+    0.95,
+    1.00,
+)
 SURFACE_SCALE_TRAJECTORY_MAX_REGRESSION_M = 0.03
 SURFACE_SCALE_CROSS_AXIS_MAX_REGRESSION_DEG = 2.0
 SURFACE_SCALE_COMBINED_CANDIDATE_ID = "SCL_combined_accepted_surface_scales"
+STAGE_SCHEDULE_COMBINED_CANDIDATE_ID = "STG_combined_all_data_stage_schedule"
+STAGE_ZERO_SUPPORT_PRIOR_SCALE = 1.0
+STAGE_ZERO_SUPPORT_STATUS = "zero_support_1p0_prior_not_fitted"
+CONSTRAINED_STAGE_CANDIDATES = {
+    "CST01_attached_prior_active_post_relief": {
+        "aileron": {"normal": 1.00, "transition": 0.65, "post_stall": 0.55},
+        "elevator": {"normal": 0.85, "transition": 0.70, "post_stall": 0.60},
+        "rudder": {"normal": 1.00, "transition": 0.45, "post_stall": 0.45},
+    },
+    "CST02_attached_prior_scalar_transition": {
+        "aileron": {"normal": 1.00, "transition": 0.65, "post_stall": 0.65},
+        "elevator": {"normal": 1.00, "transition": 0.70, "post_stall": 0.70},
+        "rudder": {"normal": 1.00, "transition": 0.45, "post_stall": 0.45},
+    },
+    "CST03_mild_authority_decay": {
+        "aileron": {"normal": 1.00, "transition": 0.75, "post_stall": 0.65},
+        "elevator": {"normal": 0.90, "transition": 0.75, "post_stall": 0.65},
+        "rudder": {"normal": 1.00, "transition": 0.55, "post_stall": 0.45},
+    },
+    "CST04_conservative_decay": {
+        "aileron": {"normal": 1.00, "transition": 0.85, "post_stall": 0.75},
+        "elevator": {"normal": 1.00, "transition": 0.85, "post_stall": 0.75},
+        "rudder": {"normal": 1.00, "transition": 0.65, "post_stall": 0.55},
+    },
+    "CST05_lower_bound_limited": {
+        "aileron": {"normal": 1.00, "transition": 0.55, "post_stall": 0.45},
+        "elevator": {"normal": 0.75, "transition": 0.55, "post_stall": 0.45},
+        "rudder": {"normal": 1.00, "transition": 0.45, "post_stall": 0.40},
+    },
+    "CST06_active_post_with_attached_prior": {
+        "aileron": {"normal": 1.00, "transition": 0.65, "post_stall": 0.65},
+        "elevator": {"normal": 0.85, "transition": 0.70, "post_stall": 0.70},
+        "rudder": {"normal": 1.00, "transition": 0.45, "post_stall": 0.45},
+    },
+    "CST07_deep_post_relief": {
+        "aileron": {"normal": 1.00, "transition": 0.65, "post_stall": 0.45},
+        "elevator": {"normal": 0.85, "transition": 0.70, "post_stall": 0.50},
+        "rudder": {"normal": 1.00, "transition": 0.45, "post_stall": 0.40},
+    },
+    "CST08_balanced_mid_decay": {
+        "aileron": {"normal": 0.90, "transition": 0.70, "post_stall": 0.60},
+        "elevator": {"normal": 0.90, "transition": 0.70, "post_stall": 0.60},
+        "rudder": {"normal": 0.90, "transition": 0.50, "post_stall": 0.45},
+    },
+}
 
 COMMAND_AXIS_TO_SURFACE = {
     "delta_a": "aileron",
@@ -249,6 +311,10 @@ REPLAY_FIELDS = [
     "candidate_delta_a_effectiveness_scale",
     "candidate_delta_e_effectiveness_scale",
     "candidate_delta_r_effectiveness_scale",
+    "candidate_stage_surface",
+    "candidate_stage_regime",
+    "candidate_stage_scale",
+    "candidate_surface_schedule",
     "split",
     "dataset_root",
     "session_label",
@@ -363,6 +429,77 @@ SURFACE_SCALE_GATE_FIELDS = [
     "cross_axis_gate",
     "accepted",
     "promotion_gate_status",
+]
+
+STAGE_CANDIDATE_FIELDS = [
+    "surface_axis",
+    "alpha_regime",
+    "candidate_id",
+    "candidate_scale",
+    "active_scale",
+    "fit_split",
+    "evidence_replay_count",
+    "positive_count",
+    "negative_count",
+    "primary_metric",
+    "primary_response_mae",
+    "same_surface_attitude_mae_deg",
+    "dx_mae_m",
+    "dy_mae_m",
+    "altitude_loss_mae_m",
+    "trajectory_mae_m",
+    "closeness_to_1p0",
+    "selection_rank",
+    "selected",
+    "fit_status",
+    "claim_boundary",
+]
+
+STAGE_FIT_FIELDS = [
+    "surface_axis",
+    "alpha_regime",
+    "selected_candidate_id",
+    "selected_scale",
+    "active_scale",
+    "fit_split",
+    "evidence_replay_count",
+    "positive_count",
+    "negative_count",
+    "primary_metric",
+    "primary_response_mae",
+    "same_surface_attitude_mae_deg",
+    "dx_mae_m",
+    "dy_mae_m",
+    "altitude_loss_mae_m",
+    "trajectory_mae_m",
+    "fit_status",
+    "zero_support_policy",
+    "claim_boundary",
+]
+
+CONSTRAINED_STAGE_CANDIDATE_FIELDS = [
+    "candidate_id",
+    "selected",
+    "accepted",
+    "score",
+    "replay_count",
+    "dx_mae_m",
+    "dy_mae_m",
+    "altitude_loss_mae_m",
+    "final_phi_mae_deg",
+    "final_theta_mae_deg",
+    "final_psi_mae_deg",
+    "primary_antisym_residual",
+    "dx_delta_m",
+    "dy_delta_m",
+    "altitude_loss_delta_m",
+    "final_phi_delta_deg",
+    "final_theta_delta_deg",
+    "final_psi_delta_deg",
+    "primary_delta",
+    "acceptance_status",
+    "surface_schedule",
+    "claim_boundary",
 ]
 
 OPTIONAL_AERO_COUPLING_FIT_FIELDS = [
@@ -616,16 +753,23 @@ PAIRWISE_GAIN_CANDIDATE_FAMILIES = {
 
 def main() -> None:
     args = build_arg_parser().parse_args()
+    run_label = str(args.run_label)
+    if bool(args.stage_wise_fit) and run_label == DEFAULT_RUN_LABEL:
+        run_label = DEFAULT_STAGE_WISE_RUN_LABEL
+    if bool(args.constrained_stage_schedule) and run_label == DEFAULT_RUN_LABEL:
+        run_label = DEFAULT_CONSTRAINED_STAGE_RUN_LABEL
     output_dir = run_study(
         input_root=Path(args.input_root),
         output_root=Path(args.output_root),
-        run_label=args.run_label,
+        run_label=run_label,
         dataset_roots=tuple(args.dataset_root),
         replay_dt_s=float(args.replay_dt_s),
         response_window_s=float(args.response_window_s),
         min_response_window_s=float(args.min_response_window_s),
         heldout_seed=int(args.heldout_seed),
         run_surface_fit_diagnostics=bool(args.surface_fit_diagnostics),
+        stage_wise_fit=bool(args.stage_wise_fit),
+        constrained_stage_schedule=bool(args.constrained_stage_schedule),
     )
     print(output_dir.as_posix())
 
@@ -654,6 +798,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help="Optionally write legacy S1/S2 metric-space surface-scale estimates; disabled by default.",
     )
+    parser.add_argument(
+        "--stage-wise-fit",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run v3.2 all-data alpha-regime stage-wise surface-effectiveness refit instead of the v3.1 scalar gate.",
+    )
+    parser.add_argument(
+        "--constrained-stage-schedule",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run v3.3 constrained joint alpha-regime surface-effectiveness schedule audit instead of the v3.1 scalar gate.",
+    )
     return parser
 
 
@@ -668,6 +824,8 @@ def run_study(
     min_response_window_s: float,
     heldout_seed: int,
     run_surface_fit_diagnostics: bool,
+    stage_wise_fit: bool = False,
+    constrained_stage_schedule: bool = False,
 ) -> Path:
     output_dir = output_root / run_label
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -677,6 +835,33 @@ def run_study(
     figures_dir = output_dir / "figures"
     for directory in (metrics_dir, reports_dir, manifests_dir, figures_dir):
         directory.mkdir(parents=True, exist_ok=True)
+
+    if stage_wise_fit:
+        return run_stage_wise_study(
+            input_root=input_root,
+            output_dir=output_dir,
+            metrics_dir=metrics_dir,
+            reports_dir=reports_dir,
+            manifests_dir=manifests_dir,
+            dataset_roots=dataset_roots,
+            replay_dt_s=replay_dt_s,
+            response_window_s=response_window_s,
+            min_response_window_s=min_response_window_s,
+            heldout_seed=heldout_seed,
+        )
+    if constrained_stage_schedule:
+        return run_constrained_stage_schedule_study(
+            input_root=input_root,
+            output_dir=output_dir,
+            metrics_dir=metrics_dir,
+            reports_dir=reports_dir,
+            manifests_dir=manifests_dir,
+            dataset_roots=dataset_roots,
+            replay_dt_s=replay_dt_s,
+            response_window_s=response_window_s,
+            min_response_window_s=min_response_window_s,
+            heldout_seed=heldout_seed,
+        )
 
     inventory_rows = load_inventory_rows(
         input_root,
@@ -814,6 +999,812 @@ def run_study(
         manifest=manifest,
     )
     return output_dir
+
+
+def run_stage_wise_study(
+    *,
+    input_root: Path,
+    output_dir: Path,
+    metrics_dir: Path,
+    reports_dir: Path,
+    manifests_dir: Path,
+    dataset_roots: tuple[str, ...],
+    replay_dt_s: float,
+    response_window_s: float,
+    min_response_window_s: float,
+    heldout_seed: int,
+) -> Path:
+    inventory_rows = load_inventory_rows(
+        input_root,
+        dataset_roots=dataset_roots,
+        response_window_s=response_window_s,
+        min_response_window_s=min_response_window_s,
+    )
+    assign_launch_level_split(inventory_rows, heldout_seed=heldout_seed)
+    kept_rows = [row for row in inventory_rows if row.get("filter_status") == "kept"]
+    filtering_summary_rows = filtering_summary(inventory_rows)
+    baseline_rows = replay_kept_rows(kept_rows, replay_dt_s=replay_dt_s, candidate_id="C0_frozen_neutral")
+    stage_evidence_rows = kept_rows_with_stage_alpha_from_baseline(kept_rows, baseline_rows)
+
+    stage_replay_by_candidate, stage_evidence_by_candidate = replay_stage_surface_candidates(
+        stage_evidence_rows,
+        replay_dt_s=replay_dt_s,
+    )
+    stage_replay_rows = [
+        row
+        for candidate_id in ordered_candidate_ids([{"candidate_id": spec["candidate_id"]} for spec in stage_surface_scale_candidates()])
+        for row in stage_replay_by_candidate.get(candidate_id, [])
+    ]
+    stage_candidate_rows = [
+        stage_candidate_score_row(
+            spec,
+            stage_replay_by_candidate.get(str(spec["candidate_id"]), []),
+            stage_evidence_by_candidate.get(str(spec["candidate_id"]), []),
+        )
+        for spec in stage_surface_scale_candidates()
+    ]
+
+    stage_fit_rows = select_stage_fit_rows(stage_candidate_rows, stage_evidence_rows)
+    combined_schedule = schedule_from_stage_fit_rows(stage_fit_rows)
+    combined_rows = replay_kept_rows(
+        kept_rows,
+        replay_dt_s=replay_dt_s,
+        candidate_id=STAGE_SCHEDULE_COMBINED_CANDIDATE_ID,
+        replay_policy=f"{STAGE_SCHEDULE_COMBINED_CANDIDATE_ID}_all_data_alpha_regime_control_mix_replay",
+        surface_effectiveness_schedule_by_surface_regime=combined_schedule,
+    )
+    stage_replay_rows.extend(combined_rows)
+    stage_error_rows = replay_error_summary(
+        {
+            "C0_frozen_neutral": baseline_rows,
+            STAGE_SCHEDULE_COMBINED_CANDIDATE_ID: combined_rows,
+        },
+        {
+            "C0_frozen_neutral": summarize_effectiveness(baseline_rows),
+            STAGE_SCHEDULE_COMBINED_CANDIDATE_ID: summarize_effectiveness(combined_rows),
+        },
+    )
+    regime_error_rows = regime_ladder_error_summary(
+        {
+            "C0_frozen_neutral": baseline_rows,
+            STAGE_SCHEDULE_COMBINED_CANDIDATE_ID: combined_rows,
+        }
+    )
+
+    write_csv(metrics_dir / "stage_fit.csv", stage_fit_rows, STAGE_FIT_FIELDS)
+    write_csv(metrics_dir / "stage_cand.csv", stage_candidate_rows, STAGE_CANDIDATE_FIELDS)
+    write_csv(metrics_dir / "stage_replay.csv", stage_replay_rows, REPLAY_FIELDS)
+    write_csv(metrics_dir / "stage_err.csv", stage_error_rows, REPLAY_ERROR_SUMMARY_FIELDS)
+    write_csv(metrics_dir / "regime_err.csv", regime_error_rows, REGIME_LADDER_ERROR_FIELDS)
+
+    manifest = build_stage_wise_manifest(
+        input_root=input_root,
+        dataset_roots=dataset_roots,
+        output_dir=output_dir,
+        inventory_rows=inventory_rows,
+        baseline_rows=baseline_rows,
+        stage_replay_rows=stage_replay_rows,
+        stage_candidate_rows=stage_candidate_rows,
+        stage_fit_rows=stage_fit_rows,
+        stage_error_rows=stage_error_rows,
+        regime_error_rows=regime_error_rows,
+        filtering_summary_rows=filtering_summary_rows,
+        combined_schedule=combined_schedule,
+        replay_dt_s=replay_dt_s,
+        response_window_s=response_window_s,
+        min_response_window_s=min_response_window_s,
+        heldout_seed=heldout_seed,
+    )
+    write_text_file(manifests_dir / "manifest.json", json.dumps(manifest, indent=2) + "\n")
+    write_text_file(
+        reports_dir / "report.md",
+        stage_wise_report_text(
+            manifest=manifest,
+            stage_fit_rows=stage_fit_rows,
+            stage_candidate_rows=stage_candidate_rows,
+            stage_error_rows=stage_error_rows,
+            regime_error_rows=regime_error_rows,
+        ),
+    )
+    return output_dir
+
+
+def rows_for_surface_regime(rows: list[dict[str, Any]], surface: str, regime: str) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in rows
+        if row.get("surface_axis") == surface
+        and alpha_regime_from_abs_deg(stage_fit_alpha_deg_from_row(row)) == regime
+    ]
+
+
+def stage_fit_alpha_deg_from_row(row: dict[str, Any]) -> float:
+    for key in ("_stage_fit_actual_max_abs_alpha_deg", "actual_max_abs_alpha_deg", "max_abs_alpha_deg"):
+        value = to_float(row.get(key))
+        if math.isfinite(value):
+            return float(value)
+    return float("nan")
+
+
+def kept_rows_with_stage_alpha_from_baseline(
+    kept_rows: list[dict[str, Any]],
+    baseline_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    baseline_by_key = {replay_identity_key(row): row for row in baseline_rows}
+    out: list[dict[str, Any]] = []
+    for row in kept_rows:
+        copied = dict(row)
+        baseline = baseline_by_key.get(replay_identity_key(row), {})
+        copied["_stage_fit_actual_max_abs_alpha_deg"] = to_float(
+            baseline.get("actual_max_abs_alpha_deg"),
+            to_float(row.get("max_abs_alpha_deg")),
+        )
+        out.append(copied)
+    return out
+
+
+def replay_identity_key(row: dict[str, Any]) -> tuple[str, str, str, str, str]:
+    return (
+        str(row.get("dataset_root", "")),
+        str(row.get("session_label", "")),
+        str(row.get("trial_id", "")),
+        str(row.get("throw_id", "")),
+        str(row.get("case_id", "")),
+    )
+
+
+def replay_stage_surface_candidates(
+    kept_rows: list[dict[str, Any]],
+    *,
+    replay_dt_s: float,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    specs = stage_surface_scale_candidates()
+    replay_by_candidate: dict[str, list[dict[str, Any]]] = {str(spec["candidate_id"]): [] for spec in specs}
+    evidence_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    tasks: list[tuple[Any, ...]] = []
+    for spec in specs:
+        surface = str(spec["surface_axis"])
+        regime = str(spec["alpha_regime"])
+        scale = float(spec["candidate_scale"])
+        candidate_id = str(spec["candidate_id"])
+        evidence_rows = rows_for_surface_regime(kept_rows, surface, regime)
+        evidence_by_candidate[candidate_id] = evidence_rows
+        if not evidence_rows:
+            continue
+        schedule = stage_surface_schedule_with_cell(surface, regime, scale)
+        for row in evidence_rows:
+            tasks.append(
+                (
+                    row,
+                    replay_dt_s,
+                    candidate_id,
+                    f"{candidate_id}_all_data_alpha_regime_control_mix_replay",
+                    None,
+                    None,
+                    None,
+                    schedule,
+                    surface,
+                    regime,
+                    scale,
+                )
+            )
+    if not tasks:
+        return replay_by_candidate, evidence_by_candidate
+    worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
+        for row in executor.map(replay_worker_task, tasks, chunksize=1):
+            replay_by_candidate.setdefault(str(row.get("candidate_id", "")), []).append(row)
+    return replay_by_candidate, evidence_by_candidate
+
+
+def stage_candidate_score_row(
+    spec: dict[str, Any],
+    replay_rows: list[dict[str, Any]],
+    evidence_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    surface = str(spec["surface_axis"])
+    regime = str(spec["alpha_regime"])
+    primary_metric = PRIMARY_METRICS_BY_SURFACE[surface][0]
+    same_residual_field = {
+        "aileron": "final_phi_residual_actual_minus_sim_deg",
+        "elevator": "final_theta_residual_actual_minus_sim_deg",
+        "rudder": "final_psi_residual_actual_minus_sim_deg",
+    }[surface]
+    ok_rows = [row for row in replay_rows if row.get("replay_status") == "ok"]
+    dx_mae = mae(ok_rows, "dx_residual_actual_minus_sim_m")
+    dy_mae = mae(ok_rows, "dy_residual_actual_minus_sim_m")
+    altitude_mae = mae(ok_rows, "altitude_loss_residual_actual_minus_sim_m")
+    trajectory_values = [value for value in (dx_mae, dy_mae, altitude_mae) if math.isfinite(to_float(value))]
+    return {
+        "surface_axis": surface,
+        "alpha_regime": regime,
+        "candidate_id": spec["candidate_id"],
+        "candidate_scale": float(spec["candidate_scale"]),
+        "active_scale": active_surface_effectiveness_scales_by_surface()[surface],
+        "fit_split": "all",
+        "evidence_replay_count": len(ok_rows),
+        "positive_count": sum(1 for row in evidence_rows if to_float(row.get("command_value")) > 0.0),
+        "negative_count": sum(1 for row in evidence_rows if to_float(row.get("command_value")) < 0.0),
+        "primary_metric": primary_metric,
+        "primary_response_mae": mae(ok_rows, f"{primary_metric}_residual_actual_minus_sim"),
+        "same_surface_attitude_mae_deg": mae(ok_rows, same_residual_field),
+        "dx_mae_m": dx_mae,
+        "dy_mae_m": dy_mae,
+        "altitude_loss_mae_m": altitude_mae,
+        "trajectory_mae_m": safe_mean(trajectory_values),
+        "closeness_to_1p0": abs(float(spec["candidate_scale"]) - 1.0),
+        "selection_rank": "",
+        "selected": False,
+        "fit_status": "candidate_scored_all_available_data" if ok_rows else "zero_support_candidate_not_scored",
+        "claim_boundary": "stage-wise all-data surface-effectiveness replay candidate; diagnostic pending post-analysis",
+    }
+
+
+def select_stage_fit_rows(stage_candidate_rows: list[dict[str, Any]], kept_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected_rows: list[dict[str, Any]] = []
+    for surface in ("aileron", "elevator", "rudder"):
+        active_scale = active_surface_effectiveness_scales_by_surface()[surface]
+        for regime in SURFACE_AERO_ALPHA_REGIMES:
+            support_rows = rows_for_surface_regime(kept_rows, surface, regime)
+            candidates = [
+                row
+                for row in stage_candidate_rows
+                if row.get("surface_axis") == surface
+                and row.get("alpha_regime") == regime
+                and int(to_float(row.get("evidence_replay_count"), 0)) > 0
+            ]
+            if not support_rows or not candidates:
+                selected_rows.append(
+                    {
+                        "surface_axis": surface,
+                        "alpha_regime": regime,
+                        "selected_candidate_id": "",
+                        "selected_scale": STAGE_ZERO_SUPPORT_PRIOR_SCALE,
+                        "active_scale": active_scale,
+                        "fit_split": "all",
+                        "evidence_replay_count": 0,
+                        "positive_count": 0,
+                        "negative_count": 0,
+                        "primary_metric": PRIMARY_METRICS_BY_SURFACE[surface][0],
+                        "primary_response_mae": float("nan"),
+                        "same_surface_attitude_mae_deg": float("nan"),
+                        "dx_mae_m": float("nan"),
+                        "dy_mae_m": float("nan"),
+                        "altitude_loss_mae_m": float("nan"),
+                        "trajectory_mae_m": float("nan"),
+                        "fit_status": STAGE_ZERO_SUPPORT_STATUS,
+                        "zero_support_policy": "absolute_scale_1p0_prior",
+                        "claim_boundary": "zero-support stage cell; user-selected 1.0 prior, not data-fitted",
+                    }
+                )
+                continue
+            ranked = sorted(candidates, key=stage_candidate_sort_key)
+            for rank, row in enumerate(ranked, start=1):
+                row["selection_rank"] = rank
+                row["selected"] = rank == 1
+            best = ranked[0]
+            selected_rows.append(
+                {
+                    "surface_axis": surface,
+                    "alpha_regime": regime,
+                    "selected_candidate_id": best.get("candidate_id", ""),
+                    "selected_scale": to_float(best.get("candidate_scale")),
+                    "active_scale": active_scale,
+                    "fit_split": "all",
+                    "evidence_replay_count": best.get("evidence_replay_count", 0),
+                    "positive_count": best.get("positive_count", 0),
+                    "negative_count": best.get("negative_count", 0),
+                    "primary_metric": best.get("primary_metric", ""),
+                    "primary_response_mae": best.get("primary_response_mae", float("nan")),
+                    "same_surface_attitude_mae_deg": best.get("same_surface_attitude_mae_deg", float("nan")),
+                    "dx_mae_m": best.get("dx_mae_m", float("nan")),
+                    "dy_mae_m": best.get("dy_mae_m", float("nan")),
+                    "altitude_loss_mae_m": best.get("altitude_loss_mae_m", float("nan")),
+                    "trajectory_mae_m": best.get("trajectory_mae_m", float("nan")),
+                    "fit_status": "selected_all_available_data_stage_fit",
+                    "zero_support_policy": "",
+                    "claim_boundary": "selected from all available data; diagnostic pending post-analysis",
+                }
+            )
+    return selected_rows
+
+
+def stage_candidate_sort_key(row: dict[str, Any]) -> tuple[float, float, float, float, float]:
+    return (
+        to_float(row.get("primary_response_mae"), float("inf")),
+        to_float(row.get("same_surface_attitude_mae_deg"), float("inf")),
+        to_float(row.get("trajectory_mae_m"), float("inf")),
+        to_float(row.get("closeness_to_1p0"), float("inf")),
+        to_float(row.get("candidate_scale"), float("inf")),
+    )
+
+
+def schedule_from_stage_fit_rows(stage_fit_rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    schedule = active_stage_surface_schedule()
+    for row in stage_fit_rows:
+        surface = str(row.get("surface_axis", ""))
+        regime = str(row.get("alpha_regime", ""))
+        scale = to_float(row.get("selected_scale"))
+        if surface in schedule and regime in schedule[surface] and math.isfinite(scale):
+            schedule[surface][regime] = float(scale)
+    return schedule
+
+
+def build_stage_wise_manifest(
+    *,
+    input_root: Path,
+    dataset_roots: tuple[str, ...],
+    output_dir: Path,
+    inventory_rows: list[dict[str, Any]],
+    baseline_rows: list[dict[str, Any]],
+    stage_replay_rows: list[dict[str, Any]],
+    stage_candidate_rows: list[dict[str, Any]],
+    stage_fit_rows: list[dict[str, Any]],
+    stage_error_rows: list[dict[str, Any]],
+    regime_error_rows: list[dict[str, Any]],
+    filtering_summary_rows: list[dict[str, Any]],
+    combined_schedule: dict[str, dict[str, float]],
+    replay_dt_s: float,
+    response_window_s: float,
+    min_response_window_s: float,
+    heldout_seed: int,
+) -> dict[str, Any]:
+    return {
+        "task": "Real-Flight Control Surface Effectiveness Stage-Wise All-Data Refit v3.2",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "git_commit_hash": git_commit_hash(),
+        "input_root": input_root.as_posix(),
+        "input_data_roots": [(input_root / root).as_posix() for root in dataset_roots],
+        "output_dir": output_dir.as_posix(),
+        "current_neutral_model_coefficient_source": "03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py",
+        "current_neutral_model_calibration_id": getattr(active_calibration, "CALIBRATION_ID", ""),
+        "current_neutral_model_claim_boundary": getattr(active_calibration, "CLAIM_BOUNDARY", ""),
+        "active_surface_effectiveness_scales": active_surface_effectiveness_scales_by_surface(),
+        "stage_surface_scale_grid": list(STAGE_SURFACE_SCALE_GRID),
+        "stage_alpha_regime_boundaries_deg": {
+            "normal_lt": SURFACE_AERO_NORMAL_ALPHA_MAX_DEG,
+            "transition_gte": SURFACE_AERO_NORMAL_ALPHA_MAX_DEG,
+            "transition_lt": SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG,
+            "post_stall_gte": SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG,
+        },
+        "fit_policy": "all_kept_rows_no_heldout_gate_no_minimum_evidence_threshold",
+        "zero_support_policy": "absolute_scale_1p0_prior_not_fitted",
+        "selected_stage_surface_schedule": combined_schedule,
+        "stage_candidate_count": len(stage_surface_scale_candidates()),
+        "stage_candidate_rows": len(stage_candidate_rows),
+        "stage_fit_rows": len(stage_fit_rows),
+        "stage_replay_rows": len(stage_replay_rows),
+        "baseline_successful_replays": sum(1 for row in baseline_rows if row.get("replay_status") == "ok"),
+        "stage_successful_replays": sum(1 for row in stage_replay_rows if row.get("replay_status") == "ok"),
+        "regime_error_rows": len(regime_error_rows),
+        "worker_count": DEFAULT_WORKERS,
+        "max_workers": DEFAULT_MAX_WORKERS,
+        "replay_dt_s": replay_dt_s,
+        "response_window_s": response_window_s,
+        "min_response_window_s": min_response_window_s,
+        "heldout_seed_audit_only": heldout_seed,
+        "throw_counts": {
+            "inventoried": len(inventory_rows),
+            "kept": sum(1 for row in inventory_rows if row.get("filter_status") == "kept"),
+            "filtered": sum(1 for row in inventory_rows if row.get("filter_status") == "filtered"),
+        },
+        "filtering_summary_rows": len(filtering_summary_rows),
+        "stage_error_rows": len(stage_error_rows),
+        "outputs": {
+            "stage_fit": "metrics/stage_fit.csv",
+            "stage_candidates": "metrics/stage_cand.csv",
+            "stage_replay": "metrics/stage_replay.csv",
+            "stage_error": "metrics/stage_err.csv",
+            "regime_error": "metrics/regime_err.csv",
+            "report": "reports/report.md",
+            "manifest": "manifests/manifest.json",
+        },
+        "promotion_decision": "not_promoted_stage_schedule_pending_post_analysis",
+        "claim_boundary": "diagnostic all-data alpha-regime surface-effectiveness schedule; no active model promotion",
+    }
+
+
+def stage_wise_report_text(
+    *,
+    manifest: dict[str, Any],
+    stage_fit_rows: list[dict[str, Any]],
+    stage_candidate_rows: list[dict[str, Any]],
+    stage_error_rows: list[dict[str, Any]],
+    regime_error_rows: list[dict[str, Any]],
+) -> str:
+    lines = [
+        "# Real-Flight Control Surface Effectiveness Stage-Wise Refit v3.2",
+        "",
+        "## 1. Purpose and Claim Boundary",
+        "",
+        "This run fits alpha-regime surface-effectiveness schedules from all kept pulse-ladder rows. It does not use a held-out promotion gate and does not promote the schedule into the active model.",
+        "",
+        f"- active model: `{manifest.get('current_neutral_model_calibration_id')}`",
+        f"- fit policy: `{manifest.get('fit_policy')}`",
+        f"- zero-support policy: `{manifest.get('zero_support_policy')}`",
+        f"- promotion decision: `{manifest.get('promotion_decision')}`",
+        "",
+        "## 2. Selected Stage Schedule",
+        "",
+        "`surface | regime | selected scale | n | pos | neg | primary | primary MAE | attitude MAE | dx | dy | altitude | status`",
+    ]
+    for row in stage_fit_rows:
+        lines.append(
+            "`"
+            f"{row.get('surface_axis')} | {row.get('alpha_regime')} | {format_value(row.get('selected_scale'))} | "
+            f"{row.get('evidence_replay_count')} | {row.get('positive_count')} | {row.get('negative_count')} | "
+            f"{row.get('primary_metric')} | {format_value(row.get('primary_response_mae'))} | "
+            f"{format_value(row.get('same_surface_attitude_mae_deg'))} | {format_value(row.get('dx_mae_m'))} | "
+            f"{format_value(row.get('dy_mae_m'))} | {format_value(row.get('altitude_loss_mae_m'))} | "
+            f"{row.get('fit_status')}`"
+        )
+    lines.extend(
+        [
+            "",
+            "## 3. Combined Schedule Replay",
+            "",
+            "`candidate | split | surface | n | dx | dy | altitude | phi | theta | psi | primary`",
+        ]
+    )
+    for row in stage_error_rows:
+        if row.get("split") != "all":
+            continue
+        lines.append(
+            "`"
+            f"{row.get('candidate_id')} | {row.get('split')} | {row.get('surface_axis')} | {row.get('replay_count')} | "
+            f"{format_value(row.get('dx_mae_m'))} | {format_value(row.get('dy_mae_m'))} | "
+            f"{format_value(row.get('altitude_loss_mae_m'))} | {format_value(row.get('final_phi_mae_deg'))} | "
+            f"{format_value(row.get('final_theta_mae_deg'))} | {format_value(row.get('final_psi_mae_deg'))} | "
+            f"{format_value(row.get('primary_antisym_residual'))}`"
+        )
+    lines.extend(
+        [
+            "",
+            "## 4. Output Tables",
+            "",
+            "- `metrics/stage_fit.csv`: selected 9-cell schedule.",
+            "- `metrics/stage_cand.csv`: all 117 single-cell candidates and scores.",
+            "- `metrics/stage_replay.csv`: single-cell evidence replays plus combined schedule replay.",
+            "- `metrics/stage_err.csv`: frozen baseline and combined schedule replay summaries.",
+            "- `metrics/regime_err.csv`: normal/transition/post-stall replay ladder for baseline and combined schedule.",
+            "",
+            "## 5. Notes",
+            "",
+            f"- stage candidates generated: `{len(stage_surface_scale_candidates())}`",
+            f"- stage candidate score rows: `{len(stage_candidate_rows)}`",
+            f"- regime ladder rows: `{len(regime_error_rows)}`",
+            "- Command conversion, measured surface angles, actuator lag, servo signs, and hardware packet mapping are unchanged.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def run_constrained_stage_schedule_study(
+    *,
+    input_root: Path,
+    output_dir: Path,
+    metrics_dir: Path,
+    reports_dir: Path,
+    manifests_dir: Path,
+    dataset_roots: tuple[str, ...],
+    replay_dt_s: float,
+    response_window_s: float,
+    min_response_window_s: float,
+    heldout_seed: int,
+) -> Path:
+    inventory_rows = load_inventory_rows(
+        input_root,
+        dataset_roots=dataset_roots,
+        response_window_s=response_window_s,
+        min_response_window_s=min_response_window_s,
+    )
+    assign_launch_level_split(inventory_rows, heldout_seed=heldout_seed)
+    kept_rows = [row for row in inventory_rows if row.get("filter_status") == "kept"]
+    baseline_rows = replay_kept_rows(kept_rows, replay_dt_s=replay_dt_s, candidate_id="C0_frozen_neutral")
+    candidate_replay_rows = replay_constrained_stage_schedule_candidates(kept_rows, replay_dt_s=replay_dt_s)
+    replay_by_candidate = {"C0_frozen_neutral": baseline_rows}
+    for row in candidate_replay_rows:
+        replay_by_candidate.setdefault(str(row.get("candidate_id", "")), []).append(row)
+    effectiveness_by_candidate = {
+        candidate_id: summarize_effectiveness(rows)
+        for candidate_id, rows in replay_by_candidate.items()
+    }
+    error_rows = replay_error_summary(replay_by_candidate, effectiveness_by_candidate)
+    regime_rows = regime_ladder_error_summary(replay_by_candidate)
+    candidate_rows = constrained_stage_candidate_summary_rows(error_rows)
+
+    write_csv(metrics_dir / "constrained_cand.csv", candidate_rows, CONSTRAINED_STAGE_CANDIDATE_FIELDS)
+    write_csv(metrics_dir / "constrained_replay.csv", candidate_replay_rows, REPLAY_FIELDS)
+    write_csv(metrics_dir / "constrained_err.csv", error_rows, REPLAY_ERROR_SUMMARY_FIELDS)
+    write_csv(metrics_dir / "regime_err.csv", regime_rows, REGIME_LADDER_ERROR_FIELDS)
+    manifest = build_constrained_stage_manifest(
+        input_root=input_root,
+        dataset_roots=dataset_roots,
+        output_dir=output_dir,
+        inventory_rows=inventory_rows,
+        baseline_rows=baseline_rows,
+        candidate_replay_rows=candidate_replay_rows,
+        candidate_rows=candidate_rows,
+        error_rows=error_rows,
+        regime_rows=regime_rows,
+        replay_dt_s=replay_dt_s,
+        response_window_s=response_window_s,
+        min_response_window_s=min_response_window_s,
+        heldout_seed=heldout_seed,
+    )
+    write_text_file(manifests_dir / "manifest.json", json.dumps(manifest, indent=2) + "\n")
+    write_text_file(
+        reports_dir / "report.md",
+        constrained_stage_report_text(
+            manifest=manifest,
+            candidate_rows=candidate_rows,
+            error_rows=error_rows,
+            regime_rows=regime_rows,
+        ),
+    )
+    return output_dir
+
+
+def replay_constrained_stage_schedule_candidates(
+    kept_rows: list[dict[str, Any]],
+    *,
+    replay_dt_s: float,
+) -> list[dict[str, Any]]:
+    tasks: list[tuple[Any, ...]] = []
+    for candidate_id, schedule in CONSTRAINED_STAGE_CANDIDATES.items():
+        for row in kept_rows:
+            tasks.append(
+                (
+                    row,
+                    replay_dt_s,
+                    candidate_id,
+                    f"{candidate_id}_constrained_joint_alpha_regime_control_mix_replay",
+                    None,
+                    None,
+                    None,
+                    schedule,
+                    "",
+                    "",
+                    None,
+                )
+            )
+    if not tasks:
+        return []
+    worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
+        return list(executor.map(replay_worker_task, tasks, chunksize=1))
+
+
+def constrained_stage_candidate_summary_rows(error_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    baseline = replay_summary_row(error_rows, "C0_frozen_neutral", "all", "all")
+    rows: list[dict[str, Any]] = []
+    for candidate_id in CONSTRAINED_STAGE_CANDIDATES:
+        summary = replay_summary_row(error_rows, candidate_id, "all", "all")
+        if not summary:
+            continue
+        row = constrained_stage_candidate_summary_row(candidate_id, summary, baseline)
+        rows.append(row)
+    if rows:
+        ranked = sorted(rows, key=lambda row: to_float(row.get("score"), float("inf")))
+        selected_id = str(ranked[0].get("candidate_id"))
+        for row in rows:
+            row["selected"] = str(row.get("candidate_id")) == selected_id
+    return rows
+
+
+def constrained_stage_candidate_summary_row(
+    candidate_id: str,
+    summary: dict[str, Any],
+    baseline: dict[str, Any],
+) -> dict[str, Any]:
+    metric_fields = (
+        "dx_mae_m",
+        "dy_mae_m",
+        "altitude_loss_mae_m",
+        "final_phi_mae_deg",
+        "final_theta_mae_deg",
+        "final_psi_mae_deg",
+        "primary_antisym_residual",
+    )
+    deltas = {
+        field: metric_delta(summary, baseline, field)
+        for field in metric_fields
+    }
+    score = constrained_stage_candidate_score(summary)
+    accepted = constrained_stage_candidate_accepted(deltas)
+    return {
+        "candidate_id": candidate_id,
+        "selected": False,
+        "accepted": accepted,
+        "score": score,
+        "replay_count": summary.get("replay_count", 0),
+        "dx_mae_m": summary.get("dx_mae_m", float("nan")),
+        "dy_mae_m": summary.get("dy_mae_m", float("nan")),
+        "altitude_loss_mae_m": summary.get("altitude_loss_mae_m", float("nan")),
+        "final_phi_mae_deg": summary.get("final_phi_mae_deg", float("nan")),
+        "final_theta_mae_deg": summary.get("final_theta_mae_deg", float("nan")),
+        "final_psi_mae_deg": summary.get("final_psi_mae_deg", float("nan")),
+        "primary_antisym_residual": summary.get("primary_antisym_residual", float("nan")),
+        "dx_delta_m": deltas["dx_mae_m"],
+        "dy_delta_m": deltas["dy_mae_m"],
+        "altitude_loss_delta_m": deltas["altitude_loss_mae_m"],
+        "final_phi_delta_deg": deltas["final_phi_mae_deg"],
+        "final_theta_delta_deg": deltas["final_theta_mae_deg"],
+        "final_psi_delta_deg": deltas["final_psi_mae_deg"],
+        "primary_delta": deltas["primary_antisym_residual"],
+        "acceptance_status": constrained_stage_acceptance_status(deltas),
+        "surface_schedule": surface_schedule_token(CONSTRAINED_STAGE_CANDIDATES[candidate_id]),
+        "claim_boundary": "constrained joint alpha-regime surface-effectiveness schedule replay; diagnostic pending post-analysis",
+    }
+
+
+def constrained_stage_candidate_score(summary: dict[str, Any]) -> float:
+    return (
+        to_float(summary.get("dx_mae_m"), 1e6)
+        + to_float(summary.get("dy_mae_m"), 1e6)
+        + to_float(summary.get("altitude_loss_mae_m"), 1e6)
+        + to_float(summary.get("primary_antisym_residual"), 1e6)
+        + (
+            to_float(summary.get("final_phi_mae_deg"), 1e6)
+            + to_float(summary.get("final_theta_mae_deg"), 1e6)
+            + to_float(summary.get("final_psi_mae_deg"), 1e6)
+        )
+        / 30.0
+    )
+
+
+def constrained_stage_candidate_accepted(deltas: dict[str, float]) -> bool:
+    return bool(
+        all_finite(*deltas.values())
+        and deltas["dx_mae_m"] <= 0.03
+        and deltas["dy_mae_m"] <= 0.02
+        and deltas["altitude_loss_mae_m"] <= 0.02
+        and deltas["final_phi_mae_deg"] <= 2.0
+        and deltas["final_theta_mae_deg"] <= 2.0
+        and deltas["final_psi_mae_deg"] <= 2.0
+        and deltas["primary_antisym_residual"] <= 0.05
+    )
+
+
+def constrained_stage_acceptance_status(deltas: dict[str, float]) -> str:
+    if constrained_stage_candidate_accepted(deltas):
+        return "accepted_preserves_active_baseline_with_tolerance"
+    failures: list[str] = []
+    thresholds = {
+        "dx_mae_m": 0.03,
+        "dy_mae_m": 0.02,
+        "altitude_loss_mae_m": 0.02,
+        "final_phi_mae_deg": 2.0,
+        "final_theta_mae_deg": 2.0,
+        "final_psi_mae_deg": 2.0,
+        "primary_antisym_residual": 0.05,
+    }
+    for field, limit in thresholds.items():
+        value = to_float(deltas.get(field))
+        if not math.isfinite(value) or value > limit:
+            failures.append(field.replace("_mae", "").replace("_antisym", ""))
+    return "rejected_" + "_and_".join(failures)
+
+
+def build_constrained_stage_manifest(
+    *,
+    input_root: Path,
+    dataset_roots: tuple[str, ...],
+    output_dir: Path,
+    inventory_rows: list[dict[str, Any]],
+    baseline_rows: list[dict[str, Any]],
+    candidate_replay_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+    error_rows: list[dict[str, Any]],
+    regime_rows: list[dict[str, Any]],
+    replay_dt_s: float,
+    response_window_s: float,
+    min_response_window_s: float,
+    heldout_seed: int,
+) -> dict[str, Any]:
+    selected = next((row for row in candidate_rows if bool(row.get("selected"))), {})
+    return {
+        "task": "Real-Flight Control Surface Effectiveness Constrained Stage-Schedule Audit v3.3",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "git_commit_hash": git_commit_hash(),
+        "input_root": input_root.as_posix(),
+        "input_data_roots": [(input_root / root).as_posix() for root in dataset_roots],
+        "output_dir": output_dir.as_posix(),
+        "current_neutral_model_coefficient_source": "03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py",
+        "current_neutral_model_calibration_id": getattr(active_calibration, "CALIBRATION_ID", ""),
+        "active_surface_effectiveness_scales": active_surface_effectiveness_scales_by_surface(),
+        "candidate_count": len(CONSTRAINED_STAGE_CANDIDATES),
+        "candidate_ids": list(CONSTRAINED_STAGE_CANDIDATES),
+        "selected_candidate_id": selected.get("candidate_id", ""),
+        "selected_candidate_accepted": bool(selected.get("accepted", False)),
+        "selected_candidate_score": selected.get("score", float("nan")),
+        "selection_policy": "joint_combined_replay_score_with_baseline_preservation_acceptance_status",
+        "stage_alpha_regime_boundaries_deg": {
+            "normal_lt": SURFACE_AERO_NORMAL_ALPHA_MAX_DEG,
+            "transition_gte": SURFACE_AERO_NORMAL_ALPHA_MAX_DEG,
+            "transition_lt": SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG,
+            "post_stall_gte": SURFACE_AERO_TRANSITION_ALPHA_MAX_DEG,
+        },
+        "throw_counts": {
+            "inventoried": len(inventory_rows),
+            "kept": sum(1 for row in inventory_rows if row.get("filter_status") == "kept"),
+            "filtered": sum(1 for row in inventory_rows if row.get("filter_status") == "filtered"),
+        },
+        "baseline_successful_replays": sum(1 for row in baseline_rows if row.get("replay_status") == "ok"),
+        "candidate_successful_replays": sum(1 for row in candidate_replay_rows if row.get("replay_status") == "ok"),
+        "worker_count": DEFAULT_WORKERS,
+        "max_workers": DEFAULT_MAX_WORKERS,
+        "replay_dt_s": replay_dt_s,
+        "response_window_s": response_window_s,
+        "min_response_window_s": min_response_window_s,
+        "heldout_seed_audit_only": heldout_seed,
+        "error_rows": len(error_rows),
+        "regime_error_rows": len(regime_rows),
+        "outputs": {
+            "candidate_summary": "metrics/constrained_cand.csv",
+            "candidate_replay": "metrics/constrained_replay.csv",
+            "candidate_error": "metrics/constrained_err.csv",
+            "regime_error": "metrics/regime_err.csv",
+            "report": "reports/report.md",
+            "manifest": "manifests/manifest.json",
+        },
+        "promotion_decision": "not_promoted_constrained_stage_schedule_pending_post_analysis",
+        "claim_boundary": "diagnostic constrained alpha-regime surface-effectiveness schedules; no active model promotion",
+    }
+
+
+def constrained_stage_report_text(
+    *,
+    manifest: dict[str, Any],
+    candidate_rows: list[dict[str, Any]],
+    error_rows: list[dict[str, Any]],
+    regime_rows: list[dict[str, Any]],
+) -> str:
+    lines = [
+        "# Real-Flight Control Surface Effectiveness Constrained Stage-Schedule Audit v3.3",
+        "",
+        "## 1. Purpose and Claim Boundary",
+        "",
+        "This audit tests physically constrained alpha-regime surface-effectiveness schedules with joint combined replay scoring. It does not promote a schedule into the active model.",
+        "",
+        f"- active model: `{manifest.get('current_neutral_model_calibration_id')}`",
+        f"- selected candidate: `{manifest.get('selected_candidate_id')}`",
+        f"- selected accepted: `{manifest.get('selected_candidate_accepted')}`",
+        f"- promotion decision: `{manifest.get('promotion_decision')}`",
+        "",
+        "## 2. Candidate Summary",
+        "",
+        "`candidate | selected | accepted | score | dx | dy | altitude | phi | theta | psi | primary | status`",
+    ]
+    for row in sorted(candidate_rows, key=lambda item: to_float(item.get("score"), float("inf"))):
+        lines.append(
+            "`"
+            f"{row.get('candidate_id')} | {row.get('selected')} | {row.get('accepted')} | "
+            f"{format_value(row.get('score'))} | {format_value(row.get('dx_mae_m'))} | "
+            f"{format_value(row.get('dy_mae_m'))} | {format_value(row.get('altitude_loss_mae_m'))} | "
+            f"{format_value(row.get('final_phi_mae_deg'))} | {format_value(row.get('final_theta_mae_deg'))} | "
+            f"{format_value(row.get('final_psi_mae_deg'))} | {format_value(row.get('primary_antisym_residual'))} | "
+            f"{row.get('acceptance_status')}`"
+        )
+    lines.extend(
+        [
+            "",
+            "## 3. Output Tables",
+            "",
+            "- `metrics/constrained_cand.csv`: joint candidate score and deltas against active baseline.",
+            "- `metrics/constrained_replay.csv`: all candidate replay rows.",
+            "- `metrics/constrained_err.csv`: replay summaries for baseline and all constrained candidates.",
+            "- `metrics/regime_err.csv`: normal/transition/post-stall replay ladder.",
+            "",
+            "## 4. Notes",
+            "",
+            f"- constrained candidates: `{len(CONSTRAINED_STAGE_CANDIDATES)}`",
+            f"- error rows: `{len(error_rows)}`",
+            f"- regime ladder rows: `{len(regime_rows)}`",
+            "- Command conversion, measured surface angles, actuator lag, servo signs, and hardware packet mapping are unchanged.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def load_inventory_rows(
@@ -1043,6 +2034,10 @@ def replay_worker_task(
         dict[str, float] | None,
         dict[str, float] | None,
         dict[str, float] | None,
+        dict[str, dict[str, float]] | None,
+        str,
+        str,
+        float | None,
     ],
 ) -> dict[str, Any]:
     (
@@ -1053,6 +2048,10 @@ def replay_worker_task(
         derivative_coeffs,
         command_gain_by_surface,
         surface_effectiveness_scale_by_surface,
+        surface_effectiveness_schedule_by_surface_regime,
+        stage_candidate_surface,
+        stage_candidate_regime,
+        stage_candidate_scale,
     ) = args
     return replay_throw(
         row,
@@ -1063,6 +2062,10 @@ def replay_worker_task(
         derivative_coeffs=derivative_coeffs,
         command_gain_by_surface=command_gain_by_surface,
         surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        surface_effectiveness_schedule_by_surface_regime=surface_effectiveness_schedule_by_surface_regime,
+        stage_candidate_surface=stage_candidate_surface,
+        stage_candidate_regime=stage_candidate_regime,
+        stage_candidate_scale=stage_candidate_scale,
     )
 
 
@@ -1075,6 +2078,10 @@ def replay_kept_rows(
     derivative_coeffs: dict[str, float] | None = None,
     command_gain_by_surface: dict[str, float] | None = None,
     surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_schedule_by_surface_regime: dict[str, dict[str, float]] | None = None,
+    stage_candidate_surface: str = "",
+    stage_candidate_regime: str = "",
+    stage_candidate_scale: float | None = None,
 ) -> list[dict[str, Any]]:
     if not rows:
         return []
@@ -1088,6 +2095,10 @@ def replay_kept_rows(
             derivative_coeffs,
             command_gain_by_surface,
             surface_effectiveness_scale_by_surface,
+            surface_effectiveness_schedule_by_surface_regime,
+            stage_candidate_surface,
+            stage_candidate_regime,
+            stage_candidate_scale,
         )
         for row in rows
     ]
@@ -1105,47 +2116,40 @@ def replay_throw(
     derivative_coeffs: dict[str, float] | None = None,
     command_gain_by_surface: dict[str, float] | None = None,
     surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_schedule_by_surface_regime: dict[str, dict[str, float]] | None = None,
+    stage_candidate_surface: str = "",
+    stage_candidate_regime: str = "",
+    stage_candidate_scale: float | None = None,
 ) -> dict[str, Any]:
+    def blocked(status: str) -> dict[str, Any]:
+        return blocked_replay_row(
+            row,
+            status,
+            replay_dt_s,
+            candidate_id=candidate_id,
+            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+            surface_effectiveness_schedule_by_surface_regime=surface_effectiveness_schedule_by_surface_regime,
+            stage_candidate_surface=stage_candidate_surface,
+            stage_candidate_regime=stage_candidate_regime,
+            stage_candidate_scale=stage_candidate_scale,
+        )
+
     throw_dir = Path(str(row.get("_throw_dir", "")))
     sample_rows = read_csv(throw_dir / "metrics" / "state_samples.csv")
     if not sample_rows:
-        return blocked_replay_row(
-            row,
-            "missing_state_samples",
-            replay_dt_s,
-            candidate_id=candidate_id,
-            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
-        )
+        return blocked("missing_state_samples")
     try:
         actual_state0 = prep._state_vector_from_sample_row(sample_rows[0])
     except Exception:
-        return blocked_replay_row(
-            row,
-            "nonfinite_initial_state",
-            replay_dt_s,
-            candidate_id=candidate_id,
-            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
-        )
+        return blocked("nonfinite_initial_state")
     if not np.all(np.isfinite(actual_state0)):
-        return blocked_replay_row(
-            row,
-            "nonfinite_initial_state",
-            replay_dt_s,
-            candidate_id=candidate_id,
-            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
-        )
+        return blocked("nonfinite_initial_state")
 
     t0 = to_float(sample_rows[0].get("t_s"), 0.0)
     t1 = to_float(sample_rows[-1].get("t_s"), t0)
     duration_s = max(0.0, t1 - t0)
     if not math.isfinite(duration_s) or duration_s <= 0.0:
-        return blocked_replay_row(
-            row,
-            "invalid_duration",
-            replay_dt_s,
-            candidate_id=candidate_id,
-            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
-        )
+        return blocked("invalid_duration")
 
     manifest = load_json(throw_dir / "manifests" / "glider_calibration_throw_manifest.json")
     actuator_tau_s = prep._actuator_tau_from_manifest(manifest)
@@ -1168,15 +2172,10 @@ def replay_throw(
         replay_dt_s=replay_dt_s,
         derivative_coeffs=derivative_coeffs,
         command_gain_by_surface=command_gain_by_surface,
+        surface_effectiveness_schedule_by_surface_regime=surface_effectiveness_schedule_by_surface_regime,
     )
     if sim_status != "ok":
-        return blocked_replay_row(
-            row,
-            sim_status,
-            replay_dt_s,
-            candidate_id=candidate_id,
-            surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
-        )
+        return blocked(sim_status)
 
     response_start_s = to_float(row.get("usable_window_start_s"))
     response_end_s = to_float(row.get("usable_window_end_s"))
@@ -1196,6 +2195,10 @@ def replay_throw(
         replay_dt_s,
         candidate_id=candidate_id,
         surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        surface_effectiveness_schedule_by_surface_regime=surface_effectiveness_schedule_by_surface_regime,
+        stage_candidate_surface=stage_candidate_surface,
+        stage_candidate_regime=stage_candidate_regime,
+        stage_candidate_scale=stage_candidate_scale,
     )
     out.update(
         {
@@ -1254,6 +2257,7 @@ def simulate_trace(
     replay_dt_s: float,
     derivative_coeffs: dict[str, float] | None = None,
     command_gain_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_schedule_by_surface_regime: dict[str, dict[str, float]] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     x = np.asarray(x0, dtype=float).copy()
     trace = [metric_row_from_state(0.0, x)]
@@ -1265,7 +2269,16 @@ def simulate_trace(
         command_index = prep._advance_command_index(command_schedule, command_index, t_s)
         command = scaled_surface_command(command_schedule[command_index][1], command_gain_by_surface)
         try:
-            if derivative_coeffs:
+            if surface_effectiveness_schedule_by_surface_regime:
+                x = rk4_step_surface_effectiveness_schedule(
+                    x=x,
+                    command=command,
+                    aircraft=aircraft,
+                    actuator_tau_s=actuator_tau_s,
+                    dt_s=dt_s,
+                    surface_effectiveness_schedule_by_surface_regime=surface_effectiveness_schedule_by_surface_regime,
+                )
+            elif derivative_coeffs:
                 x = rk4_step_surface_aero_coupling(
                     x=x,
                     command=command,
@@ -1303,6 +2316,14 @@ def scaled_surface_command(command: np.ndarray, command_gain_by_surface: dict[st
 
 
 def active_surface_effectiveness_scales_by_surface() -> dict[str, float]:
+    schedule = getattr(active_calibration, "CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE", None)
+    if schedule is not None:
+        normal_scales = np.asarray(schedule, dtype=float).reshape(3, 3)[0]
+        return {
+            "aileron": float(normal_scales[0]),
+            "elevator": float(normal_scales[1]),
+            "rudder": float(normal_scales[2]),
+        }
     return {
         "aileron": float(getattr(active_calibration, "DELTA_A_AERO_EFFECTIVENESS_SCALE", 1.0)),
         "elevator": float(getattr(active_calibration, "DELTA_E_AERO_EFFECTIVENESS_SCALE", 1.0)),
@@ -1318,14 +2339,33 @@ def aircraft_with_surface_effectiveness_scales(
         return aircraft
     active_scales = active_surface_effectiveness_scales_by_surface()
     multipliers = np.ones(3, dtype=float)
+    schedule_active = hasattr(aircraft, "control_effectiveness_regime_scales")
     for surface, index in SURFACE_COMMAND_INDEX.items():
         target_scale = to_float(scale_by_surface.get(surface), active_scales[surface])
         active_scale = to_float(active_scales.get(surface), 1.0)
         if not all_finite(target_scale, active_scale) or abs(active_scale) < 1e-12:
             continue
-        multipliers[index] = float(target_scale) / float(active_scale)
+        multipliers[index] = float(target_scale) if schedule_active else float(target_scale) / float(active_scale)
     control_mix = np.asarray(aircraft.control_mix, dtype=float).copy() * multipliers.reshape(1, 3)
-    return replace(aircraft, control_mix=control_mix)
+    replace_kwargs: dict[str, Any] = {"control_mix": control_mix}
+    if schedule_active:
+        replace_kwargs["control_effectiveness_regime_scales"] = np.ones((3, 3), dtype=float)
+        replace_kwargs["control_effectiveness_model"] = "scalar_control_mix_override_for_surface_effectiveness_replay"
+    return replace(aircraft, **replace_kwargs)
+
+
+def aircraft_with_surface_effectiveness_schedule_for_state(
+    aircraft: Any,
+    schedule_by_surface_regime: dict[str, dict[str, float]],
+    state: np.ndarray,
+) -> Any:
+    active_scales = active_surface_effectiveness_scales_by_surface()
+    regime = alpha_regime_from_state(state)
+    scale_by_surface = {
+        surface: to_float(schedule_by_surface_regime.get(surface, {}).get(regime), active_scales[surface])
+        for surface in ("aileron", "elevator", "rudder")
+    }
+    return aircraft_with_surface_effectiveness_scales(aircraft, scale_by_surface)
 
 
 def scale_token(value: float) -> str:
@@ -1345,6 +2385,62 @@ def single_axis_surface_scale_candidates() -> dict[str, dict[str, float]]:
     return candidates
 
 
+def stage_surface_scale_candidate_id(surface: str, regime: str, scale: float) -> str:
+    return f"STG_{surface}_{regime}_s{scale_token(scale)}"
+
+
+def stage_surface_scale_candidates() -> list[dict[str, Any]]:
+    return [
+        {
+            "candidate_id": stage_surface_scale_candidate_id(surface, regime, float(scale)),
+            "surface_axis": surface,
+            "alpha_regime": regime,
+            "candidate_scale": float(scale),
+        }
+        for surface in ("aileron", "elevator", "rudder")
+        for regime in SURFACE_AERO_ALPHA_REGIMES
+        for scale in STAGE_SURFACE_SCALE_GRID
+    ]
+
+
+def active_stage_surface_schedule() -> dict[str, dict[str, float]]:
+    schedule = getattr(active_calibration, "CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE", None)
+    if schedule is not None:
+        regime_scales = np.asarray(schedule, dtype=float).reshape(3, 3)
+        return {
+            surface: {
+                regime: float(regime_scales[regime_index, surface_index])
+                for regime_index, regime in enumerate(SURFACE_AERO_ALPHA_REGIMES)
+            }
+            for surface_index, surface in enumerate(("aileron", "elevator", "rudder"))
+        }
+    active = active_surface_effectiveness_scales_by_surface()
+    return {
+        surface: {regime: float(active[surface]) for regime in SURFACE_AERO_ALPHA_REGIMES}
+        for surface in ("aileron", "elevator", "rudder")
+    }
+
+
+def stage_surface_schedule_with_cell(surface: str, regime: str, scale: float) -> dict[str, dict[str, float]]:
+    schedule = active_stage_surface_schedule()
+    schedule[str(surface)][str(regime)] = float(scale)
+    return schedule
+
+
+def surface_schedule_token(schedule: dict[str, dict[str, float]] | None) -> str:
+    if not schedule:
+        return ""
+    parts: list[str] = []
+    for surface in ("aileron", "elevator", "rudder"):
+        regimes = schedule.get(surface, {})
+        values = ",".join(
+            f"{regime}:{scale_token(to_float(regimes.get(regime), float('nan')))}"
+            for regime in SURFACE_AERO_ALPHA_REGIMES
+        )
+        parts.append(f"{surface}={values}")
+    return "|".join(parts)
+
+
 def surface_scale_for_replay_field(
     surface: str,
     scale_by_surface: dict[str, float] | None,
@@ -1352,6 +2448,45 @@ def surface_scale_for_replay_field(
     active_scales = active_surface_effectiveness_scales_by_surface()
     value = to_float((scale_by_surface or {}).get(surface), active_scales[surface])
     return float(value) if math.isfinite(value) else float("nan")
+
+
+def rk4_step_surface_effectiveness_schedule(
+    *,
+    x: np.ndarray,
+    command: np.ndarray,
+    aircraft: Any,
+    actuator_tau_s: tuple[float, float, float],
+    dt_s: float,
+    surface_effectiveness_schedule_by_surface_regime: dict[str, dict[str, float]],
+) -> np.ndarray:
+    aircraft1 = aircraft_with_surface_effectiveness_schedule_for_state(
+        aircraft,
+        surface_effectiveness_schedule_by_surface_regime,
+        x,
+    )
+    k1 = state_derivative(x, command, aircraft1, wind_model=None, actuator_tau_s=actuator_tau_s, wind_mode="panel")
+    x2 = x + 0.5 * dt_s * k1
+    aircraft2 = aircraft_with_surface_effectiveness_schedule_for_state(
+        aircraft,
+        surface_effectiveness_schedule_by_surface_regime,
+        x2,
+    )
+    k2 = state_derivative(x2, command, aircraft2, wind_model=None, actuator_tau_s=actuator_tau_s, wind_mode="panel")
+    x3 = x + 0.5 * dt_s * k2
+    aircraft3 = aircraft_with_surface_effectiveness_schedule_for_state(
+        aircraft,
+        surface_effectiveness_schedule_by_surface_regime,
+        x3,
+    )
+    k3 = state_derivative(x3, command, aircraft3, wind_model=None, actuator_tau_s=actuator_tau_s, wind_mode="panel")
+    x4 = x + dt_s * k3
+    aircraft4 = aircraft_with_surface_effectiveness_schedule_for_state(
+        aircraft,
+        surface_effectiveness_schedule_by_surface_regime,
+        x4,
+    )
+    k4 = state_derivative(x4, command, aircraft4, wind_model=None, actuator_tau_s=actuator_tau_s, wind_mode="panel")
+    return x + (dt_s / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
 
 def rk4_step_surface_aero_coupling(
@@ -2109,7 +3244,7 @@ def append_surface_scale_gate_candidate(
             "actuator_time_constant_scale": "",
             "command_delay_offset_s": "",
             "evidence_summary": surface_scale_gate_summary_text(gate_rows, selected_scales),
-            "claim_boundary": "surface-effectiveness scalar replay gate only; no derivative, schedule, command conversion, or hardware mapping change",
+            "claim_boundary": "surface-effectiveness scalar replay candidate only; active model may use scheduled surface authority; no derivative, command conversion, or hardware mapping change",
         }
     )
     for row in gate_rows:
@@ -2304,7 +3439,9 @@ def replay_candidate_claim_boundary(candidate_id: str) -> str:
     if candidate_id == "C0_frozen_neutral":
         return "frozen active calibrated replay"
     if candidate_id.startswith("SCL_"):
-        return "surface-effectiveness scalar control_mix replay; eligible only through held-out promotion gate"
+        return "surface-effectiveness scalar control_mix replay candidate; active schedule is handled separately"
+    if candidate_id.startswith("STG_"):
+        return "stage-wise all-data surface-effectiveness schedule replay; diagnostic pending post-analysis"
     return "diagnostic launch-confidence-weighted surface aero/coupling replay only; not promoted"
 
 
@@ -2382,7 +3519,11 @@ def regime_ladder_error_summary(replay_by_candidate: dict[str, list[dict[str, An
                                 "claim_boundary": (
                                     "frozen active calibrated replay"
                                     if candidate_id == "C0_frozen_neutral"
-                                    else "alpha-regime command-ladder replay summary; promotion only via held-out surface-scale gate"
+                                    else (
+                                        "alpha-regime command-ladder replay summary for stage-wise schedule; diagnostic pending post-analysis"
+                                        if str(candidate_id).startswith("STG_")
+                                        else "alpha-regime command-ladder replay summary; promotion only via held-out surface-scale gate"
+                                    )
                                 ),
                             }
                         )
@@ -2960,14 +4101,23 @@ def build_manifest(
     heldout_seed: int,
 ) -> dict[str, Any]:
     kept_count = sum(1 for row in inventory_rows if row.get("filter_status") == "kept")
+    active_schedule = np.asarray(
+        getattr(active_calibration, "CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE", np.ones((3, 3))),
+        dtype=float,
+    ).reshape(3, 3)
     surface_effectiveness_scales = {
+        "control_surface_effectiveness_model": str(
+            getattr(active_calibration, "CONTROL_SURFACE_EFFECTIVENESS_MODEL", "legacy_scalar")
+        ),
+        "control_surface_effectiveness_schedule": active_schedule.tolist(),
         "delta_a_aero_effectiveness_scale": float(getattr(active_calibration, "DELTA_A_AERO_EFFECTIVENESS_SCALE", 1.0)),
         "delta_e_aero_effectiveness_scale": float(getattr(active_calibration, "DELTA_E_AERO_EFFECTIVENESS_SCALE", 1.0)),
         "delta_r_aero_effectiveness_scale": float(getattr(active_calibration, "DELTA_R_AERO_EFFECTIVENESS_SCALE", 1.0)),
     }
-    active_aileron_surface_scale = surface_effectiveness_scales["delta_a_aero_effectiveness_scale"]
-    active_elevator_surface_scale = surface_effectiveness_scales["delta_e_aero_effectiveness_scale"]
-    active_rudder_surface_scale = surface_effectiveness_scales["delta_r_aero_effectiveness_scale"]
+    active_normal_scales = active_surface_effectiveness_scales_by_surface()
+    active_aileron_surface_scale = active_normal_scales["aileron"]
+    active_elevator_surface_scale = active_normal_scales["elevator"]
+    active_rudder_surface_scale = active_normal_scales["rudder"]
     promoted_aileron_effectiveness = abs(active_aileron_surface_scale - 1.0) > 1e-12
     promoted_elevator_effectiveness = abs(active_elevator_surface_scale - 1.0) > 1e-12
     promoted_rudder_effectiveness = abs(active_rudder_surface_scale - 1.0) > 1e-12
@@ -2985,9 +4135,14 @@ def build_manifest(
         "delta_e_aero_effectiveness_scale": float(selected_surface_scales.get("elevator", active_elevator_surface_scale)),
         "delta_r_aero_effectiveness_scale": float(selected_surface_scales.get("rudder", active_rudder_surface_scale)),
     }
+    active_surface_scale_fields = {
+        "delta_a_aero_effectiveness_scale": float(active_aileron_surface_scale),
+        "delta_e_aero_effectiveness_scale": float(active_elevator_surface_scale),
+        "delta_r_aero_effectiveness_scale": float(active_rudder_surface_scale),
+    }
     selected_differs_from_active = any(
         abs(
-            selected_surface_scale_fields[field] - surface_effectiveness_scales[field]
+            selected_surface_scale_fields[field] - active_surface_scale_fields[field]
         )
         > 1e-12
         for field in selected_surface_scale_fields
@@ -3097,7 +4252,7 @@ def build_manifest(
                 else ("active_surface_effectiveness_already_promoted" if promoted else "not_promoted")
             )
         ),
-        "claim_boundary": "neutral aero replay alignment plus evidence-gated surface-effectiveness scalars; derivative/coupling rows and alpha-regime schedules diagnostic only; no broad aero SysID",
+        "claim_boundary": "neutral aero replay alignment plus conservative alpha-regime scheduled surface effectiveness; derivative/coupling rows remain diagnostic only; no broad aero SysID",
         "filtering_summary_groups": len(filtering_summary_rows),
         "surface_scale_candidate_count": len(single_axis_surface_scale_candidates()),
         "surface_scale_gate_rows": len(surface_scale_gate_rows),
@@ -3141,13 +4296,13 @@ def write_report(
         "",
         "## 1. Purpose and Claim Boundary",
         "",
-        "The neutral aero fit remains frozen. Deflection ladder throws are replayed against the current promoted 40 ms dry-air model to evaluate aerodynamic surface-effectiveness scalar changes only. Aileron, elevator, and rudder are all eligible for evidence-gated scalar promotion; lateral/cross-axis derivatives, command conversion, measured surface angles, and alpha-regime schedules remain diagnostic. This is not broad aerodynamic SysID and does not claim accurate full 6-DoF lateral derivative identification.",
+        "The neutral aero fit remains frozen. Deflection ladder throws are replayed against the current promoted 40 ms dry-air model to evaluate aerodynamic surface-effectiveness candidates. The active model uses a conservative alpha-regime scheduled surface-authority layer; scalar candidates remain replay diagnostics. Lateral/cross-axis derivatives, command conversion, measured surface angles, and hardware mapping remain unchanged. This is not broad aerodynamic SysID and does not claim accurate full 6-DoF lateral derivative identification.",
         "",
         f"- active calibrated model: `{manifest.get('current_neutral_model_calibration_id')}`",
         f"- claim boundary: `{manifest.get('claim_boundary')}`",
         f"- promotion decision: `{manifest.get('promotion_decision')}`",
-        f"- active surface-effectiveness scales: `{manifest.get('active_surface_effectiveness_scales')}`",
-        f"- selected surface-effectiveness scales from this gate: `{manifest.get('selected_surface_effectiveness_scales')}`",
+        f"- active surface-effectiveness metadata: `{manifest.get('active_surface_effectiveness_scales')}`",
+        f"- selected scalar replay candidate scales from this gate: `{manifest.get('selected_surface_effectiveness_scales')}`",
         "",
         "## 2. Data Inventory",
         "",
@@ -3165,7 +4320,7 @@ def write_report(
         "",
         "## 4. Frozen-Model Replay Setup",
         "",
-        "Each usable throw is replayed from its measured launch state using the active calibrated model, logged command schedule, nominal command-onset delay, and actuator lag from the throw manifest. Candidate scales are applied only by multiplying the aircraft `control_mix` columns relative to the active model. The command conversion, logged command values, measured surface-angle convention, actuator lag, and hardware packet mapping are unchanged.",
+        "Each usable throw is replayed from its measured launch state using the active calibrated model, logged command schedule, nominal command-onset delay, and actuator lag from the throw manifest. Candidate scales are applied only by temporary `control_mix`/surface-schedule overrides inside the aerodynamic model. The command conversion, logged command values, measured surface-angle convention, actuator lag, and hardware packet mapping are unchanged.",
         "",
         f"- successful replays: `{len(successful_replays)}` / `{len(replay_rows)}`",
         f"- replay workers: `{manifest.get('worker_count')}` / max `{manifest.get('max_workers')}`",
@@ -3175,7 +4330,7 @@ def write_report(
         "",
         "## 5. Candidate Replay Error Summary",
         "",
-        "The active sweep replays single-axis surface-scale candidates and one combined accepted-scale candidate. C0 is the frozen active calibrated model. `SCL_*` rows are control-mix surface-effectiveness candidates. The combined row uses the best accepted scale per surface and retains the active value for any failed surface. Pairwise response-gain and derivative/coupling fits are reported later as diagnostics, not as promoted model families.",
+        "The scalar sweep replays single-axis surface-scale candidates and one combined accepted-scale candidate. C0 is the frozen active calibrated model. `SCL_*` rows are temporary control-mix surface-effectiveness candidates. The combined row uses the best accepted scalar per surface and retains the active normal-regime value for any failed surface. Pairwise response-gain and derivative/coupling fits are reported later as diagnostics, not as promoted model families.",
         "",
         f"- successful candidate-family replays: `{len(successful_candidate_sweep_replays)}` / `{len(candidate_sweep_replay_rows)}`",
         "",
@@ -3631,21 +4786,34 @@ def base_replay_row(
     *,
     candidate_id: str = "C0_frozen_neutral",
     surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_schedule_by_surface_regime: dict[str, dict[str, float]] | None = None,
+    stage_candidate_surface: str = "",
+    stage_candidate_regime: str = "",
+    stage_candidate_scale: float | None = None,
 ) -> dict[str, Any]:
+    static_scale_by_surface = (
+        {surface: float("nan") for surface in ("aileron", "elevator", "rudder")}
+        if surface_effectiveness_schedule_by_surface_regime
+        else surface_effectiveness_scale_by_surface
+    )
     return {
         "candidate_id": candidate_id,
         "candidate_delta_a_effectiveness_scale": surface_scale_for_replay_field(
             "aileron",
-            surface_effectiveness_scale_by_surface,
+            static_scale_by_surface,
         ),
         "candidate_delta_e_effectiveness_scale": surface_scale_for_replay_field(
             "elevator",
-            surface_effectiveness_scale_by_surface,
+            static_scale_by_surface,
         ),
         "candidate_delta_r_effectiveness_scale": surface_scale_for_replay_field(
             "rudder",
-            surface_effectiveness_scale_by_surface,
+            static_scale_by_surface,
         ),
+        "candidate_stage_surface": stage_candidate_surface,
+        "candidate_stage_regime": stage_candidate_regime,
+        "candidate_stage_scale": "" if stage_candidate_scale is None else float(stage_candidate_scale),
+        "candidate_surface_schedule": surface_schedule_token(surface_effectiveness_schedule_by_surface_regime),
         "split": row.get("split", ""),
         "dataset_root": row.get("dataset_root", ""),
         "session_label": row.get("session_label", ""),
@@ -3677,12 +4845,20 @@ def blocked_replay_row(
     *,
     candidate_id: str = "C0_frozen_neutral",
     surface_effectiveness_scale_by_surface: dict[str, float] | None = None,
+    surface_effectiveness_schedule_by_surface_regime: dict[str, dict[str, float]] | None = None,
+    stage_candidate_surface: str = "",
+    stage_candidate_regime: str = "",
+    stage_candidate_scale: float | None = None,
 ) -> dict[str, Any]:
     out = base_replay_row(
         row,
         replay_dt_s,
         candidate_id=candidate_id,
         surface_effectiveness_scale_by_surface=surface_effectiveness_scale_by_surface,
+        surface_effectiveness_schedule_by_surface_regime=surface_effectiveness_schedule_by_surface_regime,
+        stage_candidate_surface=stage_candidate_surface,
+        stage_candidate_regime=stage_candidate_regime,
+        stage_candidate_scale=stage_candidate_scale,
     )
     out["replay_status"] = status
     out["replay_policy"] = "blocked_before_replay"

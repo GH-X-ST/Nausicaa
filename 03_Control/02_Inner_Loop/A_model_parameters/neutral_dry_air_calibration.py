@@ -1,14 +1,15 @@
 """Active neutral dry-air and surface-effectiveness calibration constants.
 
 The active model is the conservative 0.040 s local Pareto replay promotion from
-the n30 neutral open-loop throw set plus the current-model pulse-ladder
-surface-effectiveness refit. It keeps the compact replay-alignment family,
-promotes the stage-5 transition-blend longitudinal base, adds the selected
-local yaw-beta plus post-stall roll-damping correction, and applies
-evidence-gated aileron/elevator/rudder aerodynamic effectiveness scales; this
-remains replay alignment rather than a full aerodynamic SysID claim. The
-comparison-only theory baseline is archived as JSON next to this file and is
-not imported by runtime code.
+the n30 neutral open-loop throw set plus the current-model pulse-ladder and
+stage-wise control-surface effectiveness studies. It keeps the compact
+replay-alignment family, promotes the stage-5 transition-blend longitudinal
+base, adds the selected local yaw-beta plus post-stall roll-damping correction,
+and applies a physics-informed conservative alpha-regime surface-effectiveness
+schedule. This remains replay alignment and conservative surface-authority
+regularisation rather than a full aerodynamic SysID claim. The comparison-only
+theory baseline is archived as JSON next to this file and is not imported by
+runtime code.
 """
 
 from __future__ import annotations
@@ -25,22 +26,24 @@ from __future__ import annotations
 # 1) Calibration Metadata
 # =============================================================================
 CALIBRATION_ACTIVE = True
-CALIBRATION_ID = "neutral_dry_air_replay_040_local_s5_yaw0p75_clr0p60_surface_scale_v3p1_a0p65_e0p70_r0p45"
+CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_surface_schedule_v3p2_cons_nominal"
 SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_local_promising_v1"
 SOURCE_HEAVY_JOINT_PARETO_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_heavy_v1"
 SOURCE_LOCAL_PARETO_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_local_promising_v1"
 SOURCE_CONTROL_SURFACE_EFFECTIVENESS_RUN = "03_Control/05_Results/control_surface_effectiveness/control_surface_effectiveness_v3_1_current_model_surface_refit"
+SOURCE_STAGEWISE_CONTROL_SURFACE_EFFECTIVENESS_RUN = "03_Control/05_Results/control_surface_effectiveness/cse_v3_2_stage_fit"
+SOURCE_CONSTRAINED_CONTROL_SURFACE_EFFECTIVENESS_RUN = "03_Control/05_Results/control_surface_effectiveness/cse_v3_3_constrained_stage_schedule"
 SOURCE_SELECTED_CANDIDATE = "jp040local_L00_proposal_stage_5_stage5_tran_local_yaw_beta_s0p75_local_post_stall_Cl_r_s0p6"
 SOURCE_SELECTED_LONGITUDINAL_BASE = "proposal_stage_5_stage5_transition_blend"
 SOURCE_SELECTED_LATERAL_BUNDLE = "local_yaw_beta_s0p75+local_post_stall_Cl_r_s0p6"
-SOURCE_SELECTED_SURFACE_SCALE_CANDIDATE = "SCL_combined_accepted_surface_scales"
+SOURCE_SELECTED_SURFACE_SCALE_CANDIDATE = "physics_informed_conservative_alpha_regime_schedule"
 SOURCE_THROW_COUNT = 105
 SOURCE_FILTERED_THROW_COUNT = 9
 HELDOUT_POLICY = "randomised_stratified_by_session_label"
 HELDOUT_COUNT = 14
 HELDOUT_SEED = 606
 ALIGNMENT_WINDOW_S = 0.040
-CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_post_stall_clr_and_evidence_gated_surface_effectiveness_scales"
+CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_post_stall_clr_and_physics_informed_conservative_alpha_regime_surface_effectiveness_schedule"
 
 # =============================================================================
 # 2) Active Aerodynamic Correction
@@ -129,11 +132,25 @@ POST_STALL_YAW_MOMENT_RBF_COEFFS = (
 DELTA_A_TRIM_RAD = 0.0
 DELTA_E_TRIM_RAD = 0.0
 DELTA_R_TRIM_RAD = 0.0
-# Control-surface pulse-ladder update. These scale aerodynamic effectiveness in
-# the strip model, not the measured/commanded physical surface angle. The v3.1
-# current-model replay gate promotes surface scalars only; lateral/cross-axis
-# derivatives, command conversion, hardware mapping, and alpha-regime surface
-# schedules remain diagnostic.
+# Control-surface pulse-ladder and stage-schedule update. These scale
+# aerodynamic effectiveness in the strip model, not the measured/commanded
+# physical surface angle. Command conversion, hardware mapping, servo signs, and
+# neutral trims stay unchanged. The v3.1 scalar replay gate remains historical
+# evidence; the active nominal model below uses a conservative alpha-regime
+# schedule informed by v3.2/v3.3 replay diagnostics and high-AoA literature.
+CONTROL_SURFACE_EFFECTIVENESS_MODEL = "alpha_regime_scheduled_v1"
+CONTROL_SURFACE_EFFECTIVENESS_MODEL_STATUS = (
+    "physics_informed_replay_regularized_conservative_nominal_not_exact_derivative_sysid"
+)
+CONTROL_SURFACE_EFFECTIVENESS_REGIMES = ("normal", "transition", "post_stall")
+CONTROL_SURFACE_EFFECTIVENESS_AXES = ("aileron", "elevator", "rudder")
+CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE = (
+    (0.85, 0.75, 0.85),
+    (0.55, 0.55, 0.55),
+    (0.45, 0.45, 0.40),
+)
+# Retained for backward-compatible diagnostics that read the v3.1 scalar result.
+# Runtime code uses CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE instead.
 DELTA_A_AERO_EFFECTIVENESS_SCALE = 0.65
 DELTA_E_AERO_EFFECTIVENESS_SCALE = 0.70
 DELTA_R_AERO_EFFECTIVENESS_SCALE = 0.45

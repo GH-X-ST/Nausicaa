@@ -3,8 +3,11 @@
 These figures compare measured real-flight launches against two dry-air replay models:
 
 - uncalibrated theory replay: comparison-only pure theory/geometry baseline
-- active calibrated replay: current neutral residual-calibrated model with active elevator and rudder effectiveness
+- active calibrated replay: current neutral residual-calibrated model with conservative alpha-regime scheduled aileron/elevator/rudder effectiveness
 
+- active calibration: `neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_surface_schedule_v3p2_cons_nominal`
+- surface-effectiveness model: `alpha_regime_scheduled_v1`
+- representative selection source: `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/metrics/real_flight_replay_comparison_summary.csv`
 - replay dt: `0.005` s
 - workers: `8`
 

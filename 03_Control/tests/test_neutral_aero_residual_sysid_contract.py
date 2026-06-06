@@ -800,10 +800,10 @@ def test_post_stall_pitch_damping_upper_bound_is_released_for_diagnostics() -> N
 
 def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
     assert active_calibration.CALIBRATION_ID == (
-        "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1"
+        "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_surface_schedule_v3p2_cons_nominal"
     )
     assert active_calibration.CLAIM_BOUNDARY == (
-        "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_and_post_stall_clr_corrections_conservative_elevator_and_rudder_effectiveness"
+        "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_post_stall_clr_and_physics_informed_conservative_alpha_regime_surface_effectiveness_schedule"
     )
     assert active_calibration.SOURCE_PREP_RUN.endswith("n30_joint_pareto_040_local_promising_v1")
     assert active_calibration.SOURCE_HEAVY_JOINT_PARETO_RUN.endswith("n30_joint_pareto_040_heavy_v1")
@@ -835,9 +835,21 @@ def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
     assert np.asarray(active_calibration.POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)[2, 0] == pytest.approx(
         -0.07119920085255141
     )
-    assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(1.0)
-    assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.60)
-    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.531)
+    assert active_calibration.CONTROL_SURFACE_EFFECTIVENESS_MODEL == "alpha_regime_scheduled_v1"
+    assert np.allclose(
+        np.asarray(active_calibration.CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE, dtype=float),
+        np.asarray(
+            [
+                [0.85, 0.75, 0.85],
+                [0.55, 0.55, 0.55],
+                [0.45, 0.45, 0.40],
+            ],
+            dtype=float,
+        ),
+    )
+    assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.65)
+    assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.70)
+    assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.45)
 
 
 def test_theory_baseline_is_comparison_only_data_artifact() -> None:

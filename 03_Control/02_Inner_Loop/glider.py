@@ -12,12 +12,11 @@ from A_model_parameters.mass_properties_estimate import (
 from A_model_parameters.neutral_dry_air_calibration import (
     CALIBRATION_ACTIVE as NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE,
     CD0_STRIP_SCALE as NEUTRAL_DRY_AIR_CD0_STRIP_SCALE,
+    CONTROL_SURFACE_EFFECTIVENESS_MODEL as NEUTRAL_DRY_AIR_CONTROL_SURFACE_EFFECTIVENESS_MODEL,
+    CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE as NEUTRAL_DRY_AIR_CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE,
     DELTA_A_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_A_TRIM_RAD,
-    DELTA_A_AERO_EFFECTIVENESS_SCALE as NEUTRAL_DRY_AIR_DELTA_A_AERO_EFFECTIVENESS_SCALE,
     DELTA_E_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_E_TRIM_RAD,
-    DELTA_E_AERO_EFFECTIVENESS_SCALE as NEUTRAL_DRY_AIR_DELTA_E_AERO_EFFECTIVENESS_SCALE,
     DELTA_R_TRIM_RAD as NEUTRAL_DRY_AIR_DELTA_R_TRIM_RAD,
-    DELTA_R_AERO_EFFECTIVENESS_SCALE as NEUTRAL_DRY_AIR_DELTA_R_AERO_EFFECTIVENESS_SCALE,
     DRAG_AREA_FUSE_SCALE as NEUTRAL_DRY_AIR_DRAG_AREA_FUSE_SCALE,
     EFFICIENCY_STRIP_SCALE as NEUTRAL_DRY_AIR_EFFICIENCY_STRIP_SCALE,
     ATTACHED_PITCH_MOMENT_BIAS_COEFF as NEUTRAL_DRY_AIR_ATTACHED_PITCH_MOMENT_BIAS_COEFF,
@@ -183,6 +182,8 @@ class Glider:
     post_stall_side_force_surface_coeff: np.ndarray
     post_stall_roll_moment_surface_coeff: np.ndarray
     post_stall_yaw_moment_surface_coeff: np.ndarray
+    control_effectiveness_model: str
+    control_effectiveness_regime_scales: np.ndarray
     surface_code: np.ndarray
 
 
@@ -616,19 +617,12 @@ def build_nausicaa_glider() -> Glider:
     )
     surfaces = (wing, htail, vtail)
     strip_table = _flatten_strip_table(surfaces)
-    control_effectiveness_scale = (
-        np.array(
-            [
-                NEUTRAL_DRY_AIR_DELTA_A_AERO_EFFECTIVENESS_SCALE,
-                NEUTRAL_DRY_AIR_DELTA_E_AERO_EFFECTIVENESS_SCALE,
-                NEUTRAL_DRY_AIR_DELTA_R_AERO_EFFECTIVENESS_SCALE,
-            ],
-            dtype=float,
-        )
+    control_effectiveness_regime_scales = (
+        np.asarray(NEUTRAL_DRY_AIR_CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE, dtype=float)
         if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
-        else np.ones(3, dtype=float)
+        else np.ones((3, 3), dtype=float)
     )
-    control_mix = np.asarray(strip_table["control_mix"], dtype=float) * control_effectiveness_scale.reshape(1, 3)
+    control_mix = np.asarray(strip_table["control_mix"], dtype=float)
     return Glider(
         mass_kg=mass_kg,
         inertia_b=inertia_b,
@@ -694,5 +688,11 @@ def build_nausicaa_glider() -> Glider:
         post_stall_side_force_surface_coeff=np.asarray(post_stall_side_force_surface_coeff, dtype=float),
         post_stall_roll_moment_surface_coeff=np.asarray(post_stall_roll_moment_surface_coeff, dtype=float),
         post_stall_yaw_moment_surface_coeff=np.asarray(post_stall_yaw_moment_surface_coeff, dtype=float),
+        control_effectiveness_model=(
+            str(NEUTRAL_DRY_AIR_CONTROL_SURFACE_EFFECTIVENESS_MODEL)
+            if NEUTRAL_DRY_AIR_CALIBRATION_ACTIVE
+            else "geometry_unscaled"
+        ),
+        control_effectiveness_regime_scales=control_effectiveness_regime_scales,
         surface_code=strip_table["surface_code"].astype(int),
     )

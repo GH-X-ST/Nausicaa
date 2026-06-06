@@ -1,0 +1,91 @@
+{
+  "task": "Real-Flight Control Surface Effectiveness Stage-Wise All-Data Refit v3.2",
+  "generated_at": "2026-06-06T05:11:03",
+  "git_commit_hash": "4c01026f53c1fbce447fc70408897c1472adf230",
+  "input_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal",
+  "input_data_roots": [
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pa30",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pe30",
+    "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/cal/pr30"
+  ],
+  "output_dir": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/05_Results/control_surface_effectiveness/cse_v3_2_stage_fit",
+  "current_neutral_model_coefficient_source": "03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_calibration.py",
+  "current_neutral_model_calibration_id": "neutral_dry_air_replay_040_local_s5_yaw0p75_clr0p60_surface_scale_v3p1_a0p65_e0p70_r0p45",
+  "current_neutral_model_claim_boundary": "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_post_stall_clr_and_evidence_gated_surface_effectiveness_scales",
+  "active_surface_effectiveness_scales": {
+    "aileron": 0.65,
+    "elevator": 0.7,
+    "rudder": 0.45
+  },
+  "stage_surface_scale_grid": [
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9,
+    0.95,
+    1.0
+  ],
+  "stage_alpha_regime_boundaries_deg": {
+    "normal_lt": 14.0,
+    "transition_gte": 14.0,
+    "transition_lt": 18.0,
+    "post_stall_gte": 18.0
+  },
+  "fit_policy": "all_kept_rows_no_heldout_gate_no_minimum_evidence_threshold",
+  "zero_support_policy": "absolute_scale_1p0_prior_not_fitted",
+  "selected_stage_surface_schedule": {
+    "aileron": {
+      "normal": 1.0,
+      "transition": 0.4,
+      "post_stall": 0.4
+    },
+    "elevator": {
+      "normal": 0.75,
+      "transition": 0.55,
+      "post_stall": 0.4
+    },
+    "rudder": {
+      "normal": 1.0,
+      "transition": 0.4,
+      "post_stall": 0.4
+    }
+  },
+  "stage_candidate_count": 117,
+  "stage_candidate_rows": 117,
+  "stage_fit_rows": 9,
+  "stage_replay_rows": 2436,
+  "baseline_successful_replays": 174,
+  "stage_successful_replays": 2436,
+  "regime_error_rows": 270,
+  "worker_count": 8,
+  "max_workers": 8,
+  "replay_dt_s": 0.005,
+  "response_window_s": 0.65,
+  "min_response_window_s": 0.25,
+  "heldout_seed_audit_only": 606,
+  "throw_counts": {
+    "inventoried": 214,
+    "kept": 174,
+    "filtered": 40
+  },
+  "filtering_summary_rows": 19,
+  "stage_error_rows": 24,
+  "outputs": {
+    "stage_fit": "metrics/stage_fit.csv",
+    "stage_candidates": "metrics/stage_cand.csv",
+    "stage_replay": "metrics/stage_replay.csv",
+    "stage_error": "metrics/stage_err.csv",
+    "regime_error": "metrics/regime_err.csv",
+    "report": "reports/report.md",
+    "manifest": "manifests/manifest.json"
+  },
+  "promotion_decision": "not_promoted_stage_schedule_pending_post_analysis",
+  "claim_boundary": "diagnostic all-data alpha-regime surface-effectiveness schedule; no active model promotion"
+}

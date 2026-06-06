@@ -101,6 +101,8 @@ class AircraftModel:
     post_stall_side_force_surface_coeff: np.ndarray
     post_stall_roll_moment_surface_coeff: np.ndarray
     post_stall_yaw_moment_surface_coeff: np.ndarray
+    control_effectiveness_model: str
+    control_effectiveness_regime_scales: np.ndarray
     drag_area_fuse_m2: float
     strip_count: int
 
@@ -382,6 +384,11 @@ def adapt_glider(glider: Glider) -> AircraftModel:
             glider.post_stall_yaw_moment_surface_coeff,
             dtype=float,
         ),
+        control_effectiveness_model=str(glider.control_effectiveness_model),
+        control_effectiveness_regime_scales=np.asarray(
+            glider.control_effectiveness_regime_scales,
+            dtype=float,
+        ).reshape(3, 3),
         drag_area_fuse_m2=float(glider.drag_area_fuse_m2),
         strip_count=int(glider.r_strip_b.shape[0]),
     )
@@ -451,6 +458,19 @@ def pitch_moment_regime_weights_numpy(post_stall_activation: float) -> tuple[flo
     return attached_raw / total, transition_raw / total, post_raw / total
 
 
+def control_effectiveness_scale_numpy(alpha_rad: float, aircraft: AircraftModel) -> np.ndarray:
+    """Return aileron/elevator/rudder aerodynamic effectiveness for current AoA."""
+
+    activation = post_stall_residual_activation_numpy(
+        abs(float(alpha_rad)),
+        aircraft.post_stall_residual_blend_start_alpha_rad,
+        aircraft.post_stall_residual_blend_full_alpha_rad,
+    )
+    weights = np.asarray(pitch_moment_regime_weights_numpy(activation), dtype=float)
+    regime_scales = np.asarray(aircraft.control_effectiveness_regime_scales, dtype=float).reshape(3, 3)
+    return weights @ regime_scales
+
+
 def residual_surface_basis_numpy(alpha_rad: float, aircraft: AircraftModel) -> np.ndarray:
     centres = np.asarray(aircraft.post_stall_residual_surface_alpha_centers_rad, dtype=float)
     width = max(float(aircraft.post_stall_residual_surface_width_rad), EPS)
@@ -483,6 +503,12 @@ def _evaluate_aero_numeric(
     )
     wind_cg_b = c_bw @ wind_cg_w
     wind_strip_b = wind_strip_w @ c_bw.T
+    v_air_cg_b = v_b - wind_cg_b
+    speed_cg = np.linalg.norm(v_air_cg_b)
+    q_bar_cg = 0.5 * rho * speed_cg**2
+    alpha_cg = np.arctan2(v_air_cg_b[2], v_air_cg_b[0])
+    beta_cg = np.arcsin(np.clip(v_air_cg_b[1] / max(speed_cg, EPS), -1.0, 1.0))
+    control_effectiveness_scale = control_effectiveness_scale_numpy(alpha_cg, aircraft)
     v_rot_b = np.cross(
         np.broadcast_to(omega_b, aircraft.r_strip_b.shape),
         aircraft.r_strip_b,
@@ -511,7 +537,8 @@ def _evaluate_aero_numeric(
     beta_strip = np.arcsin(np.clip(span_speed / speed_total_safe, -1.0, 1.0))
     q_bar_strip = 0.5 * rho * speed_plane**2
     # Control mix maps aggregate aileron/elevator/rudder commands to local strip deflections.
-    delta_local = aircraft.control_mix @ delta
+    effective_control_mix = np.asarray(aircraft.control_mix, dtype=float) * control_effectiveness_scale.reshape(1, 3)
+    delta_local = effective_control_mix @ delta
     cl_strip, cd_strip = _section_aero_numpy(
         alpha=alpha_strip,
         delta_local=delta_local,
@@ -528,11 +555,6 @@ def _evaluate_aero_numeric(
     m_strip_b = np.cross(aircraft.r_strip_b, f_strip_b)
     f_aero_b = np.sum(f_strip_b, axis=0)
     m_aero_b = np.sum(m_strip_b, axis=0)
-    v_air_cg_b = v_b - wind_cg_b
-    speed_cg = np.linalg.norm(v_air_cg_b)
-    q_bar_cg = 0.5 * rho * speed_cg**2
-    alpha_cg = np.arctan2(v_air_cg_b[2], v_air_cg_b[0])
-    beta_cg = np.arcsin(np.clip(v_air_cg_b[1] / max(speed_cg, EPS), -1.0, 1.0))
     pitch_rate_hat = 0.0
     roll_rate_hat = 0.0
     yaw_rate_hat = 0.0
@@ -704,6 +726,8 @@ def _evaluate_aero_numeric(
         "transition_pitch_moment_weight": transition_pitch_moment_weight,
         "post_stall_pitch_moment_weight": post_stall_pitch_moment_weight,
         "post_stall_pitch_activation": post_stall_pitch_moment_weight,
+        "control_effectiveness_model": aircraft.control_effectiveness_model,
+        "control_effectiveness_scale": control_effectiveness_scale,
         "post_stall_residual_surface_basis": surface_basis,
         "post_stall_lift_surface_coeff": lift_surface_coeff,
         "post_stall_drag_surface_coeff": drag_surface_coeff,
@@ -731,6 +755,7 @@ def _evaluate_aero_numeric(
             "beta_rad": beta_strip,
             "q_bar_pa": q_bar_strip,
             "delta_local_rad": delta_local,
+            "effective_control_mix": effective_control_mix,
             "cl": cl_strip,
             "cd": cd_strip,
             "f_strip_b": f_strip_b,
@@ -787,6 +812,8 @@ def evaluate_state(
         "beta_rad": float(aero["beta_rad"]),
         "gamma_rad": float(aero["gamma_rad"]),
         "sink_rate_m_s": float(aero["sink_rate_m_s"]),
+        "control_effectiveness_model": aero["control_effectiveness_model"],
+        "control_effectiveness_scale": np.asarray(aero["control_effectiveness_scale"], dtype=float),
         "wind_cg_w": aero["wind_cg_w"],
         "wind_cg_b": aero["wind_cg_b"],
         "r_dot_w": aero["r_dot_w"],
@@ -886,6 +913,20 @@ def _pitch_moment_regime_weights_ca(post_stall_activation: ca.SX) -> tuple[ca.SX
     return attached_raw / total, transition_raw / total, post_raw / total
 
 
+def _control_effectiveness_scale_ca(alpha_rad: ca.SX, aircraft: AircraftModel) -> ca.SX:
+    activation = _post_stall_residual_activation_ca(ca.fabs(alpha_rad), aircraft)
+    normal_weight, transition_weight, post_stall_weight = _pitch_moment_regime_weights_ca(activation)
+    regime_scales = np.asarray(aircraft.control_effectiveness_regime_scales, dtype=float).reshape(3, 3)
+    values = []
+    for axis_index in range(3):
+        values.append(
+            normal_weight * float(regime_scales[0, axis_index])
+            + transition_weight * float(regime_scales[1, axis_index])
+            + post_stall_weight * float(regime_scales[2, axis_index])
+        )
+    return ca.vertcat(*values)
+
+
 def _residual_surface_basis_ca(alpha_rad: ca.SX, aircraft: AircraftModel) -> ca.SX:
     values = []
     width = max(float(aircraft.post_stall_residual_surface_width_rad), EPS)
@@ -928,6 +969,12 @@ def _state_derivative_symbolic(
     m_aero_b = ca.DM.zeros(3, 1)
     wind_cg_w, _ = _symbolic_wind_vectors(wind_mode, wind_param, 0)
     wind_cg_b = c_bw @ wind_cg_w
+    v_air_cg_b = v_b - wind_cg_b
+    speed_cg = _ca_norm(v_air_cg_b)
+    q_bar_cg = 0.5 * rho * speed_cg**2
+    alpha_cg = ca.atan2(v_air_cg_b[2], v_air_cg_b[0])
+    beta_cg = ca.asin(ca.fmin(1.0, ca.fmax(-1.0, v_air_cg_b[1] / speed_cg)))
+    control_effectiveness_scale = _control_effectiveness_scale_ca(alpha_cg, aircraft)
     for idx in range(aircraft.strip_count):
         # Explicit strip iteration retains each strip's measured geometry and mix row.
         r_strip_b = ca.DM(aircraft.r_strip_b[idx]).reshape((3, 1))
@@ -946,7 +993,8 @@ def _state_derivative_symbolic(
         )
         lift_dir_b = lift_vec_b / _ca_norm(lift_vec_b)
         alpha = ca.atan2(-ca.dot(v_plane_b, surface_normal_b), v_plane_b[0])
-        delta_local = ca.dot(ca.DM(aircraft.control_mix[idx]), delta)
+        mix_row = ca.DM(aircraft.control_mix[idx]).reshape((3, 1))
+        delta_local = ca.dot(mix_row * control_effectiveness_scale, delta)
         cl_strip, cd_strip = _section_aero_ca(
             alpha=alpha,
             delta_local=delta_local,
@@ -964,11 +1012,6 @@ def _state_derivative_symbolic(
         )
         f_aero_b += f_strip_b
         m_aero_b += ca.cross(r_strip_b, f_strip_b)
-    v_air_cg_b = v_b - wind_cg_b
-    speed_cg = _ca_norm(v_air_cg_b)
-    q_bar_cg = 0.5 * rho * speed_cg**2
-    alpha_cg = ca.atan2(v_air_cg_b[2], v_air_cg_b[0])
-    beta_cg = ca.asin(ca.fmin(1.0, ca.fmax(-1.0, v_air_cg_b[1] / speed_cg)))
     pitch_rate_hat = omega_b[1] * aircraft.c_ref_m / (2.0 * speed_cg)
     roll_rate_hat = omega_b[0] * aircraft.b_ref_m / (2.0 * speed_cg)
     yaw_rate_hat = omega_b[2] * aircraft.b_ref_m / (2.0 * speed_cg)

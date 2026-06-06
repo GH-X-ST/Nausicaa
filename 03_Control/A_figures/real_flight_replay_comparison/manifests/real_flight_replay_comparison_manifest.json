@@ -8,9 +8,30 @@
   "workers": 8,
   "model_comparison": {
     "uncalibrated": "comparison-only pure theory/geometry baseline; calibration disabled in memory",
-    "calibrated": "active neutral dry-air residual-calibrated replay model plus active elevator and rudder effectiveness"
+    "calibrated": "active neutral dry-air residual-calibrated replay model plus conservative alpha-regime scheduled aileron/elevator/rudder effectiveness"
   },
+  "active_calibration_id": "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_surface_schedule_v3p2_cons_nominal",
+  "active_claim_boundary": "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_post_stall_clr_and_physics_informed_conservative_alpha_regime_surface_effectiveness_schedule",
+  "active_control_surface_effectiveness_model": "alpha_regime_scheduled_v1",
+  "active_control_surface_effectiveness_schedule": [
+    [
+      0.85,
+      0.75,
+      0.85
+    ],
+    [
+      0.55,
+      0.55,
+      0.55
+    ],
+    [
+      0.45,
+      0.45,
+      0.4
+    ]
+  ],
   "representative_selection": "neutral plus highest-confidence max positive/negative surface throws; prefers max_abs_alpha_deg <= 35 when available; extra neutral samples use seed 607 from confidence >= 0.85, max_abs_alpha_deg <= 25",
+  "representative_selection_source": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/metrics/real_flight_replay_comparison_summary.csv",
   "figures": [
     "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_neutral.png",
     "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/03_Control/A_figures/real_flight_replay_comparison/figures/real_vs_replay_neutral_random_good_01.png",

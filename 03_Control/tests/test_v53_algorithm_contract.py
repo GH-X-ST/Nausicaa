@@ -88,6 +88,7 @@ from episode_selector import select_compact_representative
 from plant_instance import (
     AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
     ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
+    GLOBAL_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
     RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
 )
 from viability_governor import (
@@ -1714,7 +1715,15 @@ def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> N
         assert payload["implementation_instance"].W_layer == "W3"
         assert payload["implementation_instance"].implementation_adjustment_status == "randomised_applied"
         assert payload["plant_instance"].plant_adjustment_status == "randomised_applied"
-        assert payload["plant_instance"].control_effectiveness_perturbation_policy == "axis_specific_control_mix_multiplier_v2"
+        assert (
+            payload["plant_instance"].control_effectiveness_perturbation_policy
+            == "global_plus_axis_scheduled_surface_authority_multiplier_v4"
+        )
+        assert (
+            GLOBAL_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
+            <= payload["plant_instance"].global_control_effectiveness_multiplier
+            <= GLOBAL_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[1]
+        )
         assert (
             AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE[0]
             <= payload["plant_instance"].aileron_control_effectiveness_multiplier

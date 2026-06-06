@@ -263,11 +263,177 @@ def test_surface_scale_candidate_scales_control_mix_without_changing_command_val
     unchanged_command = study.scaled_surface_command(command, None)
 
     assert np.asarray(candidate.control_mix)[:, AILERON].tolist() == pytest.approx(
-        (control_mix[:, AILERON] * 0.75 / active_scales["aileron"]).tolist()
+        (control_mix[:, AILERON] * 0.75).tolist()
     )
-    assert np.asarray(candidate.control_mix)[:, ELEVATOR].tolist() == pytest.approx(control_mix[:, ELEVATOR].tolist())
-    assert np.asarray(candidate.control_mix)[:, RUDDER].tolist() == pytest.approx(control_mix[:, RUDDER].tolist())
+    assert np.asarray(candidate.control_mix)[:, ELEVATOR].tolist() == pytest.approx(
+        (control_mix[:, ELEVATOR] * active_scales["elevator"]).tolist()
+    )
+    assert np.asarray(candidate.control_mix)[:, RUDDER].tolist() == pytest.approx(
+        (control_mix[:, RUDDER] * active_scales["rudder"]).tolist()
+    )
+    assert np.allclose(np.asarray(candidate.control_effectiveness_regime_scales), np.ones((3, 3)))
     assert unchanged_command.tolist() == pytest.approx(command.tolist())
+
+
+def test_stage_surface_scale_candidate_generation_is_exact_grid() -> None:
+    candidates = study.stage_surface_scale_candidates()
+
+    assert len(candidates) == 117
+    assert {
+        (row["surface_axis"], row["alpha_regime"])
+        for row in candidates
+    } == {
+        (surface, regime)
+        for surface in ("aileron", "elevator", "rudder")
+        for regime in study.SURFACE_AERO_ALPHA_REGIMES
+    }
+    assert tuple(row["candidate_scale"] for row in candidates[:13]) == pytest.approx(study.STAGE_SURFACE_SCALE_GRID)
+
+
+def test_stage_selection_uses_all_data_and_one_sign_evidence() -> None:
+    evidence_rows = [
+        {"filter_status": "kept", "surface_axis": "aileron", "max_abs_alpha_deg": 10.0, "command_value": 0.4}
+    ]
+    candidate_rows = [
+        study.stage_candidate_score_row(
+            {"candidate_id": "STG_aileron_normal_s0p4", "surface_axis": "aileron", "alpha_regime": "normal", "candidate_scale": 0.4},
+            [
+                {
+                    "replay_status": "ok",
+                    "peak_p_rad_s_residual_actual_minus_sim": 0.8,
+                    "final_phi_residual_actual_minus_sim_deg": 5.0,
+                    "dx_residual_actual_minus_sim_m": 0.3,
+                    "dy_residual_actual_minus_sim_m": 0.2,
+                    "altitude_loss_residual_actual_minus_sim_m": 0.1,
+                }
+            ],
+            evidence_rows,
+        ),
+        study.stage_candidate_score_row(
+            {"candidate_id": "STG_aileron_normal_s0p8", "surface_axis": "aileron", "alpha_regime": "normal", "candidate_scale": 0.8},
+            [
+                {
+                    "replay_status": "ok",
+                    "peak_p_rad_s_residual_actual_minus_sim": 0.2,
+                    "final_phi_residual_actual_minus_sim_deg": 6.0,
+                    "dx_residual_actual_minus_sim_m": 0.3,
+                    "dy_residual_actual_minus_sim_m": 0.2,
+                    "altitude_loss_residual_actual_minus_sim_m": 0.1,
+                }
+            ],
+            evidence_rows,
+        ),
+    ]
+
+    selected = study.select_stage_fit_rows(candidate_rows, evidence_rows)
+    aileron_normal = next(row for row in selected if row["surface_axis"] == "aileron" and row["alpha_regime"] == "normal")
+
+    assert aileron_normal["selected_scale"] == pytest.approx(0.8)
+    assert aileron_normal["positive_count"] == 1
+    assert aileron_normal["negative_count"] == 0
+    assert aileron_normal["fit_split"] == "all"
+
+
+def test_stage_zero_support_uses_1p0_prior() -> None:
+    selected = study.select_stage_fit_rows([], [])
+    rudder_normal = next(row for row in selected if row["surface_axis"] == "rudder" and row["alpha_regime"] == "normal")
+
+    assert rudder_normal["selected_scale"] == pytest.approx(1.0)
+    assert rudder_normal["fit_status"] == study.STAGE_ZERO_SUPPORT_STATUS
+    assert rudder_normal["zero_support_policy"] == "absolute_scale_1p0_prior"
+
+
+def test_stage_schedule_scales_control_mix_by_alpha_regime_without_changing_command() -> None:
+    aircraft = build_nausicaa_glider()
+    control_mix = np.asarray(aircraft.control_mix, dtype=float)
+    active_scales = study.active_surface_effectiveness_scales_by_surface()
+    schedule = study.active_stage_surface_schedule()
+    schedule["aileron"]["normal"] = 1.0
+    schedule["aileron"]["post_stall"] = 0.4
+    normal_state = np.zeros(15)
+    normal_state[6] = 4.0
+    normal_state[8] = 0.1
+    post_stall_state = np.zeros(15)
+    post_stall_state[6] = 1.0
+    post_stall_state[8] = 1.0
+    command = np.asarray([0.2, -0.4, 0.6], dtype=float)
+
+    normal_aircraft = study.aircraft_with_surface_effectiveness_schedule_for_state(aircraft, schedule, normal_state)
+    post_stall_aircraft = study.aircraft_with_surface_effectiveness_schedule_for_state(aircraft, schedule, post_stall_state)
+    unchanged_command = study.scaled_surface_command(command, None)
+
+    assert np.asarray(normal_aircraft.control_mix)[:, AILERON].tolist() == pytest.approx(
+        (control_mix[:, AILERON] * 1.0).tolist()
+    )
+    assert np.asarray(post_stall_aircraft.control_mix)[:, AILERON].tolist() == pytest.approx(
+        (control_mix[:, AILERON] * 0.4).tolist()
+    )
+    assert np.asarray(normal_aircraft.control_mix)[:, ELEVATOR].tolist() == pytest.approx(
+        (control_mix[:, ELEVATOR] * active_scales["elevator"]).tolist()
+    )
+    assert unchanged_command.tolist() == pytest.approx(command.tolist())
+
+
+def test_combined_stage_schedule_contains_all_surface_regime_entries() -> None:
+    rows = [
+        {
+            "surface_axis": surface,
+            "alpha_regime": regime,
+            "selected_scale": 0.5,
+        }
+        for surface in ("aileron", "elevator", "rudder")
+        for regime in study.SURFACE_AERO_ALPHA_REGIMES
+    ]
+
+    schedule = study.schedule_from_stage_fit_rows(rows)
+
+    assert set(schedule) == {"aileron", "elevator", "rudder"}
+    assert all(set(regimes) == set(study.SURFACE_AERO_ALPHA_REGIMES) for regimes in schedule.values())
+    assert all(value == pytest.approx(0.5) for regimes in schedule.values() for value in regimes.values())
+
+
+def test_constrained_stage_candidates_are_monotonic_and_complete() -> None:
+    assert len(study.CONSTRAINED_STAGE_CANDIDATES) == 8
+    for schedule in study.CONSTRAINED_STAGE_CANDIDATES.values():
+        assert set(schedule) == {"aileron", "elevator", "rudder"}
+        for regimes in schedule.values():
+            assert set(regimes) == set(study.SURFACE_AERO_ALPHA_REGIMES)
+            assert regimes["normal"] >= regimes["transition"] >= regimes["post_stall"]
+
+
+def test_constrained_stage_summary_selects_lowest_joint_score() -> None:
+    baseline = {
+        "candidate_id": "C0_frozen_neutral",
+        "split": "all",
+        "surface_axis": "all",
+        "replay_count": 2,
+        "dx_mae_m": 0.2,
+        "dy_mae_m": 0.2,
+        "altitude_loss_mae_m": 0.2,
+        "final_phi_mae_deg": 6.0,
+        "final_theta_mae_deg": 6.0,
+        "final_psi_mae_deg": 6.0,
+        "primary_antisym_residual": 0.2,
+    }
+    rows = [baseline]
+    for index, candidate_id in enumerate(study.CONSTRAINED_STAGE_CANDIDATES):
+        rows.append(
+            {
+                **baseline,
+                "candidate_id": candidate_id,
+                "dx_mae_m": 0.1 + 0.01 * index,
+                "dy_mae_m": 0.1 + 0.01 * index,
+                "altitude_loss_mae_m": 0.1 + 0.01 * index,
+                "primary_antisym_residual": 0.1 + 0.01 * index,
+            }
+        )
+
+    summary = study.constrained_stage_candidate_summary_rows(rows)
+    selected = [row for row in summary if row["selected"]]
+
+    assert len(selected) == 1
+    assert selected[0]["candidate_id"] == next(iter(study.CONSTRAINED_STAGE_CANDIDATES))
+    assert selected[0]["accepted"] is True
 
 
 def test_surface_scale_gate_rejects_aileron_when_primary_residual_worsens() -> None:
@@ -333,16 +499,32 @@ def test_control_surface_replay_is_hardcoded_to_eight_workers() -> None:
     assert "worker_count = min(DEFAULT_WORKERS, DEFAULT_MAX_WORKERS)" in source
 
 
-def test_active_surface_effectiveness_promotes_evidence_gated_surface_scales() -> None:
+def test_active_surface_effectiveness_promotes_conservative_regime_schedule() -> None:
     glider = build_nausicaa_glider()
     control_mix = np.asarray(glider.control_mix, dtype=float)
 
+    assert active_calibration.CONTROL_SURFACE_EFFECTIVENESS_MODEL == "alpha_regime_scheduled_v1"
+    assert np.allclose(
+        np.asarray(active_calibration.CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE, dtype=float),
+        np.asarray(
+            [
+                [0.85, 0.75, 0.85],
+                [0.55, 0.55, 0.55],
+                [0.45, 0.45, 0.40],
+            ],
+            dtype=float,
+        ),
+    )
     assert active_calibration.DELTA_A_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.65)
     assert active_calibration.DELTA_E_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.70)
     assert active_calibration.DELTA_R_AERO_EFFECTIVENESS_SCALE == pytest.approx(0.45)
-    assert np.max(np.abs(control_mix[:, AILERON])) == pytest.approx(0.65)
-    assert np.max(np.abs(control_mix[:, ELEVATOR])) == pytest.approx(0.70)
-    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(0.45)
+    assert np.max(np.abs(control_mix[:, AILERON])) == pytest.approx(1.0)
+    assert np.max(np.abs(control_mix[:, ELEVATOR])) == pytest.approx(1.0)
+    assert np.max(np.abs(control_mix[:, RUDDER])) == pytest.approx(1.0)
+    assert np.allclose(
+        np.asarray(glider.control_effectiveness_regime_scales, dtype=float),
+        np.asarray(active_calibration.CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE, dtype=float),
+    )
 
 
 def test_alpha_regime_candidates_share_rudder_post_stall_with_transition() -> None:

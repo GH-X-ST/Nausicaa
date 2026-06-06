@@ -28,6 +28,7 @@ for path in (INNER_LOOP, PRIMITIVES):
         sys.path.insert(0, str(path))
 
 import glider as glider_module  # noqa: E402
+from A_model_parameters import neutral_dry_air_calibration as active_calibration  # noqa: E402
 import run_control_surface_effectiveness_study as surface_study  # noqa: E402
 import run_real_glider_calibration_prep as prep  # noqa: E402
 
@@ -77,14 +78,31 @@ def main() -> None:
     for subdir in ("figures", "metrics", "manifests", "reports"):
         (output_root / subdir).mkdir(parents=True, exist_ok=True)
 
-    selected = select_representative_launches(
-        surface_result_root=Path(args.surface_result_root),
-        neutral_root=Path(args.neutral_root),
-        extra_neutral_samples=int(args.extra_neutral_samples),
-        neutral_sample_seed=int(args.neutral_sample_seed),
-        good_neutral_min_confidence=float(args.good_neutral_min_confidence),
-        good_neutral_max_alpha_deg=float(args.good_neutral_max_alpha_deg),
-    )
+    selection_summary_path = output_root / "metrics" / "real_flight_replay_comparison_summary.csv"
+    surface_inventory_path = Path(args.surface_result_root) / "control_surface_inventory.csv"
+    if surface_inventory_path.exists():
+        selected = select_representative_launches(
+            surface_result_root=Path(args.surface_result_root),
+            neutral_root=Path(args.neutral_root),
+            extra_neutral_samples=int(args.extra_neutral_samples),
+            neutral_sample_seed=int(args.neutral_sample_seed),
+            good_neutral_min_confidence=float(args.good_neutral_min_confidence),
+            good_neutral_max_alpha_deg=float(args.good_neutral_max_alpha_deg),
+        )
+        selection_source = surface_inventory_path.as_posix()
+    elif selection_summary_path.exists():
+        selected = select_representative_launches_from_summary(selection_summary_path)
+        selection_source = selection_summary_path.as_posix()
+    else:
+        selected = select_representative_launches(
+            surface_result_root=Path(args.surface_result_root),
+            neutral_root=Path(args.neutral_root),
+            extra_neutral_samples=int(args.extra_neutral_samples),
+            neutral_sample_seed=int(args.neutral_sample_seed),
+            good_neutral_min_confidence=float(args.good_neutral_min_confidence),
+            good_neutral_max_alpha_deg=float(args.good_neutral_max_alpha_deg),
+        )
+        selection_source = surface_inventory_path.as_posix()
     traces = run_replays(selected, replay_dt_s=float(args.replay_dt_s), workers=DEFAULT_WORKERS)
     figure_rows = write_figures(selected, traces, output_root=output_root)
     write_summary(output_root / "metrics" / "real_flight_replay_comparison_summary.csv", figure_rows)
@@ -99,9 +117,22 @@ def main() -> None:
         "model_comparison": {
             "uncalibrated": "comparison-only pure theory/geometry baseline; calibration disabled in memory",
             "calibrated": (
-                "active neutral dry-air residual-calibrated replay model plus active elevator and rudder effectiveness"
+                "active neutral dry-air residual-calibrated replay model plus conservative alpha-regime "
+                "scheduled aileron/elevator/rudder effectiveness"
             ),
         },
+        "active_calibration_id": getattr(active_calibration, "CALIBRATION_ID", ""),
+        "active_claim_boundary": getattr(active_calibration, "CLAIM_BOUNDARY", ""),
+        "active_control_surface_effectiveness_model": getattr(
+            active_calibration,
+            "CONTROL_SURFACE_EFFECTIVENESS_MODEL",
+            "",
+        ),
+        "active_control_surface_effectiveness_schedule": getattr(
+            active_calibration,
+            "CONTROL_SURFACE_EFFECTIVENESS_SCHEDULE",
+            (),
+        ),
         "representative_selection": (
             "neutral plus highest-confidence max positive/negative surface throws; "
             f"prefers max_abs_alpha_deg <= {MAX_REPRESENTATIVE_ALPHA_DEG:g} when available; "
@@ -109,6 +140,7 @@ def main() -> None:
             f"{float(args.good_neutral_min_confidence):g}, max_abs_alpha_deg <= "
             f"{float(args.good_neutral_max_alpha_deg):g}"
         ),
+        "representative_selection_source": selection_source,
         "figures": [row["figure_path"] for row in figure_rows],
     }
     (output_root / "manifests" / "real_flight_replay_comparison_manifest.json").write_text(
@@ -195,6 +227,37 @@ def select_representative_launches(
                     ),
                 )
             )
+    return selected
+
+
+def select_representative_launches_from_summary(summary_path: Path) -> list[SelectedLaunch]:
+    selected: list[SelectedLaunch] = []
+    axis_by_surface = {
+        "aileron": "delta_a",
+        "elevator": "delta_e",
+        "rudder": "delta_r",
+        "neutral": "neutral",
+    }
+    for row in _read_csv(summary_path):
+        surface_axis = str(row.get("surface_axis", ""))
+        command_value = surface_study.to_float(row.get("command_value"), 0.0)
+        throw_dir = str(row.get("throw_dir", ""))
+        replay_row = dict(row)
+        replay_row["_throw_dir"] = throw_dir
+        replay_row["throw_dir"] = throw_dir
+        replay_row.setdefault("command_axis", axis_by_surface.get(surface_axis, surface_axis))
+        replay_row.setdefault("command_abs", abs(command_value))
+        selected.append(
+            SelectedLaunch(
+                figure_id=str(row.get("figure_id", "")),
+                surface_axis=surface_axis,
+                command_value=command_value,
+                row=replay_row,
+                selection_note=str(row.get("selection_note", "reused from existing replay-comparison summary")),
+            )
+        )
+    if not selected:
+        raise RuntimeError(f"No representative launches found in {summary_path}")
     return selected
 
 
@@ -638,8 +701,11 @@ def write_report(path: Path, rows: list[dict[str, Any]], manifest: dict[str, Any
         "These figures compare measured real-flight launches against two dry-air replay models:",
         "",
         "- uncalibrated theory replay: comparison-only pure theory/geometry baseline",
-        "- active calibrated replay: current neutral residual-calibrated model with active elevator and rudder effectiveness",
+        "- active calibrated replay: current neutral residual-calibrated model with conservative alpha-regime scheduled aileron/elevator/rudder effectiveness",
         "",
+        f"- active calibration: `{manifest.get('active_calibration_id', '')}`",
+        f"- surface-effectiveness model: `{manifest.get('active_control_surface_effectiveness_model', '')}`",
+        f"- representative selection source: `{manifest.get('representative_selection_source', '')}`",
         f"- replay dt: `{manifest['replay_dt_s']}` s",
         f"- workers: `{manifest['workers']}`",
         "",
