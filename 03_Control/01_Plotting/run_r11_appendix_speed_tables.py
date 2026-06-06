@@ -393,6 +393,10 @@ def _append_open_loop_neutral_rows(raw: pd.DataFrame, neutral_rollout_paths: lis
                     f"cannot infer validation run label for {path}; provide one neutral file per labelled run path"
                 )
             run_label = raw_run_labels[0]
+        elif run_label not in raw_run_labels and len(raw_run_labels) == 1:
+            # Allow abbreviated figure folders such as R11_E03_* to pair with
+            # a concrete validation root label such as E03.1.
+            run_label = raw_run_labels[0]
         frame = frame.copy()
         frame["validation_run_label"] = run_label
         neutral_frames.append(frame)
@@ -561,7 +565,7 @@ def _append_open_loop_neutral_rows(raw: pd.DataFrame, neutral_rollout_paths: lis
 
 def _infer_neutral_run_label(path: Path) -> str | None:
     for part in path.parts:
-        match = re.search(r"R11_([A-Z]\d{2})", part)
+        match = re.search(r"R11_([A-Z]\d{2}(?:\.\d+)?)", part)
         if match:
             return match.group(1)
     return None
