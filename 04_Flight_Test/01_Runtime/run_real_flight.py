@@ -44,6 +44,11 @@ from real_flight_io import NausicaaViconStateAdapter, ViconArenaFrameTransform  
 from state_contract import STATE_INDEX, STATE_SIZE, state_dataframe_row  # noqa: E402
 
 
+ACTIVE_RUNTIME_WAKE_AHEAD_S = 0.002
+ACTIVE_METRIC_LOGGING_POLICY = "buffer_active_rows_flush_after_active_record"
+ACTIVE_FAN_LOGGING_POLICY = "prelaunch_handoff_and_post_exit_snapshot_only"
+
+
 def run_real_flight(
     config: FlightRuntimeConfig,
     *,
@@ -62,6 +67,7 @@ def run_real_flight(
     if not np.isclose(handoff_slots, round(handoff_slots), rtol=0.0, atol=1e-9):
         raise ValueError("launch_handoff_duration_s_must_be_integer_serial_slots")
     controller = controller or FrozenFlightController(config)
+    deferred_active_metric_rows: list[tuple[str, dict[str, object]]] = []
     adapter = NausicaaViconStateAdapter(
         derivative_cutoff_hz=config.derivative_cutoff_hz,
         body_rate_limit_rad_s=config.body_rate_limit_rad_s,
@@ -111,6 +117,7 @@ def run_real_flight(
             ),
             "closed_loop_command_execution_policy": (
                 "hybrid_scheduler_prepares_next_0p10s_primitive_before_boundary_from_predicted_boundary_state;"
+                "time_critical_governor_commit_and_50hz_packet_send_precede_active_metric_flush;"
                 "first_packet_and_50hz_lqr_slot_commands_are_recomputed_from_latest_vicon_state"
                 if config.controller_mode == "closed_loop"
                 else "not_active"
@@ -143,6 +150,9 @@ def run_real_flight(
                 "serial_command_repeat_hz": float(1.0 / config.serial_period_s),
                 "governor_decision_hz": float(1.0 / config.governor_period_s),
                 "closed_loop_slot_command_hz": float(1.0 / config.serial_period_s),
+                "active_runtime_wake_ahead_s": ACTIVE_RUNTIME_WAKE_AHEAD_S,
+                "active_metric_logging_policy": ACTIVE_METRIC_LOGGING_POLICY,
+                "active_fan_logging_policy": ACTIVE_FAN_LOGGING_POLICY,
                 "launch_handoff_duration_s": float(config.launch_handoff_duration_s),
                 "derivative_cutoff_hz": float(config.derivative_cutoff_hz),
                 "body_rate_limit_rad_s": float(config.body_rate_limit_rad_s),
@@ -211,6 +221,11 @@ def run_real_flight(
         "continuation_prepared_decision_count": 0,
         "continuation_commit_count": 0,
         "continuation_late_decision_count": 0,
+        "active_metric_logging_policy": ACTIVE_METRIC_LOGGING_POLICY,
+        "active_metric_buffered_row_count": 0,
+        "active_metric_buffer_flush_count": 0,
+        "active_fan_logging_policy": ACTIVE_FAN_LOGGING_POLICY,
+        "active_runtime_wake_ahead_s": ACTIVE_RUNTIME_WAKE_AHEAD_S,
         "flight_cancelled": False,
         "cancellation_reason": "",
         "exit_gate_triggered": False,
@@ -297,6 +312,7 @@ def run_real_flight(
         scheduler_target_boundary_s: float,
         scheduler_prepare_started_elapsed_s: float,
         scheduler_prediction_dt_s: float,
+        defer_metric_logging: bool = False,
     ) -> None:
         decision_records.append(
             {
@@ -325,7 +341,12 @@ def run_real_flight(
             **asdict(decision),
         }
         controller_decision_rows.append(decision_row)
-        logger.append_metric_row("controller_decisions.csv", decision_row)
+        _append_metric_row(
+            logger,
+            "controller_decisions.csv",
+            decision_row,
+            metric_buffer=deferred_active_metric_rows if defer_metric_logging else None,
+        )
 
     try:
         tx.open()
@@ -551,6 +572,7 @@ def run_real_flight(
                 scheduler_target_boundary_s=launch_handoff_duration_s,
                 scheduler_prepare_started_elapsed_s=0.0,
                 scheduler_prediction_dt_s=0.0,
+                defer_metric_logging=True,
             )
             pending_launch_decision_state = None
             primitive_step_index = 1
@@ -580,6 +602,7 @@ def run_real_flight(
                 _append_runtime_event(
                     logger,
                     "vicon_invalid_neutral_command",
+                    metric_buffer=deferred_active_metric_rows,
                     reason=status.reason,
                 )
                 if mode in {"armed", "vicon-smoke"}:
@@ -593,35 +616,32 @@ def run_real_flight(
 
             latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
             estimator = adapter.estimator_status()
-            _append_fan_positions(
-                logger=logger,
-                vicon=vicon,
-                adapter=adapter,
-                phase="active",
-                expected_visible_fan_range=expected_visible_fan_range,
-                summary=summary,
-            )
             safety = evaluate_safety(latest_state)
             exit_gate = evaluate_exit_gate(latest_state)
             summary["state_sample_count"] += 1
-            logger.append_metric_row(
-                "state_samples.csv",
-                {
-                    "t_host_s": time.perf_counter(),
-                    "frame_number": status.frame_number,
-                    "vicon_frame_rate_hz": status.frame_rate_hz,
-                    "vicon_latency_s": status.vicon_latency_s,
-                    **{f"estimator_{key}": value for key, value in estimator.items()},
-                    **state_dataframe_row(latest_state),
-                    **asdict(safety),
-                    **{f"exit_gate_{key}": value for key, value in asdict(exit_gate).items()},
-                },
-            )
+            state_row = {
+                "t_host_s": time.perf_counter(),
+                "frame_number": status.frame_number,
+                "vicon_frame_rate_hz": status.frame_rate_hz,
+                "vicon_latency_s": status.vicon_latency_s,
+                **{f"estimator_{key}": value for key, value in estimator.items()},
+                **state_dataframe_row(latest_state),
+                **asdict(safety),
+                **{f"exit_gate_{key}": value for key, value in asdict(exit_gate).items()},
+            }
+            action_elapsed_s = time.perf_counter() - started
+
             if not exit_gate.inside:
+                _append_metric_row(
+                    logger,
+                    "state_samples.csv",
+                    state_row,
+                    metric_buffer=deferred_active_metric_rows,
+                )
                 if latest_decision is not None:
                     decision_records.append(
                         {
-                            "t_s": float(loop_elapsed_s),
+                            "t_s": float(action_elapsed_s),
                             "state": latest_state.copy(),
                             "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
                             "primitive_variant_id": latest_decision.primitive_variant_id,
@@ -636,17 +656,19 @@ def run_real_flight(
                     mode=mode,
                     summary=summary,
                     reason=exit_gate.reason,
+                    metric_buffer=deferred_active_metric_rows,
                 )
                 summary["exit_gate_triggered"] = True
                 summary["termination_reason"] = str(exit_gate.reason)
                 _append_runtime_event(
                     logger,
                     "exit_gate_terminate_active_record",
+                    metric_buffer=deferred_active_metric_rows,
                     **asdict(exit_gate),
                 )
                 break
 
-            if config.controller_mode == "closed_loop" and loop_elapsed_s + 1e-12 >= next_governor_s:
+            if config.controller_mode == "closed_loop" and action_elapsed_s + 1e-12 >= next_governor_s:
                 if (
                     continuation_future is not None
                     and continuation_target_step_index == primitive_step_index
@@ -661,7 +683,7 @@ def run_real_flight(
                         primitive_step_index=primitive_step_index,
                     )
                     pending_slot_packet = latest_decision.packet_bytes
-                    commit_lag_s = float(loop_elapsed_s) - float(continuation_target_boundary_s)
+                    commit_lag_s = float(action_elapsed_s) - float(continuation_target_boundary_s)
                     scheduler_source = (
                         "prepared_during_previous_primitive_window"
                         if commit_lag_s <= 1e-12
@@ -669,7 +691,7 @@ def run_real_flight(
                     )
                     _record_controller_decision(
                         latest_decision,
-                        decision_t_s=float(loop_elapsed_s),
+                        decision_t_s=float(action_elapsed_s),
                         decision_state=latest_state,
                         executed_primitive_step_index=primitive_step_index,
                         scheduler_decision_source=scheduler_source,
@@ -677,18 +699,20 @@ def run_real_flight(
                         scheduler_target_boundary_s=continuation_target_boundary_s,
                         scheduler_prepare_started_elapsed_s=continuation_prepare_started_elapsed_s,
                         scheduler_prediction_dt_s=continuation_prediction_dt_s,
+                        defer_metric_logging=True,
                     )
                     summary["continuation_commit_count"] = int(summary["continuation_commit_count"]) + 1
                     _append_runtime_event(
                         logger,
                         "continuation_decision_committed",
+                        metric_buffer=deferred_active_metric_rows,
                         primitive_step_index=int(primitive_step_index),
                         scheduler_decision_source=scheduler_source,
                         prepared_ready=bool(prepared_status.get("ready", False)),
                         selected=bool(latest_decision.selected),
                         reason=str(latest_decision.reason),
                         target_boundary_s=float(continuation_target_boundary_s),
-                        commit_elapsed_s=float(loop_elapsed_s),
+                        commit_elapsed_s=float(action_elapsed_s),
                         commit_lag_s=float(commit_lag_s),
                         decision_time_s=float(latest_decision.decision_time_s),
                     )
@@ -697,7 +721,7 @@ def run_real_flight(
                     continuation_future = None
                     _start_continuation_prepare(
                         state=latest_state,
-                        loop_elapsed_s=float(loop_elapsed_s),
+                        loop_elapsed_s=float(action_elapsed_s),
                         target_boundary_s=next_governor_s,
                         target_step_index=primitive_step_index,
                     )
@@ -705,7 +729,7 @@ def run_real_flight(
                     if continuation_future is None:
                         _start_continuation_prepare(
                             state=latest_state,
-                            loop_elapsed_s=float(loop_elapsed_s),
+                            loop_elapsed_s=float(action_elapsed_s),
                             target_boundary_s=next_governor_s,
                             target_step_index=primitive_step_index,
                         )
@@ -717,16 +741,18 @@ def run_real_flight(
                         _append_runtime_event(
                             logger,
                             "continuation_decision_late",
+                            metric_buffer=deferred_active_metric_rows,
                             primitive_step_index=int(primitive_step_index),
                             target_boundary_s=float(next_governor_s),
-                            elapsed_s=float(loop_elapsed_s),
+                            elapsed_s=float(action_elapsed_s),
                             active_primitive_variant_id=(
                                 latest_decision.primitive_variant_id if latest_decision is not None else ""
                             ),
                             action="continue_streaming_active_primitive_until_prepared_decision_ready",
                         )
 
-            if loop_elapsed_s + 1e-12 >= next_serial_s:
+            action_elapsed_s = time.perf_counter() - started
+            if action_elapsed_s + 1e-12 >= next_serial_s:
                 if config.controller_mode == "open_loop_neutral":
                     packet = controller.neutral_packet()
                     event = "active_open_loop_neutral_packet"
@@ -741,11 +767,12 @@ def run_real_flight(
                         event = "active_command_packet_slot_update"
                     summary["slot_command_update_count"] = int(summary["slot_command_update_count"]) + 1
                 if float(summary.get("first_active_command_elapsed_s", 0.0)) <= 0.0:
-                    summary["first_active_command_elapsed_s"] = float(loop_elapsed_s)
+                    summary["first_active_command_elapsed_s"] = float(action_elapsed_s)
                     _append_runtime_event(
                         logger,
                         "first_active_command",
-                        elapsed_s=float(loop_elapsed_s),
+                        metric_buffer=deferred_active_metric_rows,
+                        elapsed_s=float(action_elapsed_s),
                         source_event=event,
                         controller_mode=config.controller_mode,
                     )
@@ -758,6 +785,13 @@ def run_real_flight(
                 )
                 next_serial_s += float(config.serial_period_s)
 
+            _append_metric_row(
+                logger,
+                "state_samples.csv",
+                state_row,
+                metric_buffer=deferred_active_metric_rows,
+            )
+
             if mode in {"armed", "vicon-smoke"}:
                 _sleep_until_next_runtime_poll(
                     config=config,
@@ -765,6 +799,17 @@ def run_real_flight(
                     next_serial_s=next_serial_s,
                     next_governor_s=next_governor_s,
                 )
+
+        if bool(summary["launch_gate_approved"]):
+            _append_fan_positions(
+                logger=logger,
+                vicon=vicon,
+                adapter=adapter,
+                phase="active_post_exit_snapshot",
+                expected_visible_fan_range=expected_visible_fan_range,
+                summary=summary,
+                metric_buffer=deferred_active_metric_rows,
+            )
 
         if bool(summary["launch_gate_approved"]) and config.controller_mode == "closed_loop":
             if latest_decision is not None and latest_state is not None and not terminal_record_appended:
@@ -806,6 +851,13 @@ def run_real_flight(
             continuation_executor.shutdown(wait=True, cancel_futures=True)
         tx.close()
         vicon.close()
+        if deferred_active_metric_rows:
+            buffered_count = len(deferred_active_metric_rows)
+            summary["active_metric_buffered_row_count"] = int(buffered_count)
+            flushed_count = _flush_metric_buffer(logger, deferred_active_metric_rows)
+            summary["active_metric_buffer_flush_count"] = (
+                int(summary.get("active_metric_buffer_flush_count", 0)) + int(flushed_count)
+            )
         posthoc_score = _real_flight_posthoc_score_row(
             config=config,
             summary=summary,
@@ -853,6 +905,10 @@ def run_real_flight(
                 f"- Neutral failsafe commands: `{summary['neutral_failsafe_count']}`",
                 f"- Open-loop neutral packets: `{summary['open_loop_neutral_packet_count']}`",
                 f"- Closed-loop slot command updates: `{summary['slot_command_update_count']}`",
+                f"- Active metric logging policy: `{summary['active_metric_logging_policy']}`",
+                f"- Active metric buffered rows: `{summary['active_metric_buffered_row_count']}`",
+                f"- Active fan logging policy: `{summary['active_fan_logging_policy']}`",
+                f"- Active runtime wake-ahead (s): `{float(summary['active_runtime_wake_ahead_s']):.3f}`",
                 f"- Serial write errors: `{summary['serial_write_error_count']}`",
                 f"- Serial write timeouts: `{summary['serial_write_timeout_count']}`",
                 f"- Post-exit neutral packets: `{summary['post_exit_neutral_packets']}`",
@@ -1204,13 +1260,15 @@ def _append_fan_positions(
     phase: str,
     expected_visible_fan_range: tuple[int, int] | None,
     summary: dict[str, object],
+    metric_buffer: list[tuple[str, dict[str, object]]] | None = None,
 ) -> None:
     if not hasattr(vicon, "read_fans"):
         return
     try:
         fans = vicon.read_fans()
     except Exception as exc:
-        logger.append_metric_row(
+        _append_metric_row(
+            logger,
             "fan_positions.csv",
             {
                 "t_host_s": time.perf_counter(),
@@ -1224,6 +1282,7 @@ def _append_fan_positions(
                 "visible_count": 0,
                 "expected_count_ok": False,
             },
+            metric_buffer=metric_buffer,
         )
         return
     visible_count = sum(1 for fan in fans if fan.visible)
@@ -1238,7 +1297,8 @@ def _append_fan_positions(
         if fan.visible and fan.position_m is not None:
             position = adapter.arena_transform.position_to_world(np.asarray(fan.position_m, dtype=float))
             world = tuple(float(value) for value in position)
-        logger.append_metric_row(
+        _append_metric_row(
+            logger,
             "fan_positions.csv",
             {
                 "t_host_s": time.perf_counter(),
@@ -1252,6 +1312,7 @@ def _append_fan_positions(
                 "visible_count": int(visible_count),
                 "expected_count_ok": bool(expected_ok),
             },
+            metric_buffer=metric_buffer,
         )
 
 
@@ -1287,6 +1348,7 @@ def _send_neutral_tail(
     mode: str,
     summary: dict[str, object],
     reason: str,
+    metric_buffer: list[tuple[str, dict[str, object]]] | None = None,
 ) -> None:
     packet_count = max(1, int(np.ceil(float(config.post_exit_neutral_tail_s) / float(config.serial_period_s))))
     for _ in range(packet_count):
@@ -1304,6 +1366,7 @@ def _send_neutral_tail(
     _append_runtime_event(
         logger,
         "post_exit_neutral_tail_sent",
+        metric_buffer=metric_buffer,
         reason=str(reason),
         neutral_packet_count=packet_count,
         post_exit_neutral_tail_s=float(config.post_exit_neutral_tail_s),
@@ -1354,14 +1417,47 @@ def _wrap_to_pi(value: float) -> float:
     return float((float(value) + np.pi) % (2.0 * np.pi) - np.pi)
 
 
-def _append_runtime_event(logger: FlightLogger, event: str, **details: object) -> None:
-    logger.append_metric_row(
+def _append_metric_row(
+    logger: FlightLogger,
+    name: str,
+    row: dict[str, object],
+    *,
+    metric_buffer: list[tuple[str, dict[str, object]]] | None = None,
+) -> None:
+    if metric_buffer is not None:
+        metric_buffer.append((name, row))
+        return
+    logger.append_metric_row(name, row)
+
+
+def _flush_metric_buffer(
+    logger: FlightLogger,
+    metric_buffer: list[tuple[str, dict[str, object]]],
+) -> int:
+    flushed = 0
+    for name, row in metric_buffer:
+        logger.append_metric_row(name, row)
+        flushed += 1
+    metric_buffer.clear()
+    return flushed
+
+
+def _append_runtime_event(
+    logger: FlightLogger,
+    event: str,
+    *,
+    metric_buffer: list[tuple[str, dict[str, object]]] | None = None,
+    **details: object,
+) -> None:
+    _append_metric_row(
+        logger,
         "runtime_events.csv",
         {
             "t_host_s": time.perf_counter(),
             "event": str(event),
             "details_json": json.dumps(details, sort_keys=True, separators=(",", ":")),
         },
+        metric_buffer=metric_buffer,
     )
 
 
@@ -1505,7 +1601,10 @@ def _sleep_until_next_runtime_poll(
         wait_s = next_event_s - elapsed_s
         if wait_s > 0.0:
             waits.append(wait_s)
-    time.sleep(max(0.0, min(waits)))
+    wait_s = max(0.0, min(waits))
+    if wait_s > ACTIVE_RUNTIME_WAKE_AHEAD_S:
+        wait_s -= ACTIVE_RUNTIME_WAKE_AHEAD_S
+    time.sleep(wait_s)
 
 
 def _write_packet_safe(

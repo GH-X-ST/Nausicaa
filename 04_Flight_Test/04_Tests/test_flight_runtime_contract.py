@@ -873,6 +873,26 @@ def test_closed_loop_dry_run_holds_neutral_during_launch_handoff(tmp_path: Path)
     assert int(posthoc[0]["executed_selected_decision_count"]) >= 1
 
 
+def test_closed_loop_dry_run_buffers_active_metrics_off_timing_path(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_buffered_active_metrics",
+        output_root=tmp_path,
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+    )
+
+    summary = run_real_flight(config, mode="dry-run")
+
+    assert summary["active_metric_logging_policy"] == "buffer_active_rows_flush_after_active_record"
+    assert int(summary["active_metric_buffered_row_count"]) > 0
+    assert int(summary["active_metric_buffer_flush_count"]) == int(summary["active_metric_buffered_row_count"])
+    assert summary["active_fan_logging_policy"] == "prelaunch_handoff_and_post_exit_snapshot_only"
+    assert float(summary["active_runtime_wake_ahead_s"]) > 0.0
+    assert (tmp_path / "T_buffered_active_metrics" / "metrics" / "controller_decisions.csv").exists()
+    assert (tmp_path / "T_buffered_active_metrics" / "metrics" / "runtime_events.csv").exists()
+    assert (tmp_path / "T_buffered_active_metrics" / "metrics" / "state_samples.csv").exists()
+
+
 def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tmp_path: Path) -> None:
     config = FlightRuntimeConfig(
         run_label="T_open_loop",
