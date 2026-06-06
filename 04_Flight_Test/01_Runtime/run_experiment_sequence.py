@@ -24,12 +24,12 @@ from run_real_flight import run_real_flight
 
 # =============================================================================
 # CLICK-AND-GO SETTINGS FOR THE NEXT REAL EXPERIMENT BLOCK
-# Current setup: E0.1 dry-air shakedown, 5 valid throws, hardware armed on COM11.
+# Current setup: use the selected registry case/targets, hardware armed on COM11.
 # Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CURRENT_EXPERIMENT_CASE = "E0.1"
+CURRENT_EXPERIMENT_CASE = "E1.2"
 CURRENT_SESSION_LABEL = ""  # Empty means a new timestamped result folder.
-TARGET_VALID_THROWS_OVERRIDE: int | None = 2
+TARGET_VALID_THROWS_OVERRIDE: int | None = None
 PRE_ARM_VICON_INACTIVE_DELAY_S = 3.0
 COOLDOWN_AFTER_VALID_THROW_S = 5.0
 RETRY_AFTER_INVALID_START_S = 5.0
@@ -69,6 +69,8 @@ def run_experiment_sequence(
     vicon_attitude_signs: tuple[float, float, float],
     vicon_attitude_offset_rad: tuple[float, float, float],
     pre_arm_delay_s: float = 0.0,
+    protocol_repeat_index: int = 1,
+    protocol_repeat_count: int = 1,
 ) -> dict[str, object]:
     case = get_experiment_case(case_id)
     target = int(target_valid_throws if target_valid_throws is not None else case.target_valid_throws)
@@ -122,6 +124,9 @@ def run_experiment_sequence(
             "case": asdict(case),
             "session_label": session,
             "target_valid_throws": target,
+            "protocol_repeat_index": int(protocol_repeat_index),
+            "protocol_repeat_count": int(protocol_repeat_count),
+            "protocol_repeat_policy": "independent_session_memory_reset_between_repeats",
             "mode": mode,
             "library_tier": DEFAULT_REAL_FLIGHT_LIBRARY_TIER,
             "controller_mode": case.controller_mode,
@@ -149,35 +154,39 @@ def run_experiment_sequence(
     invalid_count = 0
     attempt_index = 0
     posthoc_throw_rows: list[dict[str, object]] = []
-    print(f"[START] case={case.case_id} {case.case_name}")
+    repeat_label = f"{protocol_repeat_index}/{protocol_repeat_count}"
+    print(f"[EXP_START] case={case.case_id} repeat={repeat_label} {case.case_name}")
     print(
-        f"[START] controller_mode={case.controller_mode} memory_enabled={case.memory_enabled} "
-        f"layout={case.layout_id} target_valid_throws={target}"
+        f"[EXP_START] controller_mode={case.controller_mode} memory_enabled={case.memory_enabled} "
+        f"layout={case.layout_id} target_valid_throws={target:03d}"
     )
-    print("[START] between throws: Vicon is inactive during cooldown; neutral is held until the next launch-gate wait.")
+    print("[EXP_WAIT] between throws: Vicon inactive during cooldown; neutral held until next launch-gate wait.")
     try:
         while valid_count < target:
             if max_invalid_attempts is not None and invalid_count >= int(max_invalid_attempts):
-                print(f"[STOP] max invalid attempts reached: {invalid_count}")
+                print(f"[EXP_STOP] case={case.case_id} repeat={repeat_label} max_invalid_attempts={invalid_count}")
                 break
             attempt_index += 1
             next_valid_throw_index = valid_count + 1
             print(
-                f"[ARM] case={case.case_id} valid={valid_count}/{target} "
-                f"next_throw={next_valid_throw_index:03d} invalid_attempts={invalid_count}"
+                f"[EXP_NEXT] case={case.case_id} repeat={repeat_label} "
+                f"next_valid_throw={next_valid_throw_index:03d}/{target:03d} invalid={invalid_count}"
             )
-            print("[ARM] pre-arm delay: Vicon inactive, neutral held; prepare throw now.")
+            print(f"[EXP_WAIT] case={case.case_id} throw={next_valid_throw_index:03d} pre-arm neutral hold.")
             _cooldown(
                 pre_arm_delay_s,
-                label="pre_arm_vicon_inactive_before_launch_gate",
+                label=f"{case.case_id}_r{protocol_repeat_index:02d}_t{next_valid_throw_index:03d}_pre_arm",
                 mode=mode,
                 serial_port=serial_port,
                 controller=controller,
                 serial_period_s=base_config.serial_period_s,
                 serial_baud=base_config.serial_baud,
             )
-            print("[ARM] Vicon launch-gate tracking active now; throw through the start gate.")
-            print("[ARM] NoFrame/missing-subject states are ignored safely until the gate passes.")
+            print(
+                f"[EXP_LAUNCH_READY] case={case.case_id} repeat={repeat_label} "
+                f"throw={next_valid_throw_index:03d}/{target:03d}; throw through the launch plane."
+            )
+            print(f"[EXP_VICON] case={case.case_id} NoFrame/missing-subject states ignored until gate passes.")
             output_root = session_root
             if invalid_count >= 0:
                 pass
@@ -185,7 +194,7 @@ def run_experiment_sequence(
             run_root = _available_run_root(preferred_run_root)
             if run_root != preferred_run_root:
                 print(
-                    f"[WARN] preferred run folder is still present; "
+                    f"[EXP_WARN] preferred run folder is still present; "
                     f"recording this attempt in {run_root.name}"
                 )
             run_label = run_root.name
@@ -227,7 +236,7 @@ def run_experiment_sequence(
                 valid_count += 1
                 session_logger.append_metric_row("experiment_sequence_summary.csv", _session_row(case, summary, valid_count, invalid_count))
                 print(
-                    f"[DONE] case={case.case_id} throw={valid_count:03d}/{target} "
+                    f"[EXP_DONE] case={case.case_id} repeat={repeat_label} valid={valid_count:03d}/{target:03d} "
                     f"speed={float(summary.get('launch_speed_m_s', 0.0)):.2f}m/s "
                     f"term={summary.get('termination_reason', '') or 'duration'} "
                     f"decisions={summary.get('controller_decision_count', 0)} "
@@ -235,37 +244,37 @@ def run_experiment_sequence(
                     f"memory_cells={summary.get('memory_cell_count', 0)}"
                 )
                 if valid_count < target:
-                    print("[RECOVERY] completed throw; Vicon is now inactive during cooldown, neutral command is held.")
+                    print(f"[EXP_WAIT] case={case.case_id} completed throw; Vicon inactive, neutral held.")
                     _cooldown(
                         cooldown_s,
-                        label="cooldown_before_rearm",
+                        label=f"{case.case_id}_r{protocol_repeat_index:02d}_t{valid_count:03d}_cooldown",
                         mode=mode,
                         serial_port=serial_port,
                         controller=controller,
                         serial_period_s=base_config.serial_period_s,
                         serial_baud=base_config.serial_baud,
                     )
-                    print("[REARM] cooldown complete; next throw will use the same lazy Vicon launch-gate wait.")
+                    print(f"[EXP_REARM] case={case.case_id} cooldown complete; next launch-gate wait ready.")
             else:
                 invalid_count += 1
                 invalid_root = session_root / "invalid_attempts"
                 _move_invalid_attempt(run_root, invalid_root / f"attempt_{invalid_count:03d}")
                 session_logger.append_metric_row("experiment_sequence_summary.csv", _session_row(case, summary, valid_count, invalid_count))
                 print(
-                    f"[INVALID] case={case.case_id} attempt={invalid_count:03d} "
-                    f"reason={summary.get('cancellation_reason', '')} valid={valid_count}/{target}"
+                    f"[EXP_INVALID] case={case.case_id} repeat={repeat_label} invalid={invalid_count:03d} "
+                    f"reason={summary.get('cancellation_reason', '')} valid={valid_count:03d}/{target:03d}"
                 )
-                print("[RETRY] invalid start ignored; Vicon remains inactive during retry cooldown.")
+                print(f"[EXP_WAIT] case={case.case_id} invalid start ignored; retry neutral hold.")
                 _cooldown(
                     retry_cooldown_s,
-                    label="retry_after_invalid_start",
+                    label=f"{case.case_id}_r{protocol_repeat_index:02d}_i{invalid_count:03d}_retry",
                     mode=mode,
                     serial_port=serial_port,
                     controller=controller,
                     serial_period_s=base_config.serial_period_s,
                     serial_baud=base_config.serial_baud,
                 )
-                print("[REARM] retry cooldown complete; waiting again for a valid launch gate.")
+                print(f"[EXP_REARM] case={case.case_id} retry complete; waiting again for valid launch gate.")
     finally:
         session_logger.append_metric_row(
             "posthoc_session.csv",
@@ -277,6 +286,9 @@ def run_experiment_sequence(
                 "case": asdict(case),
                 "session_label": session,
                 "target_valid_throws": target,
+                "protocol_repeat_index": int(protocol_repeat_index),
+                "protocol_repeat_count": int(protocol_repeat_count),
+                "protocol_repeat_policy": "independent_session_memory_reset_between_repeats",
                 "valid_throw_count": valid_count,
                 "invalid_attempt_count": invalid_count,
                 "posthoc_score_audit": _posthoc_session_row(
@@ -303,13 +315,93 @@ def run_experiment_sequence(
             },
         )
         session_logger.close()
-    print(f"[COMPLETE] case={case.case_id} valid={valid_count}/{target} invalid_attempts={invalid_count}")
+    print(
+        f"[EXP_COMPLETE] case={case.case_id} repeat={repeat_label} "
+        f"valid={valid_count:03d}/{target:03d} invalid={invalid_count}"
+    )
     return {
         "case_id": case.case_id,
         "session_root": session_root.as_posix(),
+        "protocol_repeat_index": int(protocol_repeat_index),
+        "protocol_repeat_count": int(protocol_repeat_count),
         "valid_throw_count": valid_count,
         "invalid_attempt_count": invalid_count,
         "memory": controller.memory_summary(),
+    }
+
+
+def run_experiment_case_repeats(
+    *,
+    case_id: str,
+    session_label: str,
+    mode: str,
+    serial_port: str,
+    vicon_host: str,
+    target_valid_throws: int | None,
+    repeat_sessions: int | None,
+    cooldown_s: float,
+    retry_cooldown_s: float,
+    max_invalid_attempts: int | None,
+    max_duration_s: float,
+    launch_wait_timeout_s: float,
+    post_exit_neutral_tail_s: float,
+    vicon_poll_period_s: float,
+    vicon_position_offset_m: tuple[float, float, float],
+    vicon_yaw_alignment_deg: float,
+    vicon_attitude_signs: tuple[float, float, float],
+    vicon_attitude_offset_rad: tuple[float, float, float],
+    pre_arm_delay_s: float = 0.0,
+) -> dict[str, object]:
+    case = get_experiment_case(case_id)
+    repeats = int(repeat_sessions if repeat_sessions is not None else case.target_session_repeats)
+    if repeats <= 0:
+        raise ValueError("repeat_sessions must be positive.")
+    target = int(target_valid_throws if target_valid_throws is not None else case.target_valid_throws)
+    if target <= 0:
+        raise ValueError("target valid throws must be positive.")
+
+    run_group_label = session_label or datetime.now().strftime("%Y%m%d_%H%M%S")
+    results: list[dict[str, object]] = []
+    for repeat_index in range(1, repeats + 1):
+        repeat_session_label = session_label if repeats == 1 else f"{run_group_label}_r{repeat_index:02d}"
+        print(
+            f"[EXP_PROTOCOL] case={case.case_id} repeat={repeat_index}/{repeats} "
+            f"target_valid_throws={target:03d} session={repeat_session_label or 'timestamped'}"
+        )
+        results.append(
+            run_experiment_sequence(
+                case_id=case_id,
+                session_label=repeat_session_label,
+                mode=mode,
+                serial_port=serial_port,
+                vicon_host=vicon_host,
+                target_valid_throws=target,
+                cooldown_s=cooldown_s,
+                retry_cooldown_s=retry_cooldown_s,
+                max_invalid_attempts=max_invalid_attempts,
+                max_duration_s=max_duration_s,
+                launch_wait_timeout_s=launch_wait_timeout_s,
+                post_exit_neutral_tail_s=post_exit_neutral_tail_s,
+                vicon_poll_period_s=vicon_poll_period_s,
+                vicon_position_offset_m=vicon_position_offset_m,
+                vicon_yaw_alignment_deg=vicon_yaw_alignment_deg,
+                vicon_attitude_signs=vicon_attitude_signs,
+                vicon_attitude_offset_rad=vicon_attitude_offset_rad,
+                pre_arm_delay_s=pre_arm_delay_s,
+                protocol_repeat_index=repeat_index,
+                protocol_repeat_count=repeats,
+            )
+        )
+
+    return {
+        "case_id": case.case_id,
+        "session_repeat_count": repeats,
+        "target_valid_throws_per_session": target,
+        "target_protocol_valid_throws": target * repeats,
+        "valid_throw_count": int(sum(int(result.get("valid_throw_count", 0)) for result in results)),
+        "invalid_attempt_count": int(sum(int(result.get("invalid_attempt_count", 0)) for result in results)),
+        "memory_repeat_policy": "new_controller_and_empty_memory_for_each_repeat_session",
+        "session_results": results,
     }
 
 
@@ -423,7 +515,7 @@ def _move_invalid_attempt(source: Path, target: Path) -> bool:
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        print(f"[WARN] invalid archive target already exists; leaving source in place: {target}")
+        print(f"[EXP_WARN] invalid archive target already exists; leaving source in place: {target}")
         return False
     attempts = 5
     last_error: OSError | None = None
@@ -437,7 +529,7 @@ def _move_invalid_attempt(source: Path, target: Path) -> bool:
                 time.sleep(0.25)
     if last_error is not None:
         print(
-            f"[WARN] invalid attempt archive failed after {attempts} tries; "
+            f"[EXP_WARN] invalid attempt archive failed after {attempts} tries; "
             f"leaving source in place: {source} -> {target} "
             f"({type(last_error).__name__}: {last_error})"
         )
@@ -464,14 +556,14 @@ def _cooldown(
     try:
         tx.open()
         tx.write_line("SET_NEUTRAL")
-        print(f"[WAIT] {label}: Vicon inactive; streaming neutral only.")
+        print(f"[EXP_WAIT] {label}: Vicon inactive; streaming neutral only.")
         while True:
             elapsed_s = time.perf_counter() - started
             if elapsed_s >= duration:
                 break
             remaining_s = max(0.0, duration - elapsed_s)
             if elapsed_s + 1e-12 >= next_status_s:
-                print(f"[WAIT] {label}: {remaining_s:.0f}s, Vicon inactive, holding neutral")
+                print(f"[EXP_WAIT] {label}: {remaining_s:.0f}s, Vicon inactive, holding neutral")
                 next_status_s = elapsed_s + 1.0
             tx.write_packet(controller.neutral_packet())
             packet_count += 1
@@ -483,11 +575,11 @@ def _cooldown(
                     time.sleep(min(0.02, sleep_s))
                 break
     except Exception as exc:
-        print(f"[WAIT] {label}: neutral hold failed ({type(exc).__name__}: {exc}); sleeping without command stream.")
+        print(f"[EXP_WAIT] {label}: neutral hold failed ({type(exc).__name__}: {exc}); sleeping without command stream.")
         while time.perf_counter() - started < duration:
             remaining_s = max(0.0, duration - (time.perf_counter() - started))
             if (time.perf_counter() - started) + 1e-12 >= next_status_s:
-                print(f"[WAIT] {label}: {remaining_s:.0f}s")
+                print(f"[EXP_WAIT] {label}: {remaining_s:.0f}s")
                 next_status_s = (time.perf_counter() - started) + 1.0
             time.sleep(1.0 if mode == "armed" else min(0.02, remaining_s))
             if mode != "armed":
@@ -498,7 +590,7 @@ def _cooldown(
         except Exception:
             pass
         tx.close()
-    print(f"[WAIT] {label}: complete, neutral_packets={packet_count}")
+    print(f"[EXP_WAIT] {label}: complete, neutral_packets={packet_count}")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -509,6 +601,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--serial-port", default=SERIAL_PORT)
     parser.add_argument("--vicon-host", default=VICON_HOST)
     parser.add_argument("--target-valid-throws", type=int, default=TARGET_VALID_THROWS_OVERRIDE)
+    parser.add_argument(
+        "--repeat-sessions",
+        type=int,
+        default=None,
+        help="Independent session repeats; default comes from the experiment case registry.",
+    )
     parser.add_argument("--pre-arm-delay-s", type=float, default=PRE_ARM_VICON_INACTIVE_DELAY_S)
     parser.add_argument("--cooldown-s", type=float, default=COOLDOWN_AFTER_VALID_THROW_S)
     parser.add_argument("--retry-cooldown-s", type=float, default=RETRY_AFTER_INVALID_START_S)
@@ -531,13 +629,14 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    result = run_experiment_sequence(
+    result = run_experiment_case_repeats(
         case_id=args.case_id,
         session_label=args.session_label,
         mode=args.mode,
         serial_port=args.serial_port,
         vicon_host=args.vicon_host,
         target_valid_throws=args.target_valid_throws,
+        repeat_sessions=args.repeat_sessions,
         pre_arm_delay_s=args.pre_arm_delay_s,
         cooldown_s=args.cooldown_s,
         retry_cooldown_s=args.retry_cooldown_s,

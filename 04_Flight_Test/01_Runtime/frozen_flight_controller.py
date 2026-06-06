@@ -300,6 +300,11 @@ class FrozenFlightController:
             memory_enabled=bool(self.memory_state.enabled),
             memory_launch_index=int(self.memory_state.launch_index),
         )
+        candidate_belief_features = (
+            self.memory_state.candidate_feature_evaluator(current_state=state)
+            if self.memory_state.enabled
+            else None
+        )
         selected, candidate_rows = select_compact_representative(
             representatives=self.representatives,
             outcome_rows_by_variant_id=self.outcomes,
@@ -307,15 +312,7 @@ class FrozenFlightController:
             governor_mode=governor_mode,
             policy_id="real_flight_case_local_memory" if self.memory_state.enabled else "real_flight_no_cross_case_memory",
             belief_features=None,
-            candidate_belief_features=(
-                lambda representative, outcome: self.memory_state.candidate_features(
-                    representative,
-                    outcome,
-                    current_state=state,
-                )
-            )
-            if self.memory_state.enabled
-            else None,
+            candidate_belief_features=candidate_belief_features,
             adaptive_memory_active=bool(self.memory_state.enabled),
             governor_config=self.governor_config,
             candidate_row_mode="controller",

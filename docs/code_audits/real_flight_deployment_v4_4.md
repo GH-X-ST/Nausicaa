@@ -35,6 +35,12 @@ alignment record, not a new R10/R11 evidence claim.
   `execution_timing_audit.csv`, a manifest, and a Markdown report. Figures now
   include a bottom-left launch-condition block with launch state, speed,
   attitude, body velocity/rates, and handoff duration.
+- The real-flight memory case registry now encodes repeated independent
+  sessions instead of one long monolithic memory run for the fan evidence cases:
+  `E2.2` and `E3.2` are `3 x 30` valid throws, while `E4*.2` and `E5*.2` are
+  `2 x 30` valid throws. `run_experiment_sequence.py` exposes
+  `--repeat-sessions`; each repeat creates a separate session folder and starts
+  a new controller instance with empty memory.
 
 ## Evidence Boundary
 
@@ -42,7 +48,9 @@ The replay figures are diagnostic sim2real evidence for E0.1 dry-air shakedown
 throws. They can show timing health, first-window state alignment, model
 residuals, and whether mismatch remains when replaying logged real decisions.
 They do not refit the aerodynamic model, change R10/R11 gates, or by themselves
-claim mission success, memory improvement, or full hardware autonomy.
+claim mission success, memory improvement, or full hardware autonomy. The
+`30`-throw repeated-session memory protocol improves repeatability evidence but
+must still be analysed as separate memory episodes before pooling.
 
 ## Checks
 

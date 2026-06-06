@@ -106,9 +106,19 @@ baselines. Real-flight throws write `posthoc_throw.csv`, session runs write
 selected score component fields; open-loop neutral still has zero controller
 decisions but an explicit posthoc row. These tables are report-only, use short
 GitHub-safe filenames, and stay outside the real-time controller compute
-boundary.
+boundary. Completed dry-air real-flight workflow records now include E1.0
+`20260606_223045`, the open-loop neutral baseline with 10 valid throws and 0
+invalid attempts, and E1.1 `20260606_230007`, the closed-loop no-memory
+baseline with 30 valid throws and 16 launch-gate rejected/timeout starts. E1.0
+had zero controller decisions, speed range 5.499--6.359 m/s, 7 front-wall
+exits, and 3 floor exits. E1.1 had active controller decisions on 30/30 valid
+throws, 10--12 controller decisions per valid throw, max decision time
+0.00432 s, speed range 5.295--6.841 m/s, 28 front-wall exits, and 2 floor
+exits. These are workflow and posthoc audit records, not mission-success or
+memory-improvement claims.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
-construction, memory query, and compact-library selection are measured against
+construction, the cheap `geometry_only` candidate-path pre-pass, shortlisted
+spatial-belief queries, and compact-library selection are measured against
 a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary
 budget. Launch-gate step 0 is the physical-duration exception: simulation and
 real flight share `launch_gate_neutral_handoff_0p040s_v1`, so both hold
@@ -125,13 +135,21 @@ next primitive before commit, the latest Vicon state emits the first command
 packet at commit, and late preparation is logged instead of becoming a new
 flight blocker. This is an offline wall-clock audit, not a hardware real-time
 claim. The current compact controller-row selector timing boundary matches the
-active code path: full spatial-belief query plus compact controller-row library
-selection is in the timed controller path, while full candidate-row expansion,
-table flushing, and post-hoc diagnostics are outside it. Latest targeted C16
-sanity check: 40 final launches, 430 history launches, 0 hard failures, 0
-no-viable events, 13/13 accepted memory switches, and required heavy/balanced
-in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is
-targeted diagnostic evidence only, not full R10/R11 validation.
+active code path: context construction, the cheap `geometry_only`
+candidate-path pre-pass, shortlisted spatial-belief queries, and compact
+controller-row library selection are in the timed controller path, while full
+candidate-row expansion, table flushing, and post-hoc diagnostics are outside
+it. If step-0 memory selection misses the fixed 0.040 s launch handoff, the
+runtime logs `first_launch_decision_missed_handoff_budget`, keeps the
+launch-gate approval in the record, and marks the attempt non-valid for
+controlled evidence. Latest targeted C16 sanity check: 40 final launches, 430
+history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory
+switches, and required heavy/balanced in-flight decisions at 144/144 under
+0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full
+R10/R11 validation. The post-v4.4 real-flight memory timing probe used 159
+synthetic memory cells and 30 launch decisions, with max first-decision time
+0.0239 s and zero calls above 0.040 s; this is an engineering timing check, not
+a new R10/R11 or memory-improvement claim.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

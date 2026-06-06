@@ -1,0 +1,265 @@
+{
+  "calibration_profile": {
+    "active_profile_manifest": {
+      "body_rate_limit_rad_s": 6.0,
+      "body_rate_observer_window_frames": 7,
+      "derivative_cutoff_hz": 8.0,
+      "launch_gate_body_rate_limits_rad_s": [
+        1.2,
+        1.2,
+        1.8
+      ],
+      "launch_gate_rate_confidence_min": 0.65,
+      "launch_gate_required_consecutive_frames": 2,
+      "profile_hash": "2b54012a976f41aed257a3688085981d89872aab5e1ce86667510811db8e7610",
+      "profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+      "profile_version": "position:1.0;attitude:1.0",
+      "rejected_launch_attempt_min_speed_m_s": 2.0,
+      "requested_vicon_tracking_rate_hz": 200.0,
+      "vicon_attitude_offset_rad": [
+        0.0007439979282497511,
+        7.203523529364375e-05,
+        0.0006251279824196487
+      ],
+      "vicon_attitude_signs": [
+        1.0,
+        -1.0,
+        -1.0
+      ],
+      "vicon_position_offset_m": [
+        3.855562304586611,
+        2.4518762988877687,
+        0.03760914985856823
+      ],
+      "vicon_yaw_alignment_deg": 0.0
+    },
+    "profile_hash": "c4fca6c930dd4a9c9836c53fd3bb796ac14973d08c32796a1ecf0d155edd2d2f",
+    "profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "vicon_calibration_source": "manual_runtime_vicon_transform"
+  },
+  "closed_loop_command_execution_policy": "hybrid_scheduler_prepares_next_0p10s_primitive_before_boundary_from_predicted_boundary_state;time_critical_governor_commit_and_50hz_packet_send_precede_active_metric_flush;first_packet_and_50hz_lqr_slot_commands_are_recomputed_from_latest_vicon_state",
+  "config": {
+    "actuator_tau_s": [
+      0.05049432643111373,
+      0.05049432643111373,
+      0.05049432643111373
+    ],
+    "attempt_index": 16,
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "calibration_profile_hash": "c4fca6c930dd4a9c9836c53fd3bb796ac14973d08c32796a1ecf0d155edd2d2f",
+    "calibration_profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "controller_bundle_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R5_dense/E03/manifests/frozen_w01_controller_bundle.json",
+    "controller_mode": "closed_loop",
+    "deployment_evidence_manifest_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/deployment_evidence_manifest.json",
+    "deployment_evidence_required_for_armed_closed_loop": true,
+    "derivative_cutoff_hz": 8.0,
+    "experiment_case_id": "E1.1",
+    "experiment_case_name": "Dry air, no memory",
+    "experiment_layout_id": "E1_dry_air",
+    "experiment_memory_enabled": false,
+    "governor_config_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R10_learn/E03/manifests/frozen_governor_config_for_r11.json",
+    "governor_period_s": 0.1,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "launch_handoff_duration_s": 0.04,
+    "launch_handoff_policy_version": "launch_gate_neutral_handoff_0p040s_v1",
+    "launch_wait_timeout_s": 120.0,
+    "library_manifest_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests",
+    "library_tier": "balanced_cluster",
+    "max_duration_s": 20.0,
+    "outcome_table_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/R8_outcome/E03/metrics/outcome_model_table.csv",
+    "output_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/E1.1/20260606_230007",
+    "post_exit_neutral_tail_s": 0.3,
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "retry_cooldown_s": 5.0,
+    "run_label": "throw_010",
+    "serial_baud": 1000000,
+    "serial_period_s": 0.02,
+    "serial_port": "COM11",
+    "stale_vicon_timeout_s": 0.12,
+    "surface_command_delay_s": 0.073,
+    "surface_state_estimator_latency_case": "nominal",
+    "surface_state_estimator_timing_model_version": "measured_vicon_one_pole_command_response_v2_8hz_state_filter",
+    "throw_index": 10,
+    "vicon_attitude_offset_rad": [
+      0.0007439979282497512,
+      7.203523529364376e-05,
+      0.0006251279824196487
+    ],
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_calibration_source": "manual_runtime_vicon_transform",
+    "vicon_frame_description": "full_xyz_position_and_roll_pitch_yaw_attitude_offset_correction",
+    "vicon_host": "192.168.0.100:801",
+    "vicon_poll_period_s": 0.005,
+    "vicon_position_offset_m": [
+      3.855562304586611,
+      2.4518762988877687,
+      0.03760914985856823
+    ],
+    "vicon_subject_name": "Nausicaa",
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "control_boundary": "vicon_rigid_body_to_canonical_state_to_frozen_governor_to_quantised_packet",
+  "controller_mode": "closed_loop",
+  "deployment_evidence_guard": {
+    "manifest_path": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/03_Frozen_Inputs/deployment_evidence_manifest.json",
+    "required_for_armed_closed_loop": true,
+    "status": "passed"
+  },
+  "deployment_library_tier_policy": {
+    "default_real_flight_library_tier": "balanced_cluster",
+    "heavy_cluster_role": "compact_fallback_if_runtime_or_library_size_needs_priority",
+    "selection_reason": "balanced_cluster_selected_for_first_real_flight_from_e03_real_flight_aligned_validation;deployment_tier_prioritises_transition_diversity_and_defensible_high_energy_validation_after_e03_r10_r11_updates;heavy_cluster_is_compact_runtime_fallback"
+  },
+  "exit_gate_bounds": {
+    "policy": "terminate_active_flight_at_first_true_safe_box_exit_then_send_neutral",
+    "x_w_m": [
+      1.2,
+      6.6
+    ],
+    "y_w_m": [
+      0.0,
+      4.4
+    ],
+    "z_w_m": [
+      0.4,
+      3.5
+    ]
+  },
+  "expected_visible_fan_range": [
+    0,
+    0
+  ],
+  "experiment_case": {
+    "attempt_index": 16,
+    "case_id": "E1.1",
+    "case_name": "Dry air, no memory",
+    "controller_mode": "closed_loop",
+    "layout_id": "E1_dry_air",
+    "memory_enabled": false,
+    "throw_index": 10
+  },
+  "latency_quantification_enabled": false,
+  "launch_gate_bounds": {
+    "diagnostic_x_window_m": [
+      1.2,
+      1.4
+    ],
+    "launch_trigger_x_w_m": 1.2999999999999998,
+    "p_rad_s": [
+      -1.2,
+      1.2
+    ],
+    "pitch_deg": [
+      -10.0,
+      20.0
+    ],
+    "q_rad_s": [
+      -1.2,
+      1.2
+    ],
+    "r_rad_s": [
+      -1.8,
+      1.8
+    ],
+    "real_flight_trigger_policy": "first_valid_r5_launch_window_with_interpolated_launch_plane_fallback",
+    "roll_deg": [
+      -20.0,
+      20.0
+    ],
+    "source": "03_Control/04_Scenarios/state_sampling.py::state_is_launch_gate_compliant",
+    "speed_m_s": "diagnostic_only_total_body_speed",
+    "u_m_s": [
+      4.0,
+      8.0
+    ],
+    "v_m_s": [
+      -1.5,
+      1.5
+    ],
+    "w_m_s": [
+      -0.9,
+      0.9
+    ],
+    "x_w_m": [
+      1.2,
+      1.4
+    ],
+    "y_w_m": [
+      1.8,
+      2.2
+    ],
+    "yaw_deg": [
+      -20.0,
+      20.0
+    ],
+    "z_w_m": [
+      1.3,
+      1.8
+    ]
+  },
+  "launch_gate_required_consecutive_frames": 2,
+  "launch_handoff_policy": {
+    "active_primitive_finite_horizon_s": 0.1,
+    "description": "after launch gate approval, hold neutral for the fixed handoff duration, prepare the first primitive from the approved state, then emit the first active command from the latest post-handoff Vicon state",
+    "duration_s": 0.04,
+    "neutral_slots": 2,
+    "policy_version": "launch_gate_neutral_handoff_0p040s_v1"
+  },
+  "launch_trigger_policy": "wait_for_r5_launch_gate_before_active_record",
+  "launch_wait_timeout_s": 120.0,
+  "mode": "armed",
+  "open_loop_neutral_definition": "not_active",
+  "post_exit_neutral_tail_s": 0.3,
+  "rejected_launch_attempt_min_speed_m_s": 2.0,
+  "runtime_rates": {
+    "active_fan_logging_policy": "prelaunch_handoff_and_post_exit_snapshot_only",
+    "active_metric_logging_policy": "buffer_active_rows_flush_after_active_record",
+    "active_runtime_wake_ahead_s": 0.002,
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "closed_loop_slot_command_hz": 50.0,
+    "derivative_cutoff_hz": 8.0,
+    "governor_decision_hz": 10.0,
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_handoff_duration_s": 0.04,
+    "rate_policy": "Vicon is polled at the tracking rate; serial packets are still repeated at the firmware-safe command period; governor selection remains 10 Hz; prelaunch SO3 angular-rate observer remains warm through launch approval.",
+    "serial_command_repeat_hz": 50.0,
+    "vicon_poll_hz": 200.0
+  },
+  "servo_command_limit_norm": [
+    -1.0,
+    1.0
+  ],
+  "surface_marker_tracking_enabled": false,
+  "vicon_arena_frame_transform": {
+    "attitude_offset_rad_phi_theta_psi": [
+      0.0007439979282497512,
+      7.203523529364376e-05,
+      0.0006251279824196487
+    ],
+    "attitude_sign_reason": "recovered_vicon_orientation_check_20260601_205149_pitch_and_yaw_reversed",
+    "attitude_signs_phi_theta_psi": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "description": "full_xyz_position_and_roll_pitch_yaw_attitude_offset_correction",
+    "position_offset_m": [
+      3.855562304586611,
+      2.4518762988877687,
+      0.03760914985856823
+    ],
+    "yaw_alignment_deg": 0.0
+  }
+}

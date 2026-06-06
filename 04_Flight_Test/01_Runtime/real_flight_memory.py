@@ -4,6 +4,7 @@ import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -62,19 +63,69 @@ class RealFlightMemoryState:
         *,
         current_state: np.ndarray,
     ) -> dict[str, object] | None:
+        evaluator = self.candidate_feature_evaluator(current_state=current_state)
+        return evaluator(representative, outcome)
+
+    def candidate_feature_evaluator(
+        self,
+        *,
+        current_state: np.ndarray,
+    ) -> Callable[[dict[str, object], dict[str, object]], dict[str, object] | None]:
+        """Build one memory-query context for all candidates in one governor decision."""
+
+        state = np.asarray(current_state, dtype=float).reshape(15)
         if not self.enabled or not self.belief.cells:
-            return _empty_candidate_features(current_state, representative)
-        path = _candidate_path_points(current_state, representative, outcome)
-        cell_lookup = directional_residual_lift_cell_lookup(self.belief)
-        spatial_lookup = directional_residual_lift_spatial_cell_lookup(self.belief)
+            return lambda representative, outcome: _empty_candidate_features(state, representative)
+
+        belief = self.belief
+        launch_index = int(self.launch_index)
+        cell_lookup = directional_residual_lift_cell_lookup(belief)
+        spatial_lookup = directional_residual_lift_spatial_cell_lookup(belief)
         query_cache: dict[tuple[float, float, float, float], dict[str, object]] = {}
+
+        def _features(
+            representative: dict[str, object],
+            outcome: dict[str, object],
+        ) -> dict[str, object] | None:
+            return self._candidate_features_with_query_context(
+                representative,
+                outcome,
+                current_state=state,
+                belief=belief,
+                launch_index=launch_index,
+                cell_lookup=cell_lookup,
+                spatial_lookup=spatial_lookup,
+                query_cache=query_cache,
+            )
+
+        return _features
+
+    def _candidate_features_with_query_context(
+        self,
+        representative: dict[str, object],
+        outcome: dict[str, object],
+        *,
+        current_state: np.ndarray,
+        belief: DirectionalResidualLiftBelief,
+        launch_index: int,
+        cell_lookup: dict[tuple[int, int, int, int], object],
+        spatial_lookup: dict[tuple[int, int, int], tuple[object, ...]],
+        query_cache: dict[tuple[float, float, float, float], dict[str, object]],
+    ) -> dict[str, object] | None:
+        path = _candidate_path_points(current_state, representative, outcome)
+        if str(representative.get("__memory_query_mode", "full")) == "geometry_only":
+            return _candidate_geometry_only_features(
+                current_state,
+                path,
+                belief_version=belief.belief_version,
+            )
 
         utilities: list[float] = []
         confidences: list[float] = []
         uncertainties: list[float] = []
         for point in path:
             features = _query_cached(
-                self.belief,
+                belief,
                 query_cache,
                 cell_lookup=cell_lookup,
                 spatial_lookup=spatial_lookup,
@@ -82,7 +133,7 @@ class RealFlightMemoryState:
                 y_w_m=point[1],
                 z_w_m=point[2],
                 direction_rad=point[3],
-                launch_index=self.launch_index,
+                launch_index=launch_index,
             )
             utility = _memory_utility(features)
             confidence = _confidence(features)
@@ -92,7 +143,7 @@ class RealFlightMemoryState:
 
         exit_x, exit_y, exit_z, exit_direction = path[-1]
         reachable = _reachable_flow_value(
-            self.belief,
+            belief,
             cell_lookup=cell_lookup,
             spatial_lookup=spatial_lookup,
             query_cache=query_cache,
@@ -100,7 +151,7 @@ class RealFlightMemoryState:
             exit_y=exit_y,
             exit_z=exit_z,
             exit_direction=exit_direction,
-            launch_index=self.launch_index,
+            launch_index=launch_index,
         )
         margins = position_margin_m(np.asarray([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
         path_utility = float(np.mean(utilities)) if utilities else 0.0
@@ -111,7 +162,7 @@ class RealFlightMemoryState:
         route_confidence = max(path_confidence, float(reachable["confidence"]))
         information_gain = max(path_uncertainty, float(reachable["mean_uncertainty"]))
         return {
-            "belief_version": self.belief.belief_version,
+            "belief_version": belief.belief_version,
             "belief_candidate_path_residual_memory_active": True,
             "belief_candidate_path_probe_count": len(path),
             "belief_candidate_path_lookahead_s": PRIMITIVE_HORIZON_S,
@@ -210,11 +261,31 @@ class RealFlightMemoryState:
 
 def _empty_candidate_features(current_state: np.ndarray, representative: dict[str, object]) -> dict[str, object]:
     path = _candidate_path_points(current_state, representative, {})
+    return _candidate_geometry_only_features(
+        current_state,
+        path,
+        belief_version="real_flight_memory_inactive",
+    )
+
+
+def _candidate_geometry_only_features(
+    current_state: np.ndarray,
+    path: list[tuple[float, float, float, float]],
+    *,
+    belief_version: str,
+) -> dict[str, object]:
     exit_x, exit_y, exit_z, exit_direction = path[-1]
     margins = position_margin_m(np.asarray([exit_x, exit_y, exit_z], dtype=float), TRUE_SAFE_BOUNDS)
+    front_progress = _front_progress(current_state[STATE_INDEX["x_w"]], exit_x)
     return {
-        "belief_version": "real_flight_memory_inactive",
+        "belief_version": str(belief_version),
+        "belief_candidate_path_residual_memory_active": False,
+        "belief_candidate_path_probe_count": len(path),
+        "belief_candidate_path_lookahead_s": PRIMITIVE_HORIZON_S,
         "belief_candidate_path_confidence": 0.0,
+        "belief_candidate_path_updraft_residual_uncapped_m": 0.0,
+        "belief_candidate_path_specific_energy_residual_uncapped_m": 0.0,
+        "belief_candidate_path_specific_energy_residual_cap_m": 1.0,
         "belief_candidate_path_memory_utility_m": 0.0,
         "belief_candidate_path_memory_utility_without_attraction_m": 0.0,
         "belief_candidate_path_exit_x_w_m": exit_x,
@@ -223,6 +294,41 @@ def _empty_candidate_features(current_state: np.ndarray, representative: dict[st
         "belief_candidate_path_exit_direction_rad": exit_direction,
         "belief_candidate_path_exit_wall_margin_m": float(margins["min_wall_margin_m"]),
         "belief_candidate_path_exit_min_margin_m": float(margins["min_margin_m"]),
+        "belief_flow_map_grid_resolution_m": 0.1,
+        "belief_flow_map_query_radius_m": MEMORY_QUERY_RADIUS_M,
+        "belief_flow_map_reachable_attraction_m": 0.0,
+        "belief_flow_map_reachable_attraction_raw_m": 0.0,
+        "belief_flow_map_reachable_attraction_cap_m": 0.25,
+        "belief_flow_map_reachable_attraction_confidence": 0.0,
+        "belief_flow_map_reachable_attraction_query_count": 0,
+        "belief_flow_map_reachable_attraction_observation_count": 0,
+        "belief_flow_map_reachable_attraction_best_x_w_m": exit_x,
+        "belief_flow_map_reachable_attraction_best_y_w_m": exit_y,
+        "belief_flow_map_reachable_attraction_best_z_w_m": exit_z,
+        "belief_flow_map_reachable_attraction_lookahead_m": REACHABLE_LOOKAHEAD_M,
+        "belief_flow_map_reachable_attraction_azimuth_half_angle_rad": REACHABLE_AZIMUTH_HALF_ANGLE_RAD,
+        "belief_flow_map_reachable_attraction_elevation_half_angle_rad": REACHABLE_ELEVATION_HALF_ANGLE_RAD,
+        "belief_flow_map_reachable_attraction_geometry": "forward_3d_cone",
+        "belief_flow_map_candidate_path_uncertainty": 1.0,
+        "belief_flow_map_memory_guided_exploration_uncertainty": 1.0,
+        "belief_flow_map_information_gain": 1.0,
+        "belief_flow_map_information_gain_path_uncertainty": 1.0,
+        "belief_flow_map_information_gain_reachable_uncertainty": 1.0,
+        "belief_flow_map_information_gain_query_count": 0,
+        "belief_flow_map_information_gain_low_confidence_query_count": 0,
+        "belief_flow_map_policy": "real_flight_case_local_specific_energy_map",
+        "belief_flow_map_route_policy": "first_primitive_plus_reachable_cone",
+        "belief_flow_map_route_horizon_primitives": 1,
+        "belief_flow_map_route_probe_count": len(path),
+        "belief_flow_map_route_exploitation_m": 0.0,
+        "belief_flow_map_route_information_gain": 1.0,
+        "belief_flow_map_route_confidence": 0.0,
+        "belief_flow_map_route_uncertainty": 1.0,
+        "belief_flow_map_route_front_progress": float(front_progress),
+        "belief_flow_map_route_safe_fraction": 1.0 if float(margins["min_margin_m"]) >= 0.0 else 0.0,
+        "belief_flow_map_route_best_x_w_m": exit_x,
+        "belief_flow_map_route_best_y_w_m": exit_y,
+        "belief_flow_map_route_best_z_w_m": exit_z,
     }
 
 

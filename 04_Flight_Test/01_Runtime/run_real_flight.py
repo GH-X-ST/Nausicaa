@@ -415,6 +415,7 @@ def run_real_flight(
             )
             if not bool(summary["first_launch_decision_ready_before_handoff"]):
                 reason = "first_launch_decision_missed_handoff_budget"
+                summary["valid_throw"] = False
                 summary["flight_cancelled"] = True
                 summary["cancellation_reason"] = reason
                 _append_runtime_event(
@@ -544,6 +545,7 @@ def run_real_flight(
             latest_decision = controller.commit_prepared_launch_handoff_decision(latest_state)
             if not latest_decision.selected:
                 reason = "first_launch_decision_missed_handoff_budget"
+                summary["valid_throw"] = False
                 summary["flight_cancelled"] = True
                 summary["cancellation_reason"] = reason
                 _append_runtime_event(

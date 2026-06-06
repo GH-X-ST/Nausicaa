@@ -55,7 +55,7 @@ from real_flight_io import (  # noqa: E402
     encode_arduino_command_packet,
 )
 from run_real_flight import _predict_boundary_state, _validate_closed_loop_deployment_evidence, run_real_flight  # noqa: E402
-from run_experiment_sequence import run_experiment_sequence  # noqa: E402
+from run_experiment_sequence import run_experiment_case_repeats, run_experiment_sequence  # noqa: E402
 from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_DURATION_BY_ABS_COMMAND,
     PULSE_START_DELAY_S,
@@ -873,6 +873,94 @@ def test_closed_loop_dry_run_holds_neutral_during_launch_handoff(tmp_path: Path)
     assert int(posthoc[0]["executed_selected_decision_count"]) >= 1
 
 
+def test_missed_first_launch_decision_is_not_counted_valid_throw(tmp_path: Path, monkeypatch) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_missed_handoff",
+        output_root=tmp_path,
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+    )
+    controller = FrozenFlightController(config)
+
+    def slow_launch_decision(*_args, **_kwargs) -> dict[str, object]:
+        return {
+            "ready": True,
+            "reason": "selected",
+            "decision_time_s": LAUNCH_HANDOFF_DURATION_S + 0.010,
+            "candidate_count": 1,
+            "viable_count": 1,
+            "primitive_variant_id": "pytest_slow_handoff",
+            "primitive_id": "pytest",
+            "controller_id": "pytest",
+            "expected_energy_residual_m": 0.0,
+        }
+
+    monkeypatch.setattr(controller, "prepare_launch_handoff_decision", slow_launch_decision)
+
+    summary = run_real_flight(config, mode="dry-run", controller=controller)
+
+    assert summary["launch_gate_approved"] is True
+    assert summary["valid_throw"] is False
+    assert summary["flight_cancelled"] is True
+    assert summary["cancellation_reason"] == "first_launch_decision_missed_handoff_budget"
+    assert summary["controller_decision_count"] == 0
+    assert summary["slot_command_update_count"] == 0
+
+
+def test_memory_candidate_feature_evaluator_reuses_decision_lookup_context(monkeypatch) -> None:
+    import real_flight_memory as memory_module
+
+    memory = memory_module.RealFlightMemoryState(enabled=True)
+    memory.update_from_decision_records(
+        [
+            {"state": _state(x_w=1.4, y_w=2.1, z_w=1.5), "t_s": 0.0, "expected_energy_residual_m": 0.0},
+            {"state": _state(x_w=2.0, y_w=2.1, z_w=1.55), "t_s": 0.1, "expected_energy_residual_m": 0.0},
+            {"state": _state(x_w=2.6, y_w=2.15, z_w=1.6), "t_s": 0.2, "expected_energy_residual_m": 0.0},
+        ]
+    )
+    assert memory.cell_count() > 0
+
+    original_cell_lookup = memory_module.directional_residual_lift_cell_lookup
+    original_spatial_lookup = memory_module.directional_residual_lift_spatial_cell_lookup
+    original_query = memory_module.query_spatial_flow_belief_features_fast
+    lookup_counts = {"cell": 0, "spatial": 0, "query": 0}
+
+    def counted_cell_lookup(*args, **kwargs):
+        lookup_counts["cell"] += 1
+        return original_cell_lookup(*args, **kwargs)
+
+    def counted_spatial_lookup(*args, **kwargs):
+        lookup_counts["spatial"] += 1
+        return original_spatial_lookup(*args, **kwargs)
+
+    def counted_query(*args, **kwargs):
+        lookup_counts["query"] += 1
+        return original_query(*args, **kwargs)
+
+    monkeypatch.setattr(memory_module, "directional_residual_lift_cell_lookup", counted_cell_lookup)
+    monkeypatch.setattr(memory_module, "directional_residual_lift_spatial_cell_lookup", counted_spatial_lookup)
+    monkeypatch.setattr(memory_module, "query_spatial_flow_belief_features_fast", counted_query)
+
+    evaluator = memory.candidate_feature_evaluator(current_state=_state(x_w=1.35, y_w=2.1, z_w=1.5))
+    representatives = [
+        {"primitive_id": "recovery", "local_lqr_reference_speed_m_s": 5.8, "__memory_query_mode": "geometry_only"},
+        {"primitive_id": "energy_retaining_bank", "local_lqr_reference_speed_m_s": 5.9, "__memory_query_mode": "geometry_only"},
+        {"primitive_id": "mild_turn_left", "local_lqr_reference_speed_m_s": 6.0, "__memory_query_mode": "geometry_only"},
+    ]
+    for representative in representatives:
+        features = evaluator(representative, {})
+        assert features is not None
+        assert features["belief_candidate_path_residual_memory_active"] is False
+    assert lookup_counts == {"cell": 1, "spatial": 1, "query": 0}
+
+    features = evaluator({"primitive_id": "recovery", "local_lqr_reference_speed_m_s": 5.8}, {})
+    assert features is not None
+    assert features["belief_candidate_path_residual_memory_active"] is True
+    assert lookup_counts["cell"] == 1
+    assert lookup_counts["spatial"] == 1
+    assert lookup_counts["query"] > 0
+
+
 def test_closed_loop_dry_run_buffers_active_metrics_off_timing_path(tmp_path: Path) -> None:
     config = FlightRuntimeConfig(
         run_label="T_buffered_active_metrics",
@@ -1210,6 +1298,14 @@ def test_experiment_case_registry_contains_requested_cases() -> None:
     assert get_experiment_case("E2.2").memory_enabled is True
     assert get_experiment_case("E1.1").memory_enabled is False
     assert get_experiment_case("E3.0").controller_mode == "open_loop_neutral"
+    for case_id in ("E2.2", "E3.2"):
+        case = get_experiment_case(case_id)
+        assert case.target_valid_throws == 30
+        assert case.target_session_repeats == 3
+    for case_id in ("E4a.2", "E4b.2", "E4c.2", "E5a.2", "E5b.2", "E5c.2", "E5d.2"):
+        case = get_experiment_case(case_id)
+        assert case.target_valid_throws == 30
+        assert case.target_session_repeats == 2
 
 
 def test_replay_fan_tracker_handles_zero_one_and_four_subjects() -> None:
@@ -1293,6 +1389,42 @@ def test_experiment_sequence_counts_only_valid_throws_and_persists_memory(tmp_pa
     assert result["invalid_attempt_count"] == 0
     assert int(result["memory"]["memory_launch_index"]) >= 1
     assert (tmp_path / "E2.2" / "pytest_memory" / "throw_001" / "metrics" / "memory_update_summary.csv").exists()
+
+
+def test_experiment_case_repeat_wrapper_resets_memory_between_sessions(tmp_path: Path, monkeypatch) -> None:
+    import run_experiment_sequence as sequence_module
+
+    monkeypatch.setattr(sequence_module, "RESULT_ROOT", tmp_path)
+    result = run_experiment_case_repeats(
+        case_id="E2.2",
+        session_label="pytest_repeat",
+        mode="dry-run",
+        serial_port="COM_TEST",
+        vicon_host="mock",
+        target_valid_throws=1,
+        repeat_sessions=2,
+        cooldown_s=0.0,
+        retry_cooldown_s=0.0,
+        max_invalid_attempts=2,
+        max_duration_s=0.12,
+        launch_wait_timeout_s=0.20,
+        post_exit_neutral_tail_s=0.0,
+        vicon_poll_period_s=0.005,
+        vicon_position_offset_m=ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m,
+        vicon_yaw_alignment_deg=0.0,
+        vicon_attitude_signs=(1.0, -1.0, -1.0),
+        vicon_attitude_offset_rad=ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad,
+    )
+
+    assert result["session_repeat_count"] == 2
+    assert result["target_protocol_valid_throws"] == 2
+    assert result["valid_throw_count"] == 2
+    assert len(result["session_results"]) == 2
+    assert (tmp_path / "E2.2" / "pytest_repeat_r01" / "throw_001").exists()
+    assert (tmp_path / "E2.2" / "pytest_repeat_r02" / "throw_001").exists()
+    for session_result in result["session_results"]:
+        assert session_result["valid_throw_count"] == 1
+        assert int(session_result["memory"]["memory_launch_index"]) == 1
 
 
 def test_experiment_sequence_invalid_start_does_not_count_or_update_memory(tmp_path: Path, monkeypatch) -> None:
