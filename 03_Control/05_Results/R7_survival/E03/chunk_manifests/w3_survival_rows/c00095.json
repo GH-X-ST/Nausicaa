@@ -1,0 +1,25 @@
+{
+  "runner_version": "r7_fixed_lqr_survival_replay_v415_includes_dry_air",
+  "status": "complete",
+  "run_id": 3,
+  "chunk_index": 95,
+  "chunk_count": 321,
+  "row_start": 76000,
+  "row_stop": 76800,
+  "row_count": 800,
+  "storage_format": "csv_gz",
+  "compression_level": 1,
+  "partition_path": "w3_survival_rows/c00095.csv.gz",
+  "byte_count": 2266641,
+  "checksum_sha256": "c1bc0bc0e220ac3b14e076b34ad9223443ee8694d7646703fe5bfdd76f9529c6",
+  "duration_s": 28.96715760231018,
+  "table_name": "w3_survival_rows",
+  "primitive_timing_contract": {
+    "finite_horizon_s": 0.1,
+    "controller_input_slots_per_primitive": 5,
+    "controller_input_update_period_s": 0.02,
+    "primitive_timing_contract_version": "v411_0p10s_5slot_20ms",
+    "launch_handoff_duration_s": 0.04,
+    "launch_handoff_policy_version": "launch_gate_neutral_handoff_0p040s_v1"
+  }
+}
