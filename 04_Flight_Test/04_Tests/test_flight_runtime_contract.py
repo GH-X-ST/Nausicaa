@@ -39,6 +39,7 @@ from launch_gate import (  # noqa: E402
     evaluate_launch_plane_gate,
     interpolate_launch_plane_state,
 )
+from latency import latency_case_config  # noqa: E402
 from state_sampling import (  # noqa: E402
     LAUNCH_GATE_FORWARD_SPEED_MAX_M_S as SIM_LAUNCH_GATE_FORWARD_SPEED_MAX_M_S,
     LAUNCH_GATE_FORWARD_SPEED_MIN_M_S as SIM_LAUNCH_GATE_FORWARD_SPEED_MIN_M_S,
@@ -314,6 +315,40 @@ def test_vicon_rigid_body_adapter_uses_command_history_surfaces() -> None:
 
     assert np.isclose(state[STATE_INDEX["u"]], 6.0)
     assert state[STATE_INDEX["delta_a"]] > 0.0
+
+
+def test_real_flight_surface_state_estimator_matches_nominal_latency_contract() -> None:
+    nominal = latency_case_config("nominal")
+    config = FlightRuntimeConfig(run_label="latency_contract")
+    assert config.surface_state_estimator_latency_case == "nominal"
+    assert config.surface_command_delay_s == pytest.approx(
+        nominal.command_onset_delay_s + nominal.command_transport_delay_s
+    )
+    assert config.actuator_tau_s == pytest.approx(nominal.actuator_tau_s)
+
+    adapter = NausicaaViconStateAdapter(
+        derivative_cutoff_hz=0.0,
+        actuator_tau_s=config.actuator_tau_s,
+        command_delay_s=config.surface_command_delay_s,
+    )
+    adapter.update(
+        NausicaaViconSample(0.0, (1.2, 2.2, 1.5), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+    delayed_state = adapter.update(
+        NausicaaViconSample(0.05, (1.4, 2.2, 1.5), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[1.0, 0.0, 0.0],
+    )
+    active_state = adapter.update(
+        NausicaaViconSample(0.13, (1.6, 2.2, 1.5), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[1.0, 0.0, 0.0],
+    )
+
+    assert delayed_state[STATE_INDEX["delta_a"]] == 0.0
+    assert active_state[STATE_INDEX["delta_a"]] > 0.0
+    assert adapter.estimator_status()["surface_command_delay_s"] == pytest.approx(
+        config.surface_command_delay_s
+    )
 
 
 def test_vicon_transform_applies_full_xyz_offset() -> None:
@@ -722,6 +757,16 @@ def test_closed_loop_dry_run_holds_neutral_during_launch_handoff(tmp_path: Path)
     assert "first_launch_decision_prepared" in events
     assert "launch_handoff_complete" in events
     assert "first_active_command" in events
+    with (tmp_path / "T_handoff" / "metrics" / "controller_decisions.csv").open(newline="") as handle:
+        decisions = list(csv.DictReader(handle))
+    assert decisions
+    assert "selected_score" in decisions[0]
+    assert "selected_base_library_score_component" in decisions[0]
+    assert "selected_mission_score_component" in decisions[0]
+    with (tmp_path / "T_handoff" / "metrics" / "posthoc_throw.csv").open(newline="") as handle:
+        posthoc = list(csv.DictReader(handle))
+    assert len(posthoc) == 1
+    assert int(posthoc[0]["executed_selected_decision_count"]) >= 1
 
 
 def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tmp_path: Path) -> None:
@@ -746,6 +791,11 @@ def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tm
     assert summary["memory_update_observation_count"] == 0
     assert not (tmp_path / "T_open_loop" / "metrics" / "controller_decisions.csv").exists()
     assert (tmp_path / "T_open_loop" / "metrics" / "state_samples.csv").exists()
+    with (tmp_path / "T_open_loop" / "metrics" / "posthoc_throw.csv").open(newline="") as handle:
+        posthoc = list(csv.DictReader(handle))
+    assert len(posthoc) == 1
+    assert posthoc[0]["memory_history_bucket"] == "open_loop"
+    assert int(posthoc[0]["executed_selected_decision_count"]) == 0
 
 
 def test_flight_record_cancels_when_launch_gate_never_passes(tmp_path: Path) -> None:
@@ -1158,6 +1208,22 @@ def test_surface_sign_check_uses_same_packet_contract(tmp_path: Path, monkeypatc
     import run_surface_sign_check as sign_module
 
     monkeypatch.setattr(sign_module, "RESULT_ROOT", tmp_path)
+    sequence_by_name = {
+        step_name: command
+        for step_name, command, _expected_motion in SURFACE_CHECK_SEQUENCE
+    }
+    assert sequence_by_name["aileron_+1.0"] == (1.0, 0.0, 0.0)
+    assert sequence_by_name["elevator_+1.0"] == (0.0, 1.0, 0.0)
+    assert sequence_by_name["rudder_+1.0"] == (0.0, 0.0, 1.0)
+    assert encode_arduino_command_packet(np.asarray(sequence_by_name["aileron_+1.0"])).physical_surface_norm == pytest.approx(
+        (1.0, -1.0, 0.0, 0.0)
+    )
+    assert encode_arduino_command_packet(np.asarray(sequence_by_name["elevator_+1.0"])).physical_surface_norm == pytest.approx(
+        (0.0, 0.0, 0.0, 1.0)
+    )
+    assert encode_arduino_command_packet(np.asarray(sequence_by_name["rudder_+1.0"])).physical_surface_norm == pytest.approx(
+        (0.0, 0.0, 1.0, 0.0)
+    )
     result = run_surface_sign_check(
         serial_port="COM_TEST",
         mode="dry-run",

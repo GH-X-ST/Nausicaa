@@ -6,7 +6,7 @@ import numpy as np
 
 from command_contract import AGGREGATE_LIMITS, SURFACE_STATE_NAMES, command_norm_to_angle
 
-SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE = (0.50, 1.00)
+IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE = 1.0
 
 
 # =============================================================================
@@ -84,15 +84,15 @@ def implementation_instance_for_layer(
             command_transport_delay_scale=float(rng.uniform(0.90, 1.25)),
             latency_jitter_s=float(rng.uniform(0.0, 0.015)),
             actuator_tau_scale=float(rng.uniform(0.90, 1.25)),
-            aileron_effectiveness_scale=float(rng.uniform(*SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE)),
-            elevator_effectiveness_scale=float(rng.uniform(*SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE)),
-            rudder_effectiveness_scale=float(rng.uniform(*SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE)),
             surface_neutral_bias_rad=tuple(float(value) for value in rng.uniform(-0.015, 0.015, size=3)),
             surface_limit_scale=float(rng.uniform(0.90, 1.00)),
             left_right_aileron_asymmetry_scale=float(rng.uniform(0.95, 1.05)),
             command_quantisation_mode="fixed_20_percent_lattice",
             implementation_adjustment_status="randomised_applied",
-            implementation_adjustment_limitations="left-right aileron asymmetry applied to per-strip control mix",
+            implementation_adjustment_limitations=(
+                "surface effectiveness scaling retired; command timing, actuator lag, neutral bias, "
+                "surface-limit clipping, and left-right aileron asymmetry remain"
+            ),
         )
     return _implementation_instance(
         layer=layer,
@@ -113,9 +113,6 @@ def _implementation_instance(
     command_transport_delay_scale: float = 1.0,
     latency_jitter_s: float = 0.0,
     actuator_tau_scale: float = 1.0,
-    aileron_effectiveness_scale: float = 1.0,
-    elevator_effectiveness_scale: float = 1.0,
-    rudder_effectiveness_scale: float = 1.0,
     surface_neutral_bias_rad: tuple[float, float, float] = (0.0, 0.0, 0.0),
     surface_limit_scale: float = 1.0,
     left_right_aileron_asymmetry_scale: float = 1.0,
@@ -133,9 +130,9 @@ def _implementation_instance(
         command_transport_delay_scale=float(command_transport_delay_scale),
         latency_jitter_s=float(latency_jitter_s),
         actuator_tau_scale=float(actuator_tau_scale),
-        aileron_effectiveness_scale=float(aileron_effectiveness_scale),
-        elevator_effectiveness_scale=float(elevator_effectiveness_scale),
-        rudder_effectiveness_scale=float(rudder_effectiveness_scale),
+        aileron_effectiveness_scale=float(IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE),
+        elevator_effectiveness_scale=float(IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE),
+        rudder_effectiveness_scale=float(IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE),
         surface_neutral_bias_rad=tuple(float(value) for value in surface_neutral_bias_rad),
         surface_limit_scale=float(surface_limit_scale),
         left_right_aileron_asymmetry_scale=float(left_right_aileron_asymmetry_scale),
@@ -172,19 +169,11 @@ def apply_surface_implementation(
     command_rad: np.ndarray,
     instance: ImplementationInstance,
 ) -> np.ndarray:
-    """Apply deterministic surface effectiveness, bias, and limit perturbations."""
+    """Apply deterministic surface bias and limit perturbations."""
 
     command = np.asarray(command_rad, dtype=float).reshape(3).copy()
-    effectiveness = np.asarray(
-        [
-            float(instance.aileron_effectiveness_scale),
-            float(instance.elevator_effectiveness_scale),
-            float(instance.rudder_effectiveness_scale),
-        ],
-        dtype=float,
-    )
     bias = np.asarray(instance.surface_neutral_bias_rad, dtype=float).reshape(3)
-    adjusted = command * effectiveness + bias
+    adjusted = command + bias
     return _clip_surface_rad(adjusted, surface_limit_scale=instance.surface_limit_scale)
 
 

@@ -5,7 +5,7 @@ import numpy as np
 from flight_dynamics import adapt_glider
 from glider import build_nausicaa_glider
 from implementation_instance import (
-    SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE,
+    IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE,
     _clip_surface_rad,
     apply_aileron_asymmetry_to_aircraft,
     adjusted_actuator_tau_s,
@@ -32,21 +32,10 @@ def test_implementation_instance_is_deterministic_and_changes_surface_and_tau() 
 
     assert first == second
     assert implementation_instance_row(first)["implementation_adjustment_status"] == "randomised_applied"
-    assert (
-        SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[0]
-        <= first.aileron_effectiveness_scale
-        <= SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[1]
-    )
-    assert (
-        SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[0]
-        <= first.elevator_effectiveness_scale
-        <= SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[1]
-    )
-    assert (
-        SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[0]
-        <= first.rudder_effectiveness_scale
-        <= SURFACE_IMPLEMENTATION_EFFECTIVENESS_SCALE_RANGE[1]
-    )
+    assert first.aileron_effectiveness_scale == IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
+    assert first.elevator_effectiveness_scale == IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
+    assert first.rudder_effectiveness_scale == IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
+    assert "surface effectiveness scaling retired" in first.implementation_adjustment_limitations
     assert adjusted_actuator_tau_s((0.1, 0.2, 0.3), first) != (0.1, 0.2, 0.3)
     assert not np.allclose(
         apply_surface_implementation(command, first),

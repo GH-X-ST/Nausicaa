@@ -152,6 +152,7 @@ class NausicaaViconStateAdapter:
         derivative_cutoff_hz: float = 8.0,
         body_rate_limit_rad_s: float = 3.0,
         actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06),
+        command_delay_s: float = 0.0,
         arena_transform: ViconArenaFrameTransform | None = None,
     ) -> None:
         self.derivative_cutoff_hz = float(derivative_cutoff_hz)
@@ -161,6 +162,9 @@ class NausicaaViconStateAdapter:
         self.actuator_tau_s = np.asarray(actuator_tau_s, dtype=float).reshape(3)
         if not np.all(np.isfinite(self.actuator_tau_s)) or np.any(self.actuator_tau_s <= 0.0):
             raise ValueError("actuator_tau_s must contain finite positive values.")
+        self.command_delay_s = float(command_delay_s)
+        if not np.isfinite(self.command_delay_s) or self.command_delay_s < 0.0:
+            raise ValueError("command_delay_s must be finite and non-negative.")
         self.arena_transform = arena_transform or ViconArenaFrameTransform()
         self._previous_timestamp_s: float | None = None
         self._previous_frame_number: int | None = None
@@ -170,12 +174,16 @@ class NausicaaViconStateAdapter:
         self._filtered_world_velocity_m_s = np.zeros(3)
         self._filtered_body_rate_rad_s = np.zeros(3)
         self._surface_state_rad = np.zeros(3)
+        self._command_history_times_s: list[float] = []
+        self._command_history_norm: list[np.ndarray] = []
         self._last_estimator_status: dict[str, object] = {
             "dt_s": 0.0,
             "dt_source": "not_initialised",
             "frame_delta": 0,
             "frame_rate_hz": 0.0,
             "body_rate_limited": False,
+            "surface_command_delay_s": float(self.command_delay_s),
+            "surface_command_history_count": 0,
         }
 
     def reset_angular_rate_filter(self) -> None:
@@ -232,18 +240,14 @@ class NausicaaViconStateAdapter:
                 self.derivative_cutoff_hz,
             )
             if command_norm is not None:
-                target_surface_rad = normalised_command_to_surface_rad(
-                    quantise_normalised_command_vector(command_norm)
-                )
+                target_surface_rad = self._delayed_surface_target_rad(timestamp_s, command_norm)
                 alpha = 1.0 - np.exp(-dt_s / self.actuator_tau_s)
                 self._surface_state_rad = self._surface_state_rad + alpha * (
                     target_surface_rad - self._surface_state_rad
                 )
         elif command_norm is not None:
             body_rate_limited = False
-            self._surface_state_rad = normalised_command_to_surface_rad(
-                quantise_normalised_command_vector(command_norm)
-            )
+            self._surface_state_rad = self._delayed_surface_target_rad(timestamp_s, command_norm)
         else:
             body_rate_limited = False
 
@@ -274,8 +278,39 @@ class NausicaaViconStateAdapter:
             "frame_delta": int(frame_delta),
             "frame_rate_hz": float(frame_rate_hz),
             "body_rate_limited": bool(body_rate_limited),
+            "surface_command_delay_s": float(self.command_delay_s),
+            "surface_command_history_count": int(len(self._command_history_times_s)),
         }
         return as_state_vector(state)
+
+    def _delayed_surface_target_rad(self, timestamp_s: float, command_norm: np.ndarray) -> np.ndarray:
+        command = quantise_normalised_command_vector(command_norm)
+        self._record_command_sample(timestamp_s, command)
+        delayed_norm = self._command_sample_at(float(timestamp_s) - float(self.command_delay_s))
+        return normalised_command_to_surface_rad(delayed_norm)
+
+    def _record_command_sample(self, timestamp_s: float, command_norm: np.ndarray) -> None:
+        timestamp = float(timestamp_s)
+        command = np.asarray(command_norm, dtype=float).reshape(3).copy()
+        if not self._command_history_times_s and self.command_delay_s > 0.0:
+            self._command_history_times_s.append(timestamp - self.command_delay_s - 1e-9)
+            self._command_history_norm.append(np.zeros(3, dtype=float))
+        if self._command_history_times_s and timestamp <= self._command_history_times_s[-1] + 1e-12:
+            self._command_history_norm[-1] = command
+        else:
+            self._command_history_times_s.append(timestamp)
+            self._command_history_norm.append(command)
+        if len(self._command_history_times_s) > 256:
+            del self._command_history_times_s[:-256]
+            del self._command_history_norm[:-256]
+
+    def _command_sample_at(self, query_time_s: float) -> np.ndarray:
+        if not self._command_history_times_s:
+            return np.zeros(3, dtype=float)
+        times = np.asarray(self._command_history_times_s, dtype=float)
+        index = int(np.searchsorted(times, float(query_time_s), side="right") - 1)
+        index = int(np.clip(index, 0, len(self._command_history_norm) - 1))
+        return self._command_history_norm[index].copy()
 
     def _resolve_sample_dt_s(
         self,

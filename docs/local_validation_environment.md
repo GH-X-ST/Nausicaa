@@ -95,6 +95,18 @@ bounds is the main success component, updraft-gain and lift-dwell terms remain
 capped lift-usefulness evidence, terminal total specific-energy reserve is
 rewarded only after front-wall success, and airborne time/net/gross energy drift
 remain audit-only fields.
+R9/R10/R11 and real-flight reporting now include compact posthoc score audits in
+addition to success-rate summaries. Simulation runs write
+`metrics/posthoc_final.csv` for one-row-per-final-launch `LAUNCH_SCORE_VERSION`
+outcomes, `metrics/posthoc_exec.csv` for the accumulated selected primitive
+scores and score components that were actually executed, and
+`metrics/posthoc_delta.csv` for paired deltas versus no-memory and open-loop
+baselines. Real-flight throws write `posthoc_throw.csv`, session runs write
+`posthoc_session.csv`, and closed-loop `controller_decisions.csv` carries
+selected score component fields; open-loop neutral still has zero controller
+decisions but an explicit posthoc row. These tables are report-only, use short
+GitHub-safe filenames, and stay outside the real-time controller compute
+boundary.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, memory query, and compact-library selection are measured against
 a preferred 20 ms controller-slot budget and a hard 0.100 s primitive-boundary
@@ -103,7 +115,11 @@ real flight share `launch_gate_neutral_handoff_0p040s_v1`, so both hold
 neutral/open-loop for exactly 0.040 s (two 20 ms slots), prepare the first
 primitive from the approved launch-gate state, then start the unchanged 0.100 s
 active primitive from the latest post-handoff state; step-0 evidence reports
-0.140 s physical duration. Later in-flight decisions are prepared before
+0.140 s physical duration. Real-flight Vicon state packing estimates aggregate
+surface states from the command history using the same measured nominal
+command-onset delay and one-pole actuator lag envelope as the simulation nominal
+latency case; packet output itself remains the hardware command path, not a
+simulated delay. Later in-flight decisions are prepared before
 primitive-boundary commit where possible. This is an offline wall-clock audit,
 not a hardware real-time claim. The current compact controller-row selector timing boundary matches the active code path: full spatial-belief query plus compact controller-row library selection is in the timed controller path, while full candidate-row expansion, table flushing, and post-hoc diagnostics are outside it. Latest targeted C16 sanity check: 40 final launches, 430 history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory switches, and required heavy/balanced in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full R10/R11 validation.
 

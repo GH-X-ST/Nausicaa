@@ -1032,6 +1032,18 @@ def selector_decision_row(
         "selected_transition_entry_class": "" if selected is None else str(selected.get("transition_entry_class", "")),
         "selected_controller_id": "" if selected is None else str(selected.get("controller_id", "")),
         "selected_score": float("-inf") if selected is None else float(selected.get("score", float("-inf"))),
+        "selected_base_library_score_component": (
+            0.0 if selected is None else float(selected.get("base_library_score_component", 0.0))
+        ),
+        "selected_mission_score_component": (
+            0.0 if selected is None else float(selected.get("mission_score_component", 0.0))
+        ),
+        "selected_exploration_score_component": (
+            0.0 if selected is None else float(selected.get("exploration_score_component", 0.0))
+        ),
+        "selected_memory_score_component": (
+            0.0 if selected is None else float(selected.get("memory_score_component", 0.0))
+        ),
         "selected_calibrated_regime_alpha_abs_deg": (
             0.0 if selected is None else float(selected.get("calibrated_regime_alpha_abs_deg", 0.0))
         ),

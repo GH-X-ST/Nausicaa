@@ -66,6 +66,7 @@ def run_real_flight(
         body_rate_limit_rad_s=config.body_rate_limit_rad_s,
         body_rate_observer_window_frames=config.body_rate_observer_window_frames,
         actuator_tau_s=config.actuator_tau_s,
+        command_delay_s=config.surface_command_delay_s,
         arena_transform=ViconArenaFrameTransform(
             position_offset_m=config.vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(config.vicon_yaw_alignment_deg)),
@@ -218,6 +219,7 @@ def run_real_flight(
     next_governor_s = 0.0
     next_serial_s = 0.0
     decision_records: list[dict[str, object]] = []
+    controller_decision_rows: list[dict[str, object]] = []
     terminal_record_appended = False
 
     try:
@@ -450,13 +452,9 @@ def run_real_flight(
                 float(summary["max_decision_time_s"]),
                 float(latest_decision.decision_time_s),
             )
-            logger.append_metric_row(
-                "controller_decisions.csv",
-                {
-                    "t_host_s": time.perf_counter(),
-                    **asdict(latest_decision),
-                },
-            )
+            decision_row = {"t_host_s": time.perf_counter(), **asdict(latest_decision)}
+            controller_decision_rows.append(decision_row)
+            logger.append_metric_row("controller_decisions.csv", decision_row)
 
         while (time.perf_counter() - started) <= float(config.max_duration_s):
             loop_elapsed_s = time.perf_counter() - started
@@ -572,13 +570,9 @@ def run_real_flight(
                     float(summary["max_decision_time_s"]),
                     float(latest_decision.decision_time_s),
                 )
-                logger.append_metric_row(
-                    "controller_decisions.csv",
-                    {
-                        "t_host_s": time.perf_counter(),
-                        **asdict(latest_decision),
-                    },
-                )
+                decision_row = {"t_host_s": time.perf_counter(), **asdict(latest_decision)}
+                controller_decision_rows.append(decision_row)
+                logger.append_metric_row("controller_decisions.csv", decision_row)
 
             if loop_elapsed_s + 1e-12 >= next_serial_s:
                 if config.controller_mode == "open_loop_neutral":
@@ -658,6 +652,26 @@ def run_real_flight(
             )
         tx.close()
         vicon.close()
+        posthoc_score = _real_flight_posthoc_score_row(
+            config=config,
+            summary=summary,
+            controller_decision_rows=controller_decision_rows,
+            latest_state=latest_state,
+        )
+        summary.update(
+            {
+                "posthoc_accumulated_selected_score": posthoc_score["accumulated_selected_score"],
+                "posthoc_executed_selected_decision_count": posthoc_score[
+                    "executed_selected_decision_count"
+                ],
+                "posthoc_memory_history_bucket": posthoc_score["memory_history_bucket"],
+                "posthoc_score_source": posthoc_score["posthoc_score_source"],
+                "posthoc_final_observable_specific_energy_m": posthoc_score[
+                    "final_observable_specific_energy_m"
+                ],
+            }
+        )
+        logger.append_metric_row("posthoc_throw.csv", posthoc_score)
         logger.write_manifest("real_flight_runtime_summary.json", summary)
         logger.write_report(
             "real_flight_runtime_report.md",
@@ -693,9 +707,120 @@ def run_real_flight(
                 f"- Memory update observations: `{summary['memory_update_observation_count']}`",
                 f"- Memory cells: `{summary['memory_cell_count']}`",
                 f"- Max decision time (s): `{float(summary['max_decision_time_s']):.6f}`",
+                f"- Posthoc accumulated selected score: `{float(summary['posthoc_accumulated_selected_score']):.6f}`",
+                f"- Posthoc executed selected decisions: `{summary['posthoc_executed_selected_decision_count']}`",
+                f"- Posthoc memory history bucket: `{summary['posthoc_memory_history_bucket']}`",
+                f"- Posthoc score source: `{summary['posthoc_score_source']}`",
             ],
         )
         logger.close()
+
+
+def _real_flight_posthoc_score_row(
+    *,
+    config: FlightRuntimeConfig,
+    summary: dict[str, object],
+    controller_decision_rows: list[dict[str, object]],
+    latest_state: np.ndarray | None,
+) -> dict[str, object]:
+    selected_rows = [row for row in controller_decision_rows if _truthy(row.get("selected", False))]
+    final_energy = _real_flight_specific_energy_m(latest_state) if latest_state is not None else float("nan")
+    final_z = float(latest_state[STATE_INDEX["z_w"]]) if latest_state is not None else float("nan")
+    return {
+        "experiment_case_id": config.experiment_case_id,
+        "experiment_case_name": config.experiment_case_name,
+        "experiment_layout_id": config.experiment_layout_id,
+        "controller_mode": config.controller_mode,
+        "memory_enabled": bool(config.experiment_memory_enabled),
+        "memory_history_bucket": _real_flight_memory_history_bucket(config),
+        "throw_index": int(config.throw_index),
+        "attempt_index": int(config.attempt_index),
+        "valid_throw": bool(summary.get("valid_throw", False)),
+        "launch_gate_approved": bool(summary.get("launch_gate_approved", False)),
+        "termination_reason": str(summary.get("termination_reason", "")),
+        "cancellation_reason": str(summary.get("cancellation_reason", "")),
+        "launch_speed_m_s": _safe_float(summary.get("launch_speed_m_s", 0.0)),
+        "final_observable_specific_energy_m": float(final_energy),
+        "final_observable_z_w_m": float(final_z),
+        "controller_decision_count": int(summary.get("controller_decision_count", 0)),
+        "executed_selected_decision_count": int(len(selected_rows)),
+        "blocked_or_neutral_decision_count": int(len(controller_decision_rows) - len(selected_rows)),
+        "accumulated_selected_score": _sum_decision_field(selected_rows, "selected_score"),
+        "accumulated_base_library_score_component": _sum_decision_field(
+            selected_rows,
+            "selected_base_library_score_component",
+        ),
+        "accumulated_mission_score_component": _sum_decision_field(
+            selected_rows,
+            "selected_mission_score_component",
+        ),
+        "accumulated_exploration_score_component": _sum_decision_field(
+            selected_rows,
+            "selected_exploration_score_component",
+        ),
+        "accumulated_memory_score_component": _sum_decision_field(
+            selected_rows,
+            "selected_memory_score_component",
+        ),
+        "accumulated_calibrated_regime_mismatch_score_component": _sum_decision_field(
+            selected_rows,
+            "selected_calibrated_regime_mismatch_score_component",
+        ),
+        "posthoc_score_source": (
+            "controller_decisions_selected_rows"
+            if config.controller_mode == "closed_loop"
+            else "open_loop_neutral_zero_controller_decisions"
+        ),
+        "claim_status": "real_flight_posthoc_score_audit_not_runtime_control",
+    }
+
+
+def _real_flight_memory_history_bucket(config: FlightRuntimeConfig) -> str:
+    if config.controller_mode == "open_loop_neutral":
+        return "open_loop"
+    if not bool(config.experiment_memory_enabled):
+        return "no_memory"
+    prior_valid_memory_throws = max(0, int(config.throw_index) - 1)
+    if prior_valid_memory_throws <= 0:
+        return "h0"
+    if prior_valid_memory_throws <= 3:
+        return "h1_3"
+    if prior_valid_memory_throws <= 10:
+        return "h4_10"
+    return "h11_30_plus"
+
+
+def _real_flight_specific_energy_m(state: np.ndarray) -> float:
+    speed = float(
+        np.linalg.norm(
+            state[
+                [
+                    STATE_INDEX["u"],
+                    STATE_INDEX["v"],
+                    STATE_INDEX["w"],
+                ]
+            ]
+        )
+    )
+    return float(state[STATE_INDEX["z_w"]] + speed * speed / (2.0 * 9.80665))
+
+
+def _sum_decision_field(rows: list[dict[str, object]], field: str) -> float:
+    return float(sum(_safe_float(row.get(field, 0.0)) for row in rows))
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result if np.isfinite(result) else float(default)
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
 
 
 def _await_launch_gate(

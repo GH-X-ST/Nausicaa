@@ -376,6 +376,7 @@ def run_single_calibration_throw(
         body_rate_limit_rad_s=config.body_rate_limit_rad_s,
         body_rate_observer_window_frames=config.body_rate_observer_window_frames,
         actuator_tau_s=config.actuator_tau_s,
+        command_delay_s=config.surface_command_delay_s,
         arena_transform=ViconArenaFrameTransform(
             position_offset_m=config.vicon_position_offset_m,
             yaw_alignment_rad=float(np.deg2rad(config.vicon_yaw_alignment_deg)),

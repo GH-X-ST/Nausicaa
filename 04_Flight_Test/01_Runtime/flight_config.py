@@ -16,6 +16,7 @@ RESULT_ROOT = FLIGHT_TEST_ROOT / "05_Results"
 if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
 
+from latency import latency_case_config  # noqa: E402
 from primitive_timing_contract import LAUNCH_HANDOFF_DURATION_S, LAUNCH_HANDOFF_POLICY_VERSION  # noqa: E402
 
 OPERATIONAL_REGION_CENTER_M = (3.9, 2.2, 1.95)
@@ -23,6 +24,13 @@ DEFAULT_VICON_POSITION_OFFSET_M = ACTIVE_CALIBRATION_PROFILE.vicon_position_offs
 DEFAULT_VICON_ATTITUDE_SIGNS = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_signs
 DEFAULT_VICON_ATTITUDE_OFFSET_RAD = ACTIVE_CALIBRATION_PROFILE.vicon_attitude_offset_rad
 DEFAULT_REAL_FLIGHT_LIBRARY_TIER = "balanced_cluster"
+REAL_FLIGHT_SURFACE_STATE_ESTIMATOR_LATENCY_CASE = "nominal"
+_SURFACE_STATE_ESTIMATOR_LATENCY = latency_case_config(REAL_FLIGHT_SURFACE_STATE_ESTIMATOR_LATENCY_CASE)
+DEFAULT_REAL_FLIGHT_ACTUATOR_TAU_S = _SURFACE_STATE_ESTIMATOR_LATENCY.actuator_tau_s
+DEFAULT_REAL_FLIGHT_SURFACE_COMMAND_DELAY_S = (
+    float(_SURFACE_STATE_ESTIMATOR_LATENCY.command_onset_delay_s)
+    + float(_SURFACE_STATE_ESTIMATOR_LATENCY.command_transport_delay_s)
+)
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
     "balanced_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
     "deployment_tier_prioritises_transition_diversity_and_defensible_high_energy_validation_after_real_flight_safety_updates;"
@@ -62,7 +70,10 @@ class FlightRuntimeConfig:
     launch_gate_rate_confidence_min: float = 0.65
     launch_gate_body_rate_limits_rad_s: tuple[float, float, float] = (1.2, 1.2, 1.8)
     rejected_launch_attempt_min_speed_m_s: float = 2.0
-    actuator_tau_s: tuple[float, float, float] = (0.06, 0.06, 0.06)
+    surface_state_estimator_latency_case: str = REAL_FLIGHT_SURFACE_STATE_ESTIMATOR_LATENCY_CASE
+    surface_command_delay_s: float = DEFAULT_REAL_FLIGHT_SURFACE_COMMAND_DELAY_S
+    surface_state_estimator_timing_model_version: str = _SURFACE_STATE_ESTIMATOR_LATENCY.timing_model_version
+    actuator_tau_s: tuple[float, float, float] = DEFAULT_REAL_FLIGHT_ACTUATOR_TAU_S
     vicon_position_offset_m: tuple[float, float, float] = DEFAULT_VICON_POSITION_OFFSET_M
     vicon_yaw_alignment_deg: float = ACTIVE_CALIBRATION_PROFILE.vicon_yaw_alignment_deg
     vicon_attitude_signs: tuple[float, float, float] = DEFAULT_VICON_ATTITUDE_SIGNS

@@ -32,7 +32,7 @@ COMMAND_INDEX = {name: index for index, name in enumerate(COMMAND_NAMES)}
 NORMALISED_COMMAND_MIN = -1.0
 NORMALISED_COMMAND_MAX = 1.0
 CONTROL_SIGN_CONVENTION = {
-    "positive_aileron": "positive roll moment, right wing down",
+    "positive_aileron": "left trailing edge up, right trailing edge down; negative roll moment",
     "positive_elevator": "positive pitch moment, nose up",
     "positive_rudder": "positive yaw moment, nose right",
 }

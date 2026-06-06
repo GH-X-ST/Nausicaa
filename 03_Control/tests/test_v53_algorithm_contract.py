@@ -60,6 +60,9 @@ from run_repeated_launch_learning_curve import (
     _outer_case_schedule,
     _pairing_audit_rows,
     _pass_fail_summary,
+    _posthoc_executed_score_table,
+    _posthoc_final_score_table,
+    _posthoc_score_delta_table,
     _policy_condition,
     _real_time_scheduler_decision_fields,
     _scheduled_active_fan_count_for_outer_case,
@@ -85,6 +88,8 @@ from run_repeated_launch_learning_curve import (
 from state_contract import STATE_INDEX
 from run_w3_survival import R5_INPUT_KIND, R7_EVIDENCE_BLOCK_IDS, W3_ACTIVE_FAN_COUNT_SEQUENCE, W3_ENVIRONMENT_CASES
 from episode_selector import select_compact_representative
+from episode_selector import selector_decision_row
+from implementation_instance import IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
 from plant_instance import (
     AILERON_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
     ELEVATOR_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
@@ -1480,6 +1485,159 @@ def test_v53_score_rewards_front_wall_mission_and_updraft_without_time_or_energy
     assert history_score["base_failure_penalty_reason"] == "not_scored_history_launch"
 
 
+def test_v53_selector_decision_logs_score_components_for_posthoc_audit() -> None:
+    selected = {
+        "compact_library_id": "compact_001",
+        "primitive_variant_id": "variant_001",
+        "primitive_id": "glide",
+        "entry_role": "transition_object",
+        "transition_entry_class": "launch_gate",
+        "controller_id": "ctrl_001",
+        "score": 1.23,
+        "base_library_score_component": 0.70,
+        "mission_score_component": 0.20,
+        "exploration_score_component": 0.03,
+        "memory_score_component": 0.10,
+        "calibrated_regime_mismatch_score_component": -0.04,
+    }
+    row = selector_decision_row(
+        episode_id="episode_001",
+        primitive_step_index=0,
+        policy_id="spatial_flow_belief_memory_h3",
+        governor_mode="terminal_episode",
+        context={"W_layer": "W3", "environment_mode": "w3_randomised_four"},
+        selected=selected,
+        candidate_count=4,
+        viable_count=3,
+    )
+
+    assert row["selected_score"] == pytest.approx(1.23)
+    assert row["selected_base_library_score_component"] == pytest.approx(0.70)
+    assert row["selected_mission_score_component"] == pytest.approx(0.20)
+    assert row["selected_exploration_score_component"] == pytest.approx(0.03)
+    assert row["selected_memory_score_component"] == pytest.approx(0.10)
+    assert row["selected_calibrated_regime_mismatch_score_component"] == pytest.approx(-0.04)
+
+
+def test_v53_posthoc_tables_report_final_and_executed_scores_with_paired_deltas() -> None:
+    final = pd.DataFrame(
+        [
+            {
+                "episode_id": "open",
+                "launch_role": "final_heldout",
+                "library_size_case_id": "balanced_cluster",
+                "environment_block_id": "r11_l1",
+                "outer_case_index": 0,
+                "common_final_launch_key": "paired_000",
+                "policy_id": OPEN_LOOP_COMPARISON_POLICY_ID,
+                "history_length": 0,
+                "mission_success": False,
+                "safe_success": True,
+                "hard_failure": False,
+                "no_viable_primitive": False,
+                "launch_score": 0.0,
+                "launch_score_version": "test",
+            },
+            {
+                "episode_id": "base",
+                "launch_role": "final_heldout",
+                "library_size_case_id": "balanced_cluster",
+                "environment_block_id": "r11_l1",
+                "outer_case_index": 0,
+                "common_final_launch_key": "paired_000",
+                "policy_id": "no_memory_baseline",
+                "history_length": 0,
+                "mission_success": True,
+                "safe_success": True,
+                "hard_failure": False,
+                "no_viable_primitive": False,
+                "launch_score": 10.0,
+                "launch_score_version": "test",
+            },
+            {
+                "episode_id": "mem",
+                "launch_role": "final_heldout",
+                "library_size_case_id": "balanced_cluster",
+                "environment_block_id": "r11_l1",
+                "outer_case_index": 0,
+                "common_final_launch_key": "paired_000",
+                "policy_id": "spatial_flow_belief_memory_h3",
+                "history_length": 3,
+                "mission_success": True,
+                "safe_success": True,
+                "hard_failure": False,
+                "no_viable_primitive": False,
+                "launch_score": 12.0,
+                "launch_score_version": "test",
+            },
+        ]
+    )
+    selector_rows = [
+        {
+            "episode_id": "base",
+            "decision_status": "selected_compact_representative",
+            "selected_primitive_variant_id": "base_v0",
+            "selected_score": 1.0,
+            "selected_base_library_score_component": 0.8,
+            "selected_mission_score_component": 0.2,
+            "selected_exploration_score_component": 0.0,
+            "selected_memory_score_component": 0.0,
+            "selected_calibrated_regime_mismatch_score_component": 0.0,
+        },
+        {
+            "episode_id": "mem",
+            "decision_status": "selected_compact_representative",
+            "selected_primitive_variant_id": "mem_v0",
+            "selected_score": 1.2,
+            "selected_base_library_score_component": 0.8,
+            "selected_mission_score_component": 0.2,
+            "selected_exploration_score_component": 0.1,
+            "selected_memory_score_component": 0.1,
+            "selected_calibrated_regime_mismatch_score_component": 0.0,
+        },
+        {
+            "episode_id": "mem",
+            "decision_status": "selected_compact_representative",
+            "selected_primitive_variant_id": "mem_v1",
+            "selected_score": 0.4,
+            "selected_base_library_score_component": 0.3,
+            "selected_mission_score_component": 0.1,
+            "selected_exploration_score_component": 0.0,
+            "selected_memory_score_component": 0.0,
+            "selected_calibrated_regime_mismatch_score_component": 0.0,
+        },
+        {
+            "episode_id": "mem",
+            "decision_status": "blocked_no_viable_representative",
+            "selected_primitive_variant_id": "",
+            "selected_score": 99.0,
+        },
+    ]
+
+    posthoc_final = _posthoc_final_score_table(final)
+    posthoc_exec = _posthoc_executed_score_table(final, selector_rows)
+    posthoc_delta = _posthoc_score_delta_table(posthoc_exec)
+
+    assert set(posthoc_final["policy_id"]) == {
+        OPEN_LOOP_COMPARISON_POLICY_ID,
+        "no_memory_baseline",
+        "spatial_flow_belief_memory_h3",
+    }
+    mem = posthoc_exec[posthoc_exec["episode_id"] == "mem"].iloc[0]
+    assert mem["selector_decision_count"] == 3
+    assert mem["executed_selected_decision_count"] == 2
+    assert mem["blocked_selector_decision_count"] == 1
+    assert mem["accumulated_selected_score"] == pytest.approx(1.6)
+    assert mem["accumulated_memory_score_component"] == pytest.approx(0.1)
+
+    memory_vs_base = posthoc_delta[
+        (posthoc_delta["policy_id"] == "spatial_flow_belief_memory_h3")
+        & (posthoc_delta["baseline_policy_id"] == "no_memory_baseline")
+    ].iloc[0]
+    assert memory_vs_base["delta_launch_score"] == pytest.approx(2.0)
+    assert memory_vs_base["delta_accumulated_selected_score"] == pytest.approx(0.6)
+
+
 def test_v53_r10_and_r11_changed_case_randomisation_semantics_match() -> None:
     assert tuple(block.block_id for block in R10_PROTOCOL.blocks) == (
         R10_L7_FULL_DOMAIN_RANDOMISATION_BLOCK_ID,
@@ -1714,6 +1872,15 @@ def test_v53_r10_r11_case7_uses_w3_plant_and_implementation_randomisation() -> N
         assert payload["plant_instance"].W_layer == "W3"
         assert payload["implementation_instance"].W_layer == "W3"
         assert payload["implementation_instance"].implementation_adjustment_status == "randomised_applied"
+        assert payload["implementation_instance"].aileron_effectiveness_scale == pytest.approx(
+            IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
+        )
+        assert payload["implementation_instance"].elevator_effectiveness_scale == pytest.approx(
+            IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
+        )
+        assert payload["implementation_instance"].rudder_effectiveness_scale == pytest.approx(
+            IMPLEMENTATION_SURFACE_EFFECTIVENESS_SCALE
+        )
         assert payload["plant_instance"].plant_adjustment_status == "randomised_applied"
         assert (
             payload["plant_instance"].control_effectiveness_perturbation_policy

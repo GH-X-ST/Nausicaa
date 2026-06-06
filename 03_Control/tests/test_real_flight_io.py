@@ -71,3 +71,27 @@ def test_vicon_state_adapter_packs_canonical_state_and_derivatives() -> None:
     assert state[STATE_INDEX["w"]] == 0.0
     assert state[STATE_INDEX["delta_a"]] > 0.0
     assert state[STATE_INDEX["delta_a"]] < normalised_command_to_surface_rad([1.0, 0.0, 0.0])[0]
+
+
+def test_vicon_state_adapter_applies_measured_command_delay_before_surface_lag() -> None:
+    adapter = NausicaaViconStateAdapter(
+        derivative_cutoff_hz=0.0,
+        actuator_tau_s=(0.01, 0.01, 0.01),
+        command_delay_s=0.073,
+    )
+    adapter.update(
+        NausicaaViconSample(0.0, (1.0, 2.0, 1.5), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[0.0, 0.0, 0.0],
+    )
+    delayed_state = adapter.update(
+        NausicaaViconSample(0.05, (1.1, 2.0, 1.5), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[1.0, 0.0, 0.0],
+    )
+    active_state = adapter.update(
+        NausicaaViconSample(0.13, (1.2, 2.0, 1.5), euler_rad=(0.0, 0.0, 0.0)),
+        command_norm=[1.0, 0.0, 0.0],
+    )
+
+    assert delayed_state[STATE_INDEX["delta_a"]] == 0.0
+    assert active_state[STATE_INDEX["delta_a"]] > 0.0
+    assert adapter.estimator_status()["surface_command_delay_s"] == 0.073

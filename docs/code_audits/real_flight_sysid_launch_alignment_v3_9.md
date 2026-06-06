@@ -36,8 +36,10 @@ with:
 - aileron/elevator/rudder axis multipliers: `0.85--1.15`;
 - `control_mix` retained as geometry/sign mapping;
 - `surface_calibration_scale` retained nominal for W3 plant instances;
-- implementation-side achieved-surface effectiveness kept separate as a
-  command/actuator uncertainty.
+- implementation-side surface-effectiveness scaling retired to avoid
+  duplicating plant-side authority uncertainty; command/actuator uncertainty
+  still covers command timing, actuator lag, neutral bias, saturation-limit
+  clipping, and left/right aileron asymmetry.
 
 R5/R7/R10/R11 use the same active model path through
 `build_nausicaa_glider()`, `plant_instance_for_layer()`, and

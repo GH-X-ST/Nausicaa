@@ -52,6 +52,12 @@ class FlightControllerDecision:
     expected_energy_residual_m: float
     expected_updraft_gain_proxy_m: float
     expected_lift_dwell_time_s: float
+    selected_score: float
+    selected_base_library_score_component: float
+    selected_mission_score_component: float
+    selected_exploration_score_component: float
+    selected_memory_score_component: float
+    selected_calibrated_regime_mismatch_score_component: float
     memory_enabled: bool
     memory_cell_count: int
     decision_time_s: float
@@ -237,6 +243,18 @@ class FrozenFlightController:
             "expected_energy_residual_m": _safe_float(selected.get("expected_energy_residual_m", 0.0)),
             "expected_updraft_gain_proxy_m": _safe_float(selected.get("expected_updraft_gain_proxy_m", 0.0)),
             "expected_lift_dwell_time_s": _safe_float(selected.get("expected_lift_dwell_time_s", 0.0)),
+            "selected_score": _safe_float(selected.get("score", 0.0)),
+            "selected_base_library_score_component": _safe_float(
+                selected.get("base_library_score_component", 0.0)
+            ),
+            "selected_mission_score_component": _safe_float(selected.get("mission_score_component", 0.0)),
+            "selected_exploration_score_component": _safe_float(
+                selected.get("exploration_score_component", 0.0)
+            ),
+            "selected_memory_score_component": _safe_float(selected.get("memory_score_component", 0.0)),
+            "selected_calibrated_regime_mismatch_score_component": _safe_float(
+                selected.get("calibrated_regime_mismatch_score_component", 0.0)
+            ),
         }
 
     def _emit_selected_decision(
@@ -275,6 +293,14 @@ class FrozenFlightController:
             expected_energy_residual_m=float(prepared["expected_energy_residual_m"]),
             expected_updraft_gain_proxy_m=float(prepared["expected_updraft_gain_proxy_m"]),
             expected_lift_dwell_time_s=float(prepared["expected_lift_dwell_time_s"]),
+            selected_score=float(prepared["selected_score"]),
+            selected_base_library_score_component=float(prepared["selected_base_library_score_component"]),
+            selected_mission_score_component=float(prepared["selected_mission_score_component"]),
+            selected_exploration_score_component=float(prepared["selected_exploration_score_component"]),
+            selected_memory_score_component=float(prepared["selected_memory_score_component"]),
+            selected_calibrated_regime_mismatch_score_component=float(
+                prepared["selected_calibrated_regime_mismatch_score_component"]
+            ),
             memory_enabled=bool(self.memory_state.enabled),
             memory_cell_count=int(self.memory_state.cell_count()),
             decision_time_s=float(prepared_decision_time_s) + (time.perf_counter() - started),
@@ -351,6 +377,12 @@ class FrozenFlightController:
             expected_energy_residual_m=0.0,
             expected_updraft_gain_proxy_m=0.0,
             expected_lift_dwell_time_s=0.0,
+            selected_score=0.0,
+            selected_base_library_score_component=0.0,
+            selected_mission_score_component=0.0,
+            selected_exploration_score_component=0.0,
+            selected_memory_score_component=0.0,
+            selected_calibrated_regime_mismatch_score_component=0.0,
             memory_enabled=bool(self.memory_state.enabled),
             memory_cell_count=int(self.memory_state.cell_count()),
             decision_time_s=time.perf_counter() - started,

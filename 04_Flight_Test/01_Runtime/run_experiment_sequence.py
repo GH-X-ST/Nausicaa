@@ -148,6 +148,7 @@ def run_experiment_sequence(
     valid_count = 0
     invalid_count = 0
     attempt_index = 0
+    posthoc_throw_rows: list[dict[str, object]] = []
     print(f"[START] case={case.case_id} {case.case_name}")
     print(
         f"[START] controller_mode={case.controller_mode} memory_enabled={case.memory_enabled} "
@@ -221,6 +222,7 @@ def run_experiment_sequence(
                 controller=controller,
                 expected_visible_fan_range=(case.expected_visible_fan_min, case.expected_visible_fan_max),
             )
+            posthoc_throw_rows.append(_posthoc_session_throw_row(summary))
             if bool(summary.get("valid_throw", False)):
                 valid_count += 1
                 session_logger.append_metric_row("experiment_sequence_summary.csv", _session_row(case, summary, valid_count, invalid_count))
@@ -265,6 +267,10 @@ def run_experiment_sequence(
                 )
                 print("[REARM] retry cooldown complete; waiting again for a valid launch gate.")
     finally:
+        session_logger.append_metric_row(
+            "posthoc_session.csv",
+            _posthoc_session_row(case, posthoc_throw_rows, valid_count, invalid_count),
+        )
         session_logger.write_manifest(
             "experiment_sequence_final_summary.json",
             {
@@ -273,6 +279,12 @@ def run_experiment_sequence(
                 "target_valid_throws": target,
                 "valid_throw_count": valid_count,
                 "invalid_attempt_count": invalid_count,
+                "posthoc_score_audit": _posthoc_session_row(
+                    case,
+                    posthoc_throw_rows,
+                    valid_count,
+                    invalid_count,
+                ),
                 "controller_memory": controller.memory_summary(),
                 "pre_arm_vicon_inactive_delay_s": float(pre_arm_delay_s),
                 "vicon_tracking_rate_hz": float(1.0 / vicon_poll_period_s),
@@ -322,6 +334,78 @@ def _session_row(case, summary: dict[str, object], valid_count: int, invalid_cou
         "latest_memory_cell_count": int(summary.get("memory_cell_count", 0)),
         "latest_cancellation_reason": summary.get("cancellation_reason", ""),
     }
+
+
+def _posthoc_session_throw_row(summary: dict[str, object]) -> dict[str, object]:
+    return {
+        "valid_throw": bool(summary.get("valid_throw", False)),
+        "memory_history_bucket": str(summary.get("posthoc_memory_history_bucket", "")),
+        "controller_decision_count": int(summary.get("controller_decision_count", 0)),
+        "executed_selected_decision_count": int(summary.get("posthoc_executed_selected_decision_count", 0)),
+        "accumulated_selected_score": _safe_float(summary.get("posthoc_accumulated_selected_score", 0.0)),
+        "final_observable_specific_energy_m": _safe_float(
+            summary.get("posthoc_final_observable_specific_energy_m", float("nan")),
+            default=float("nan"),
+        ),
+    }
+
+
+def _posthoc_session_row(
+    case,
+    rows: list[dict[str, object]],
+    valid_count: int,
+    invalid_count: int,
+) -> dict[str, object]:
+    valid_rows = [row for row in rows if bool(row.get("valid_throw", False))]
+    energy_values = [
+        _safe_float(row.get("final_observable_specific_energy_m", float("nan")), default=float("nan"))
+        for row in valid_rows
+    ]
+    energy_values = [value for value in energy_values if math.isfinite(value)]
+    return {
+        "case_id": case.case_id,
+        "case_name": case.case_name,
+        "layout_id": case.layout_id,
+        "controller_mode": case.controller_mode,
+        "memory_enabled": bool(case.memory_enabled),
+        "valid_throw_count": int(valid_count),
+        "invalid_attempt_count": int(invalid_count),
+        "posthoc_throw_row_count": int(len(rows)),
+        "mean_accumulated_selected_score": _mean(
+            [_safe_float(row.get("accumulated_selected_score", 0.0)) for row in valid_rows]
+        ),
+        "mean_executed_selected_decision_count": _mean(
+            [_safe_float(row.get("executed_selected_decision_count", 0.0)) for row in valid_rows]
+        ),
+        "mean_final_observable_specific_energy_m": _mean(energy_values),
+        "open_loop_throw_count": _bucket_count(valid_rows, "open_loop"),
+        "no_memory_throw_count": _bucket_count(valid_rows, "no_memory"),
+        "h0_throw_count": _bucket_count(valid_rows, "h0"),
+        "h1_3_throw_count": _bucket_count(valid_rows, "h1_3"),
+        "h4_10_throw_count": _bucket_count(valid_rows, "h4_10"),
+        "h11_30_plus_throw_count": _bucket_count(valid_rows, "h11_30_plus"),
+        "posthoc_score_source": "child_throw_runtime_summary_posthoc_fields",
+        "claim_status": "real_flight_session_posthoc_score_audit_not_runtime_control",
+    }
+
+
+def _bucket_count(rows: list[dict[str, object]], bucket: str) -> int:
+    return sum(1 for row in rows if str(row.get("memory_history_bucket", "")) == bucket)
+
+
+def _mean(values: list[float]) -> float:
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    if not finite:
+        return float("nan")
+    return float(sum(finite) / len(finite))
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return result
 
 
 def _available_run_root(preferred: Path) -> Path:

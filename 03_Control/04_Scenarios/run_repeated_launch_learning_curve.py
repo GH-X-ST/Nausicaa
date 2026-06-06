@@ -727,7 +727,7 @@ def run_repeated_launch_validation(config: ValidationRunConfig, *, protocol: Val
     _write_csv(run_root / "metrics" / "pairing_audit.csv", pd.DataFrame(pairing_rows))
     if protocol.requires_no_glider_latency_variation_audit:
         _write_csv(run_root / "metrics" / "no_glider_latency_variation_audit.csv", pd.DataFrame(no_variation_rows))
-    _write_compact_metric_tables(run_root, episode_rows, protocol)
+    _write_compact_metric_tables(run_root, episode_rows, selector_rows, protocol)
     pass_summary = _pass_fail_summary(
         protocol=protocol,
         max_primitives_per_launch=int(config.max_primitives_per_launch),
@@ -5817,7 +5817,12 @@ def _paired_score_delta_group_summary(delta_rows: pd.DataFrame, group_columns: l
     )
 
 
-def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, object]], protocol: ValidationProtocol) -> None:
+def _write_compact_metric_tables(
+    run_root: Path,
+    episode_rows: list[dict[str, object]],
+    selector_rows: list[dict[str, object]],
+    protocol: ValidationProtocol,
+) -> None:
     frame = pd.DataFrame(episode_rows)
     final = frame[frame["launch_role"].astype(str) == "final_heldout"] if not frame.empty else pd.DataFrame()
     if not final.empty:
@@ -5825,6 +5830,12 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
         final = _with_selection_change_flags(final)
         final = _with_launch_speed_analysis_columns(final)
     _write_csv(run_root / "metrics" / "final_launch_score.csv", final)
+    posthoc_final = _posthoc_final_score_table(final)
+    posthoc_exec = _posthoc_executed_score_table(final, selector_rows)
+    posthoc_delta = _posthoc_score_delta_table(posthoc_exec)
+    _write_csv(run_root / "metrics" / "posthoc_final.csv", posthoc_final)
+    _write_csv(run_root / "metrics" / "posthoc_exec.csv", posthoc_exec)
+    _write_csv(run_root / "metrics" / "posthoc_delta.csv", posthoc_delta)
     speed_group_columns = [
         "environment_block_id",
         "library_size_case_id",
@@ -6006,6 +6017,214 @@ def _write_compact_metric_tables(run_root: Path, episode_rows: list[dict[str, ob
             run_root / "metrics" / f"{required_name}.csv",
             pd.DataFrame([{"table_name": required_name, "row_level_log": f"tables/{required_name}/", "storage": "partitioned"}]),
         )
+
+
+def _existing_columns(frame: pd.DataFrame, columns: list[str]) -> list[str]:
+    return [column for column in columns if column in frame.columns]
+
+
+def _posthoc_final_score_table(final: pd.DataFrame) -> pd.DataFrame:
+    """Compact per-launch final score audit for report tables."""
+
+    columns = [
+        "episode_id",
+        "launch_role",
+        "environment_block_id",
+        "library_size_case_id",
+        "outer_case_index",
+        "common_final_launch_key",
+        "paired_start_condition_key",
+        "policy_id",
+        "history_length",
+        "W_layer",
+        "environment_mode",
+        "initial_launch_speed_m_s",
+        "selected_primitive_step_count",
+        "episode_rollout_duration_s",
+        "episode_flight_time_s",
+        "mission_success",
+        "front_wall_terminal_success",
+        "safe_success",
+        "full_safe_success",
+        "wrong_wall_exit",
+        "no_viable_primitive",
+        "hard_failure",
+        "floor_or_ceiling_violation",
+        "terminal_wall_face",
+        "mission_outcome_label",
+        "terminal_specific_energy_m",
+        "terminal_specific_energy_reserve_m",
+        "base_failure_penalty",
+        "base_failure_penalty_reason",
+        "mission_completion_component",
+        "updraft_gain_bonus",
+        "lift_dwell_bonus",
+        "terminal_specific_energy_bonus",
+        "launch_score_additive_component",
+        "launch_score",
+        "launch_score_version",
+        "launch_score_scope",
+    ]
+    if final.empty:
+        return pd.DataFrame(columns=columns)
+    return final[_existing_columns(final, columns)].copy()
+
+
+def _posthoc_executed_score_table(
+    final: pd.DataFrame,
+    selector_rows: list[dict[str, object]],
+) -> pd.DataFrame:
+    """Aggregate the selector scores for primitives that were actually chosen."""
+
+    metadata_columns = [
+        "episode_id",
+        "environment_block_id",
+        "library_size_case_id",
+        "outer_case_index",
+        "common_final_launch_key",
+        "policy_id",
+        "history_length",
+        "W_layer",
+        "environment_mode",
+        "mission_success",
+        "front_wall_terminal_success",
+        "safe_success",
+        "full_safe_success",
+        "wrong_wall_exit",
+        "no_viable_primitive",
+        "hard_failure",
+        "floor_or_ceiling_violation",
+        "launch_score",
+    ]
+    aggregate_columns = [
+        "selector_decision_count",
+        "executed_selected_decision_count",
+        "blocked_selector_decision_count",
+        "accumulated_selected_score",
+        "accumulated_base_library_score_component",
+        "accumulated_mission_score_component",
+        "accumulated_exploration_score_component",
+        "accumulated_memory_score_component",
+        "accumulated_calibrated_regime_mismatch_score_component",
+    ]
+    if final.empty:
+        return pd.DataFrame(columns=metadata_columns + aggregate_columns + ["posthoc_score_source"])
+
+    out = final[_existing_columns(final, metadata_columns)].copy()
+    selector = pd.DataFrame(selector_rows)
+    if selector.empty or "episode_id" not in selector.columns:
+        for column in aggregate_columns:
+            out[column] = 0.0
+        out["posthoc_score_source"] = "episode_summary_no_selector_decision_rows"
+        return out
+
+    final_episode_ids = set(out["episode_id"].astype(str))
+    selector = selector[selector["episode_id"].astype(str).isin(final_episode_ids)].copy()
+    if selector.empty:
+        for column in aggregate_columns:
+            out[column] = 0.0
+        out["posthoc_score_source"] = "no_matching_final_heldout_selector_rows"
+        return out
+
+    selected_mask = (
+        selector.get("decision_status", pd.Series("", index=selector.index)).astype(str)
+        == "selected_compact_representative"
+    ) | selector.get("selected_primitive_variant_id", pd.Series("", index=selector.index)).astype(str).ne("")
+    selector["_posthoc_selected"] = selected_mask.astype(float)
+    score_columns = {
+        "selected_score": "accumulated_selected_score",
+        "selected_base_library_score_component": "accumulated_base_library_score_component",
+        "selected_mission_score_component": "accumulated_mission_score_component",
+        "selected_exploration_score_component": "accumulated_exploration_score_component",
+        "selected_memory_score_component": "accumulated_memory_score_component",
+        "selected_calibrated_regime_mismatch_score_component": (
+            "accumulated_calibrated_regime_mismatch_score_component"
+        ),
+    }
+    for column in score_columns:
+        values = selector[column] if column in selector.columns else pd.Series(0.0, index=selector.index)
+        selector[column] = pd.to_numeric(values, errors="coerce").fillna(0.0)
+        selector.loc[~selector["_posthoc_selected"].astype(bool), column] = 0.0
+
+    grouped = selector.groupby("episode_id", dropna=False)
+    aggregate = grouped.agg(
+        selector_decision_count=("episode_id", "count"),
+        executed_selected_decision_count=("_posthoc_selected", "sum"),
+    ).reset_index()
+    aggregate["blocked_selector_decision_count"] = (
+        aggregate["selector_decision_count"] - aggregate["executed_selected_decision_count"]
+    )
+    score_sums = grouped[list(score_columns.keys())].sum().reset_index()
+    score_sums = score_sums.rename(columns=score_columns)
+    aggregate = aggregate.merge(score_sums, on="episode_id", how="left")
+
+    out = out.merge(aggregate, on="episode_id", how="left")
+    for column in aggregate_columns:
+        values = out[column] if column in out.columns else pd.Series(0.0, index=out.index)
+        out[column] = pd.to_numeric(values, errors="coerce").fillna(0.0)
+    out["posthoc_score_source"] = "selector_decision_log_selected_executed_rows"
+    return out
+
+
+def _posthoc_score_delta_table(posthoc_exec: pd.DataFrame) -> pd.DataFrame:
+    if posthoc_exec.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    records = posthoc_exec.to_dict(orient="records")
+    for baseline_policy_id, comparison_type in (
+        ("no_memory_baseline", "policy_vs_no_memory_baseline"),
+        (OPEN_LOOP_COMPARISON_POLICY_ID, "policy_vs_open_loop"),
+    ):
+        baseline = [row for row in records if str(row.get("policy_id", "")) == baseline_policy_id]
+        if not baseline:
+            continue
+        baseline_map = {_paired_launch_key(row): row for row in baseline}
+        for row in records:
+            if str(row.get("policy_id", "")) == baseline_policy_id:
+                continue
+            baseline_row = baseline_map.get(_paired_launch_key(row))
+            if baseline_row is None:
+                continue
+            rows.append(
+                {
+                    "comparison_type": comparison_type,
+                    "environment_block_id": str(row.get("environment_block_id", "")),
+                    "library_size_case_id": str(row.get("library_size_case_id", "")),
+                    "outer_case_index": int(_float_value(row.get("outer_case_index", 0))),
+                    "common_final_launch_key": str(row.get("common_final_launch_key", "")),
+                    "policy_id": str(row.get("policy_id", "")),
+                    "baseline_policy_id": baseline_policy_id,
+                    "history_length": int(_float_value(row.get("history_length", 0))),
+                    "launch_score": _float_value(row.get("launch_score", 0.0)),
+                    "baseline_launch_score": _float_value(baseline_row.get("launch_score", 0.0)),
+                    "delta_launch_score": _float_value(row.get("launch_score", 0.0))
+                    - _float_value(baseline_row.get("launch_score", 0.0)),
+                    "accumulated_selected_score": _float_value(row.get("accumulated_selected_score", 0.0)),
+                    "baseline_accumulated_selected_score": _float_value(
+                        baseline_row.get("accumulated_selected_score", 0.0)
+                    ),
+                    "delta_accumulated_selected_score": _float_value(
+                        row.get("accumulated_selected_score", 0.0)
+                    )
+                    - _float_value(baseline_row.get("accumulated_selected_score", 0.0)),
+                    "executed_selected_decision_count": int(
+                        _float_value(row.get("executed_selected_decision_count", 0))
+                    ),
+                    "baseline_executed_selected_decision_count": int(
+                        _float_value(baseline_row.get("executed_selected_decision_count", 0))
+                    ),
+                    "mission_success_delta": int(_truthy(row.get("mission_success", False)))
+                    - int(_truthy(baseline_row.get("mission_success", False))),
+                    "safe_success_delta": int(_truthy(row.get("safe_success", False)))
+                    - int(_truthy(baseline_row.get("safe_success", False))),
+                    "hard_failure_delta": int(_truthy(row.get("hard_failure", False)))
+                    - int(_truthy(baseline_row.get("hard_failure", False))),
+                    "no_viable_primitive_delta": int(_truthy(row.get("no_viable_primitive", False)))
+                    - int(_truthy(baseline_row.get("no_viable_primitive", False))),
+                    "claim_status": "posthoc_score_delta_audit_not_runtime_control",
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def _with_launch_score_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -7373,6 +7592,15 @@ def _write_manifest(
         "launch_score_terminal_specific_energy_bonus_status": "applied_only_after_front_wall_terminal_success",
         "launch_score_wrong_wall_exit_penalty": float(WRONG_WALL_EXIT_PENALTY),
         "launch_score_gravity_m_s2": float(SPECIFIC_ENERGY_GRAVITY_M_S2),
+        "posthoc_score_audit_policy": (
+            "compact_final_score_and_executed_selector_score_reporting_only_excluded_from_runtime_budget"
+        ),
+        "posthoc_score_audit_tables": [
+            "metrics/posthoc_final.csv",
+            "metrics/posthoc_exec.csv",
+            "metrics/posthoc_delta.csv",
+        ],
+        "posthoc_score_file_policy": "short_metric_filenames_compact_rows_file_size_audited",
         "low_launch_speed_dry_air_sink_policy": (
             "raw primitive floor_violation is retained, but floor stop after a launch below the claim-bearing speed envelope "
             "is labelled expected_low_energy_dry_air_sink and excluded from governor/memory claim-bearing gates"
@@ -7433,6 +7661,7 @@ def _write_report(*, run_root: Path, protocol: ValidationProtocol, status: str, 
         "- The adaptive selector uses one baseline shield at every launch; there is no branch that treats a held-out final launch as a known final mission.",
         "- Boundary-near is a route state, not automatic failure; hard_failure is the failure class.",
         f"- Launch score: `{LAUNCH_SCORE_VERSION}`; rewards front-wall terminal mission completion plus capped updraft/lift evidence and terminal total specific energy reserve. Airborne time and generic net/gross energy drift remain audit-only.",
+        "- Posthoc score audit: `posthoc_final.csv` reports the final held-out launch score per policy/case/launch; `posthoc_exec.csv` sums the selector scores and components of actually executed selected primitives; `posthoc_delta.csv` reports paired deltas versus no-memory and open-loop baselines. These tables are reporting-only and excluded from the real-time controller budget.",
         "- Dry-air or scheduled-zero-fan low-launch-speed floor stops keep the raw primitive `floor_violation` audit label, but are interpreted as expected energy depletion rather than governor or memory failure.",
         f"- Start-energy audit: `speed_bin_policy_ladder_summary.csv` reports mission/safety rates by environment ladder, library tier, policy, repeated-launch history length, and initial-speed bin. `start_energy_group_policy_ladder_summary.csv` separates low-start-energy launches from high-start-energy launches using `{START_ENERGY_FEASIBILITY_SPEED_THRESHOLD_M_S:.1f} m/s` as a fixed post-hoc reporting threshold; paired score-delta summaries are split the same way.",
         "- Claim boundary: simulation-only; no hardware, real-flight transfer, mission, autonomy, or memory-improvement claim.",
