@@ -1,0 +1,1 @@
+candidate_id,selection_class,sweep_stage,split,score,longitudinal_score,lateral_score,parameter_count,lateral_parameter_count,dx_mae_m,dy_mae_m,altitude_loss_mae_m,sink_mae_m_s,roll_mae_deg,pitch_mae_deg,yaw_mae_deg,parameter_updates_json

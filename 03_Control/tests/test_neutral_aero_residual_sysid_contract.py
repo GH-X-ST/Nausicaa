@@ -60,9 +60,55 @@ def test_joint_pareto_audit_parser_defaults_to_40ms_diagnostic() -> None:
     args = parser.parse_args([])
     assert args.joint_pareto_audit is True
     assert args.joint_pareto_audit_alignment_window_s == pytest.approx(0.040)
+    assert args.joint_pareto_profile == "small"
 
     disabled = parser.parse_args(["--no-joint-pareto-audit"])
     assert disabled.joint_pareto_audit is False
+
+
+def test_heavy_joint_pareto_profile_defaults_are_bounded_40ms_contract() -> None:
+    parser = sysid.build_arg_parser()
+    args = parser.parse_args(
+        [
+            "--joint-pareto-profile",
+            "heavy",
+            "--joint-pareto-top-longitudinal",
+            "6",
+            "--joint-pareto-top-lateral",
+            "10",
+            "--joint-pareto-max-lateral-order",
+            "3",
+            "--joint-pareto-top-triples",
+            "80",
+            "--joint-pareto-max-candidates",
+            "900",
+            "--joint-pareto-selected-limit",
+            "8",
+            "--workers",
+            "8",
+        ]
+    )
+    config = sysid.resolved_joint_pareto_profile_config(
+        profile=args.joint_pareto_profile,
+        top_longitudinal=args.joint_pareto_top_longitudinal,
+        top_lateral=args.joint_pareto_top_lateral,
+        max_lateral_order=args.joint_pareto_max_lateral_order,
+        top_triples=args.joint_pareto_top_triples,
+        max_candidates=args.joint_pareto_max_candidates,
+        selected_limit=args.joint_pareto_selected_limit,
+    )
+
+    assert args.joint_pareto_audit_alignment_window_s == pytest.approx(0.040)
+    assert args.workers == 8
+    assert config["profile"] == "heavy"
+    assert config["top_longitudinal"] == 6
+    assert config["top_lateral"] == 10
+    assert config["max_lateral_order"] == 3
+    assert config["top_triples"] == 80
+    assert config["max_candidates"] == 900
+    assert config["selected_limit"] == 8
+    assert config["scale_grid"] == pytest.approx(sysid.JOINT_PARETO_HEAVY_SCALE_GRID)
+    assert config["reference_policy"] == "per_base"
 
 
 def test_replay_alignment_accepts_synchronized_40ms_handoff_window() -> None:
@@ -269,6 +315,230 @@ def test_joint_pareto_acceptance_requires_lateral_improvement_with_longitudinal_
     accepted, reason = sysid.joint_pareto_audit_acceptance(reference, longitudinal_regression)
     assert accepted is False
     assert reason.startswith("rejected_longitudinal_metrics_degraded")
+
+
+def test_heavy_joint_pareto_candidate_generation_respects_limits_and_lateral_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = sysid.active_parameter_dict()
+    long_a = dict(base)
+    long_a["attached_pitch_moment_bias_coeff"] = base["attached_pitch_moment_bias_coeff"] + 0.01
+    long_b = dict(base)
+    long_b["transition_pitch_moment_bias_coeff"] = base["transition_pitch_moment_bias_coeff"] + 0.01
+    top_longitudinal = [
+        {"candidate_id": "long_a", "parameters": long_a, "longitudinal_score": 1.0},
+        {"candidate_id": "long_b", "parameters": long_b, "longitudinal_score": 2.0},
+    ]
+    lateral_sources = [
+        {"candidate_id": "no_lateral_update", "parameters": dict(base), "updates": {}, "source_priority": 0.0},
+        {
+            "candidate_id": "source_attached",
+            "parameters": {**base, "side_force_beta_coeff": base["side_force_beta_coeff"] - 0.2},
+            "updates": {"side_force_beta_coeff": base["side_force_beta_coeff"] - 0.2},
+            "source_priority": 0.0,
+        },
+        {
+            "candidate_id": "source_transition",
+            "parameters": {**base, "transition_yaw_moment_p_hat_coeff": base["transition_yaw_moment_p_hat_coeff"] - 0.1},
+            "updates": {"transition_yaw_moment_p_hat_coeff": base["transition_yaw_moment_p_hat_coeff"] - 0.1},
+            "source_priority": 0.0,
+        },
+        {
+            "candidate_id": "source_post",
+            "parameters": {
+                **base,
+                sysid.lateral_surface_parameter_name("post_stall_yaw_moment", "p_hat", sysid.SURFACE_RBF_ALPHA_CENTERS_DEG[0]): -0.05,
+            },
+            "updates": {
+                sysid.lateral_surface_parameter_name("post_stall_yaw_moment", "p_hat", sysid.SURFACE_RBF_ALPHA_CENTERS_DEG[0]): -0.05,
+            },
+            "source_priority": 0.0,
+        },
+    ]
+
+    def fake_evaluate(states: list[dict[str, object]], **_: object) -> list[dict[str, object]]:
+        out = []
+        for index, state in enumerate(states):
+            updated = dict(state)
+            updated["summary"] = {
+                "dx_mae_m": 0.2,
+                "dy_mae_m": 0.5 - 0.01 * index,
+                "altitude_loss_mae_m": 0.1,
+                "sink_mae_m_s": 0.1,
+                "final_phi_mae_deg": 10.0 - 0.1 * index,
+                "final_theta_mae_deg": 5.0,
+                "final_psi_mae_deg": 12.0 - 0.1 * index,
+            }
+            updated["split"] = "heldout"
+            updated["score"] = float(index)
+            updated["longitudinal_score"] = 1.0
+            updated["lateral_score"] = float(index)
+            out.append(updated)
+        return out
+
+    monkeypatch.setattr(sysid, "compact_joint_sweep_evaluate_states", fake_evaluate)
+    states = sysid.joint_pareto_heavy_combination_states(
+        top_longitudinal_sources=top_longitudinal,
+        lateral_sources=lateral_sources,
+        base_parameters=base,
+        best_longitudinal=top_longitudinal[0],
+        heldout_rows=[{}],
+        replay_dt_s=0.005,
+        alignment_window_s=0.040,
+        workers=1,
+        config={
+                **sysid.resolved_joint_pareto_profile_config(
+                    profile="heavy",
+                    top_longitudinal=2,
+                    top_lateral=24,
+                    max_lateral_order=3,
+                    top_triples=2,
+                    max_candidates=900,
+                    selected_limit=8,
+                )
+            },
+        )
+
+    assert len(states) <= 900
+    assert any(state["lateral_source_id"] == "no_lateral_update" for state in states)
+    assert any(int(state["bundle_order"]) == 3 for state in states)
+    for state in states:
+        lateral_keys = [
+            key for key in sysid.parameter_updates(base, state["parameters"]) if sysid.joint_sweep_is_lateral_parameter(key)
+        ]
+        assert all(sysid.joint_pareto_heavy_allowed_lateral_key(key) for key in lateral_keys)
+
+
+def test_joint_pareto_rows_accept_against_each_longitudinal_base() -> None:
+    base = sysid.active_parameter_dict()
+    reference_good = {
+        "candidate_id": "ref_good",
+        "summary": {
+            "dx_mae_m": 0.20,
+            "altitude_loss_mae_m": 0.10,
+            "sink_mae_m_s": 0.10,
+            "final_theta_mae_deg": 5.0,
+            "dy_mae_m": 0.60,
+            "final_phi_mae_deg": 12.0,
+            "final_psi_mae_deg": 15.0,
+        },
+        "longitudinal_score": 1.0,
+        "lateral_score": 3.0,
+    }
+    reference_bad = {
+        "candidate_id": "ref_bad",
+        "summary": {
+            "dx_mae_m": 0.50,
+            "altitude_loss_mae_m": 0.20,
+            "sink_mae_m_s": 0.20,
+            "final_theta_mae_deg": 9.0,
+            "dy_mae_m": 0.70,
+            "final_phi_mae_deg": 14.0,
+            "final_psi_mae_deg": 17.0,
+        },
+        "longitudinal_score": 2.0,
+        "lateral_score": 4.0,
+    }
+    candidate_params = dict(base)
+    candidate_params["side_force_beta_coeff"] = base["side_force_beta_coeff"] - 0.2
+    candidate = {
+        "candidate_id": "candidate",
+        "longitudinal_source_id": "bad_base",
+        "lateral_source_id": "lat",
+        "parameters": candidate_params,
+        "summary": {
+            "dx_mae_m": 0.54,
+            "altitude_loss_mae_m": 0.22,
+            "sink_mae_m_s": 0.22,
+            "final_theta_mae_deg": 9.5,
+            "dy_mae_m": 0.60,
+            "final_phi_mae_deg": 13.0,
+            "final_psi_mae_deg": 16.0,
+        },
+        "score": 1.0,
+        "longitudinal_score": 2.2,
+        "lateral_score": 3.5,
+        "split": "heldout",
+    }
+
+    rows = sysid.joint_pareto_audit_candidate_rows(
+        [candidate],
+        base_parameters=base,
+        reference_state=reference_good,
+        reference_by_longitudinal={"bad_base": reference_bad},
+        global_reference_state=reference_good,
+        alignment_window_s=0.040,
+        profile="heavy",
+    )
+
+    assert rows[0]["accepted"] is True
+    assert rows[0]["reference_candidate_id"] == "ref_bad"
+    assert rows[0]["global_reference_candidate_id"] == "ref_good"
+    assert rows[0]["delta_dx_mae_m"] == pytest.approx(0.04)
+    assert rows[0]["global_delta_dx_mae_m"] == pytest.approx(0.34)
+
+
+def test_joint_pareto_selected_rows_are_capped_accepted_pareto_survivors() -> None:
+    rows = [
+        {
+            "candidate_id": f"c{idx}",
+            "accepted": True,
+            "pareto_member": True,
+            "lateral_score": float(idx),
+            "longitudinal_score": float(idx),
+        }
+        for idx in range(5)
+    ]
+    rows.append({"candidate_id": "rejected", "accepted": False, "pareto_member": True, "lateral_score": -1.0, "longitudinal_score": -1.0})
+    selected = sysid.joint_pareto_audit_selected_rows(rows, selected_limit=3)
+
+    assert [row["candidate_id"] for row in selected] == ["c0", "c1", "c2"]
+    assert all(row["selection_class"] == "accepted_pareto" for row in selected)
+
+
+def test_heavy_stage_replay_rows_use_normal_report_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = sysid.active_parameter_dict()
+    selected = {
+        "candidate_id": "selected",
+        "reference_candidate_id": "reference",
+        "global_reference_candidate_id": "reference",
+        "parameter_updates_json": "{}",
+    }
+    reference = {"candidate_id": "reference", "parameter_updates_json": "{}"}
+
+    def fake_sample_payload(payload: tuple[str, str, dict[str, object], dict[str, float], float, float]) -> list[dict[str, object]]:
+        model_id, split, *_ = payload
+        return [
+            {
+                "model_id": model_id,
+                "split": split,
+                "session_label": "s",
+                "throw_id": regime,
+                "regime": regime,
+                "dx_residual_actual_minus_sim_m": 0.1,
+                "dy_residual_actual_minus_sim_m": 0.2,
+                "altitude_loss_residual_actual_minus_sim_m": 0.3,
+                "sink_rate_residual_actual_minus_sim_m_s": 0.4,
+                "roll_residual_actual_minus_sim_deg": 1.0,
+                "pitch_residual_actual_minus_sim_deg": 2.0,
+                "yaw_residual_actual_minus_sim_deg": 3.0,
+            }
+            for regime in ("attached", "transition", "post_stall")
+        ]
+
+    monkeypatch.setattr(sysid, "stage_replay_sample_rows_payload", fake_sample_payload)
+    rows = sysid.joint_pareto_heavy_stage_replay_summary_rows(
+        candidate_rows=[selected, reference],
+        selected_rows=[selected],
+        base_parameters=base,
+        heldout_rows=[{}],
+        replay_dt_s=0.005,
+        alignment_window_s=0.040,
+        workers=1,
+    )
+
+    assert {row["report_regime"] for row in rows} == {"normal", "transition", "post_stall"}
+    assert all(row["split"] == "heldout" for row in rows)
+    assert any(row["model_role"] == "selected_candidate" for row in rows)
+    assert any(row["model_role"] == "matched_longitudinal_reference" for row in rows)
 
 
 def test_compact_joint_sweep_replay_path_does_not_hardcode_single_worker() -> None:

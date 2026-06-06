@@ -53,6 +53,7 @@ DEFAULT_ALIGNMENT_WINDOW_S = 0.040
 DEFAULT_SENSITIVITY_ALIGNMENT_WINDOWS_S: tuple[float, ...] = ()
 DEFAULT_JOINT_PARETO_AUDIT = True
 DEFAULT_JOINT_PARETO_AUDIT_ALIGNMENT_WINDOW_S = 0.040
+DEFAULT_JOINT_PARETO_PROFILE = "small"
 DEFAULT_DERIVATIVE_WINDOW_S = 0.040
 DEFAULT_REPLAY_DT_S = 0.005
 DEFAULT_RIDGE_LAMBDA = 1.0e-3
@@ -95,6 +96,31 @@ COMPACT_JOINT_SWEEP_MULTIPLIERS = (0.0, 0.5, 0.75, 1.0, 1.25, 1.5)
 JOINT_PARETO_AUDIT_TOP_LONGITUDINAL = 4
 JOINT_PARETO_AUDIT_TOP_LATERAL = 4
 JOINT_PARETO_AUDIT_SELECTED_LIMIT = 8
+JOINT_PARETO_HEAVY_SCALE_GRID = (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+JOINT_PARETO_PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
+    "small": {
+        "top_longitudinal": JOINT_PARETO_AUDIT_TOP_LONGITUDINAL,
+        "top_lateral": JOINT_PARETO_AUDIT_TOP_LATERAL,
+        "max_lateral_order": 1,
+        "top_triples": 0,
+        "max_candidates": 64,
+        "selected_limit": JOINT_PARETO_AUDIT_SELECTED_LIMIT,
+        "scale_grid": (1.0,),
+        "scaled_single_term_bundles": False,
+        "reference_policy": "global_best",
+    },
+    "heavy": {
+        "top_longitudinal": 6,
+        "top_lateral": 10,
+        "max_lateral_order": 3,
+        "top_triples": 80,
+        "max_candidates": 900,
+        "selected_limit": 8,
+        "scale_grid": JOINT_PARETO_HEAVY_SCALE_GRID,
+        "scaled_single_term_bundles": True,
+        "reference_policy": "per_base",
+    },
+}
 COMPACT_JOINT_SWEEP_BLEND_GRID_DEG = (
     (12.0, 20.0),
     (12.0, 22.0),
@@ -428,6 +454,7 @@ CM_STAGE_HISTORY_FIELDS = [
     "transition_sample_fraction",
     "post_stall_sample_fraction",
     "parameter_updates_json",
+    "proposed_parameter_updates_json",
 ]
 REPLAY_VALIDATION_FIELDS = ["model_id", *replay_fit.REPLAY_RESIDUAL_FIELDS]
 REPLAY_SENSITIVITY_FIELDS = [
@@ -563,10 +590,13 @@ JOINT_SWEEP_SELECTED_FIELDS = [
 JOINT_PARETO_AUDIT_FIELDS = [
     "candidate_id",
     "selection_class",
+    "joint_pareto_profile",
     "accepted",
     "acceptance_reason",
     "pareto_member",
     "alignment_window_s",
+    "reference_candidate_id",
+    "global_reference_candidate_id",
     "longitudinal_source_id",
     "lateral_source_id",
     "split",
@@ -577,30 +607,65 @@ JOINT_PARETO_AUDIT_FIELDS = [
     "lateral_score",
     "reference_lateral_score",
     "delta_lateral_score",
+    "global_reference_longitudinal_score",
+    "global_delta_longitudinal_score",
+    "global_reference_lateral_score",
+    "global_delta_lateral_score",
     "parameter_count",
     "lateral_parameter_count",
     "dx_mae_m",
     "reference_dx_mae_m",
     "delta_dx_mae_m",
+    "global_reference_dx_mae_m",
+    "global_delta_dx_mae_m",
     "dy_mae_m",
     "reference_dy_mae_m",
     "delta_dy_mae_m",
+    "global_reference_dy_mae_m",
+    "global_delta_dy_mae_m",
     "altitude_loss_mae_m",
     "reference_altitude_loss_mae_m",
     "delta_altitude_loss_mae_m",
+    "global_reference_altitude_loss_mae_m",
+    "global_delta_altitude_loss_mae_m",
     "sink_mae_m_s",
     "reference_sink_mae_m_s",
     "delta_sink_mae_m_s",
+    "global_reference_sink_mae_m_s",
+    "global_delta_sink_mae_m_s",
     "roll_mae_deg",
     "reference_roll_mae_deg",
     "delta_roll_mae_deg",
+    "global_reference_roll_mae_deg",
+    "global_delta_roll_mae_deg",
     "pitch_mae_deg",
     "reference_pitch_mae_deg",
     "delta_pitch_mae_deg",
+    "global_reference_pitch_mae_deg",
+    "global_delta_pitch_mae_deg",
     "yaw_mae_deg",
     "reference_yaw_mae_deg",
     "delta_yaw_mae_deg",
+    "global_reference_yaw_mae_deg",
+    "global_delta_yaw_mae_deg",
     "parameter_updates_json",
+]
+JOINT_PARETO_HEAVY_STAGE_REPLAY_FIELDS = [
+    "model_id",
+    "model_role",
+    "matched_candidate_id",
+    "split",
+    "regime",
+    "report_regime",
+    "sample_count",
+    "throw_count",
+    "dx_mae_m",
+    "dy_mae_m",
+    "altitude_loss_mae_m",
+    "sink_rate_mae_m_s",
+    "roll_mae_deg",
+    "pitch_mae_deg",
+    "yaw_mae_deg",
 ]
 
 
@@ -621,6 +686,13 @@ def main() -> None:
         ),
         joint_pareto_audit=bool(args.joint_pareto_audit),
         joint_pareto_audit_alignment_window_s=args.joint_pareto_audit_alignment_window_s,
+        joint_pareto_profile=args.joint_pareto_profile,
+        joint_pareto_top_longitudinal=args.joint_pareto_top_longitudinal,
+        joint_pareto_top_lateral=args.joint_pareto_top_lateral,
+        joint_pareto_max_lateral_order=args.joint_pareto_max_lateral_order,
+        joint_pareto_top_triples=args.joint_pareto_top_triples,
+        joint_pareto_max_candidates=args.joint_pareto_max_candidates,
+        joint_pareto_selected_limit=args.joint_pareto_selected_limit,
         derivative_window_s=args.derivative_window_s,
         replay_dt_s=args.replay_dt_s,
         ridge_lambda=args.ridge_lambda,
@@ -697,6 +769,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_JOINT_PARETO_AUDIT_ALIGNMENT_WINDOW_S,
         help="Replay alignment window used by the diagnostic joint Pareto audit.",
     )
+    parser.add_argument(
+        "--joint-pareto-profile",
+        choices=tuple(JOINT_PARETO_PROFILE_DEFAULTS),
+        default=DEFAULT_JOINT_PARETO_PROFILE,
+        help="Diagnostic joint Pareto search scale. heavy keeps the same parameter family but expands candidate combinations.",
+    )
+    parser.add_argument("--joint-pareto-top-longitudinal", type=int, default=None)
+    parser.add_argument("--joint-pareto-top-lateral", type=int, default=None)
+    parser.add_argument("--joint-pareto-max-lateral-order", type=int, default=None)
+    parser.add_argument("--joint-pareto-top-triples", type=int, default=None)
+    parser.add_argument("--joint-pareto-max-candidates", type=int, default=None)
+    parser.add_argument("--joint-pareto-selected-limit", type=int, default=None)
     parser.add_argument("--derivative-window-s", type=float, default=DEFAULT_DERIVATIVE_WINDOW_S)
     parser.add_argument("--replay-dt-s", type=float, default=DEFAULT_REPLAY_DT_S)
     parser.add_argument("--ridge-lambda", type=float, default=DEFAULT_RIDGE_LAMBDA)
@@ -830,6 +914,44 @@ def normalized_sensitivity_alignment_windows(
     return tuple(out)
 
 
+def resolved_joint_pareto_profile_config(
+    *,
+    profile: str,
+    top_longitudinal: int | None,
+    top_lateral: int | None,
+    max_lateral_order: int | None,
+    top_triples: int | None,
+    max_candidates: int | None,
+    selected_limit: int | None,
+) -> dict[str, Any]:
+    if str(profile) not in JOINT_PARETO_PROFILE_DEFAULTS:
+        raise ValueError(f"Unsupported joint Pareto profile: {profile!r}.")
+    config = dict(JOINT_PARETO_PROFILE_DEFAULTS[str(profile)])
+    config["profile"] = str(profile)
+    overrides = {
+        "top_longitudinal": top_longitudinal,
+        "top_lateral": top_lateral,
+        "max_lateral_order": max_lateral_order,
+        "top_triples": top_triples,
+        "max_candidates": max_candidates,
+        "selected_limit": selected_limit,
+    }
+    for key, value in overrides.items():
+        if value is None:
+            continue
+        if int(value) < 0:
+            raise ValueError(f"Joint Pareto {key} must be non-negative, got {value!r}.")
+        config[key] = int(value)
+    config["top_longitudinal"] = max(1, int(config["top_longitudinal"]))
+    config["top_lateral"] = max(0, int(config["top_lateral"]))
+    config["max_lateral_order"] = max(1, min(3, int(config["max_lateral_order"])))
+    config["top_triples"] = max(0, int(config["top_triples"]))
+    config["max_candidates"] = max(1, int(config["max_candidates"]))
+    config["selected_limit"] = max(1, int(config["selected_limit"]))
+    config["scale_grid"] = tuple(float(value) for value in config["scale_grid"])
+    return config
+
+
 def run_fit(
     *,
     session_root: Path,
@@ -842,6 +964,13 @@ def run_fit(
     sensitivity_alignment_windows_s: tuple[float, ...],
     joint_pareto_audit: bool,
     joint_pareto_audit_alignment_window_s: float,
+    joint_pareto_profile: str,
+    joint_pareto_top_longitudinal: int | None,
+    joint_pareto_top_lateral: int | None,
+    joint_pareto_max_lateral_order: int | None,
+    joint_pareto_top_triples: int | None,
+    joint_pareto_max_candidates: int | None,
+    joint_pareto_selected_limit: int | None,
     derivative_window_s: float,
     replay_dt_s: float,
     ridge_lambda: float,
@@ -873,6 +1002,15 @@ def run_fit(
     sensitivity_alignment_windows = normalized_sensitivity_alignment_windows(
         alignment_window_s,
         sensitivity_alignment_windows_s,
+    )
+    joint_pareto_config = resolved_joint_pareto_profile_config(
+        profile=joint_pareto_profile,
+        top_longitudinal=joint_pareto_top_longitudinal,
+        top_lateral=joint_pareto_top_lateral,
+        max_lateral_order=joint_pareto_max_lateral_order,
+        top_triples=joint_pareto_top_triples,
+        max_candidates=joint_pareto_max_candidates,
+        selected_limit=joint_pareto_selected_limit,
     )
 
     loaded_rows = load_neutral_rows(session_root)
@@ -986,6 +1124,7 @@ def run_fit(
     joint_sweep_extra_models: list[tuple[str, dict[str, float]]] = []
     joint_pareto_audit_candidate_rows: list[dict[str, Any]] = []
     joint_pareto_audit_selected_rows: list[dict[str, Any]] = []
+    joint_pareto_heavy_stage_replay_rows: list[dict[str, Any]] = []
     if fit_workflow == "cm_regime_staged":
         candidate_parameters, cm_stage_history_rows = cm_regime_staged_refinement(
             base_parameters=base_parameters,
@@ -1109,7 +1248,18 @@ def run_fit(
         alignment_window_s=joint_pareto_audit_alignment_window_s,
         workers=workers,
         enabled=joint_pareto_audit,
+        config=joint_pareto_config,
     )
+    if str(joint_pareto_config["profile"]) == "heavy":
+        joint_pareto_heavy_stage_replay_rows = joint_pareto_heavy_stage_replay_summary_rows(
+            candidate_rows=joint_pareto_audit_candidate_rows,
+            selected_rows=joint_pareto_audit_selected_rows,
+            base_parameters=base_parameters,
+            heldout_rows=heldout_rows,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=joint_pareto_audit_alignment_window_s,
+            workers=workers,
+        )
     lateral_launch_correlation_rows = lateral_launch_correlation_report_rows(validation_rows)
     stage_replay_rows = stage_replay_summary_rows(
         train_rows=train_rows,
@@ -1244,6 +1394,22 @@ def run_fit(
         joint_pareto_audit_selected_rows,
         JOINT_PARETO_AUDIT_FIELDS,
     )
+    if str(joint_pareto_config["profile"]) == "heavy":
+        write_csv(
+            output_dir / "metrics" / "neutral_aero_residual_joint_pareto_heavy_candidates.csv",
+            joint_pareto_audit_candidate_rows,
+            JOINT_PARETO_AUDIT_FIELDS,
+        )
+        write_csv(
+            output_dir / "metrics" / "neutral_aero_residual_joint_pareto_heavy_selected.csv",
+            joint_pareto_audit_selected_rows,
+            JOINT_PARETO_AUDIT_FIELDS,
+        )
+        write_csv(
+            output_dir / "metrics" / "neutral_aero_residual_joint_pareto_heavy_stage_replay.csv",
+            joint_pareto_heavy_stage_replay_rows,
+            JOINT_PARETO_HEAVY_STAGE_REPLAY_FIELDS,
+        )
     write_csv(
         output_dir / "metrics" / "neutral_aero_residual_lateral_launch_correlation.csv",
         lateral_launch_correlation_rows,
@@ -1262,6 +1428,7 @@ def run_fit(
         sensitivity_alignment_windows_s=sensitivity_alignment_windows,
         joint_pareto_audit=joint_pareto_audit,
         joint_pareto_audit_alignment_window_s=joint_pareto_audit_alignment_window_s,
+        joint_pareto_config=joint_pareto_config,
         derivative_window_s=derivative_window_s,
         replay_dt_s=replay_dt_s,
         ridge_lambda=ridge_lambda,
@@ -1305,6 +1472,7 @@ def run_fit(
         joint_sweep_selected_rows=joint_sweep_selected_rows,
         joint_pareto_audit_candidate_rows=joint_pareto_audit_candidate_rows,
         joint_pareto_audit_selected_rows=joint_pareto_audit_selected_rows,
+        joint_pareto_heavy_stage_replay_rows=joint_pareto_heavy_stage_replay_rows,
     )
     write_report(
         output_dir,
@@ -1316,6 +1484,7 @@ def run_fit(
         sensitivity_alignment_windows_s=sensitivity_alignment_windows,
         joint_pareto_audit=joint_pareto_audit,
         joint_pareto_audit_alignment_window_s=joint_pareto_audit_alignment_window_s,
+        joint_pareto_config=joint_pareto_config,
         derivative_window_s=derivative_window_s,
         replay_dt_s=replay_dt_s,
         ridge_lambda=ridge_lambda,
@@ -1356,6 +1525,7 @@ def run_fit(
         joint_sweep_selected_rows=joint_sweep_selected_rows,
         joint_pareto_audit_candidate_rows=joint_pareto_audit_candidate_rows,
         joint_pareto_audit_selected_rows=joint_pareto_audit_selected_rows,
+        joint_pareto_heavy_stage_replay_rows=joint_pareto_heavy_stage_replay_rows,
         regime_summary=regime_summary,
         stage_fit_summary=stage_fit_summary,
         validation_rows=validation_rows,
@@ -3405,6 +3575,7 @@ def cm_regime_staged_refinement(
                 residuals=residuals,
                 before_parameters=current,
                 after_parameters=next_parameters,
+                proposed_parameters=proposed,
             )
         )
         current = next_parameters
@@ -3516,8 +3687,10 @@ def cm_stage_history_row(
     residuals: list[dict[str, Any]],
     before_parameters: dict[str, float],
     after_parameters: dict[str, float],
+    proposed_parameters: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     fractions = regime_sample_fractions(residuals)
+    proposed = proposed_parameters if proposed_parameters is not None else after_parameters
     return {
         "stage_index": int(stage_index),
         "stage_id": str(stage_id),
@@ -3540,6 +3713,7 @@ def cm_stage_history_row(
         "transition_sample_fraction": fractions.get("transition", 0.0),
         "post_stall_sample_fraction": fractions.get("post_stall", 0.0),
         "parameter_updates_json": json.dumps(parameter_updates(before_parameters, after_parameters), sort_keys=True),
+        "proposed_parameter_updates_json": json.dumps(parameter_updates(before_parameters, proposed), sort_keys=True),
     }
 
 
@@ -4228,11 +4402,15 @@ def small_joint_pareto_audit(
     alignment_window_s: float,
     workers: int,
     enabled: bool,
-    top_longitudinal: int = JOINT_PARETO_AUDIT_TOP_LONGITUDINAL,
-    top_lateral: int = JOINT_PARETO_AUDIT_TOP_LATERAL,
+    config: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not bool(enabled):
         return [], []
+    profile_config = dict(config or JOINT_PARETO_PROFILE_DEFAULTS[DEFAULT_JOINT_PARETO_PROFILE])
+    profile = str(profile_config.get("profile", DEFAULT_JOINT_PARETO_PROFILE))
+    top_longitudinal = max(1, int(profile_config.get("top_longitudinal", JOINT_PARETO_AUDIT_TOP_LONGITUDINAL)))
+    top_lateral = max(0, int(profile_config.get("top_lateral", JOINT_PARETO_AUDIT_TOP_LATERAL)))
+    selected_limit = max(1, int(profile_config.get("selected_limit", JOINT_PARETO_AUDIT_SELECTED_LIMIT)))
     audit_window_s = float(alignment_window_s)
     if not math.isfinite(audit_window_s) or audit_window_s <= 0.0:
         raise ValueError(f"Joint Pareto audit alignment window must be positive and finite, got {alignment_window_s!r}.")
@@ -4244,6 +4422,7 @@ def small_joint_pareto_audit(
         candidate_parameters=candidate_parameters,
         cm_stage_history_rows=cm_stage_history_rows,
         joint_sweep_extra_models=joint_sweep_extra_models,
+        include_rejected_stage_candidates=bool(profile_config.get("scaled_single_term_bundles", False)),
     )
     if not longitudinal_sources:
         return [], []
@@ -4269,42 +4448,107 @@ def small_joint_pareto_audit(
         lateral_ablation_rows=lateral_ablation_rows,
         joint_sweep_extra_models=joint_sweep_extra_models,
     )
-    probe_states = []
-    for source in lateral_sources:
-        params = joint_pareto_combined_parameters(
-            best_longitudinal["parameters"],
+    if bool(profile_config.get("scaled_single_term_bundles", False)):
+        combination_states = joint_pareto_heavy_combination_states(
+            top_longitudinal_sources=top_longitudinal_sources,
+            lateral_sources=lateral_sources,
             base_parameters=base_parameters,
-            lateral_parameters=source["parameters"],
+            best_longitudinal=best_longitudinal,
+            heldout_rows=heldout_rows,
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=audit_window_s,
+            workers=workers,
+            config=profile_config,
         )
-        probe_states.append(
-            {
-                "candidate_id": f"probe_{source['candidate_id']}",
-                "parameters": params,
-                "updates": parameter_updates(base_parameters, params),
-                "sweep_stage": "joint_pareto_lateral_probe",
-                "summary": None,
-                "lateral_source_id": source["candidate_id"],
-            }
+    else:
+        probe_states = []
+        for source in lateral_sources:
+            params = joint_pareto_combined_parameters(
+                best_longitudinal["parameters"],
+                base_parameters=base_parameters,
+                lateral_parameters=source["parameters"],
+            )
+            probe_states.append(
+                {
+                    "candidate_id": f"probe_{source['candidate_id']}",
+                    "parameters": params,
+                    "updates": parameter_updates(base_parameters, params),
+                    "sweep_stage": "joint_pareto_lateral_probe",
+                    "summary": None,
+                    "lateral_source_id": source["candidate_id"],
+                }
+            )
+        evaluated_probes = compact_joint_sweep_evaluate_states(
+            probe_states,
+            rows=heldout_rows,
+            split="heldout",
+            replay_dt_s=replay_dt_s,
+            alignment_window_s=audit_window_s,
+            workers=workers,
         )
-    evaluated_probes = compact_joint_sweep_evaluate_states(
-        probe_states,
+        probe_score_by_source = {
+            str(state.get("lateral_source_id", "")): finite_value(state.get("lateral_score"))
+            for state in evaluated_probes
+        }
+        no_lateral = [source for source in lateral_sources if source["candidate_id"] == "no_lateral_update"]
+        lateral_candidates = [source for source in lateral_sources if source["candidate_id"] != "no_lateral_update"]
+        top_lateral_sources = no_lateral + sorted(
+            lateral_candidates,
+            key=lambda source: probe_score_by_source.get(str(source["candidate_id"]), float("inf")),
+        )[: max(0, int(top_lateral))]
+        combination_states = joint_pareto_raw_combination_states(
+            top_longitudinal_sources=top_longitudinal_sources,
+            top_lateral_sources=top_lateral_sources,
+            base_parameters=base_parameters,
+            audit_window_s=audit_window_s,
+        )
+
+    if not combination_states:
+        return [], []
+    evaluated_combinations = compact_joint_sweep_evaluate_states(
+        combination_states,
         rows=heldout_rows,
         split="heldout",
         replay_dt_s=replay_dt_s,
         alignment_window_s=audit_window_s,
         workers=workers,
     )
-    probe_score_by_source = {
-        str(state.get("lateral_source_id", "")): finite_value(state.get("lateral_score"))
-        for state in evaluated_probes
+    reference_candidates = [
+        state
+        for state in evaluated_combinations
+        if str(state.get("lateral_source_id", "")) == "no_lateral_update"
+    ]
+    global_reference_state = min(
+        reference_candidates or evaluated_combinations,
+        key=lambda state: finite_value(state.get("longitudinal_score")),
+    )
+    reference_by_longitudinal = {
+        str(state.get("longitudinal_source_id", "")): state
+        for state in reference_candidates
     }
-    no_lateral = [source for source in lateral_sources if source["candidate_id"] == "no_lateral_update"]
-    lateral_candidates = [source for source in lateral_sources if source["candidate_id"] != "no_lateral_update"]
-    top_lateral_sources = no_lateral + sorted(
-        lateral_candidates,
-        key=lambda source: probe_score_by_source.get(str(source["candidate_id"]), float("inf")),
-    )[: max(0, int(top_lateral))]
+    if str(profile_config.get("reference_policy", "global_best")) != "per_base":
+        reference_by_longitudinal = {}
+    rows = joint_pareto_audit_candidate_rows(
+        evaluated_combinations,
+        base_parameters=base_parameters,
+        reference_state=global_reference_state,
+        reference_by_longitudinal=reference_by_longitudinal,
+        global_reference_state=global_reference_state,
+        alignment_window_s=audit_window_s,
+        profile=profile,
+    )
+    joint_pareto_audit_mark_pareto(rows)
+    selected_rows = joint_pareto_audit_selected_rows(rows, selected_limit=selected_limit)
+    return rows, selected_rows
 
+
+def joint_pareto_raw_combination_states(
+    *,
+    top_longitudinal_sources: list[dict[str, Any]],
+    top_lateral_sources: list[dict[str, Any]],
+    base_parameters: dict[str, float],
+    audit_window_s: float,
+) -> list[dict[str, Any]]:
     combination_states = []
     seen: set[str] = set()
     audit_prefix = f"jp{int(round(audit_window_s * 1000.0)):03d}"
@@ -4330,34 +4574,264 @@ def small_joint_pareto_audit(
                     "summary": None,
                     "longitudinal_source_id": str(longitudinal["candidate_id"]),
                     "lateral_source_id": str(lateral["candidate_id"]),
+                    "bundle_order": 0 if str(lateral["candidate_id"]) == "no_lateral_update" else 1,
                 }
             )
-    evaluated_combinations = compact_joint_sweep_evaluate_states(
-        combination_states,
+    return combination_states
+
+
+def joint_pareto_heavy_combination_states(
+    *,
+    top_longitudinal_sources: list[dict[str, Any]],
+    lateral_sources: list[dict[str, Any]],
+    base_parameters: dict[str, float],
+    best_longitudinal: dict[str, Any],
+    heldout_rows: list[dict[str, Any]],
+    replay_dt_s: float,
+    alignment_window_s: float,
+    workers: int,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    top_lateral = max(0, int(config.get("top_lateral", JOINT_PARETO_AUDIT_TOP_LATERAL)))
+    max_lateral_order = max(1, min(3, int(config.get("max_lateral_order", 1))))
+    top_triples = max(0, int(config.get("top_triples", 0)))
+    max_candidates = max(1, int(config.get("max_candidates", 64)))
+    scale_grid = tuple(float(value) for value in config.get("scale_grid", JOINT_PARETO_HEAVY_SCALE_GRID))
+    audit_prefix = f"jp{int(round(float(alignment_window_s) * 1000.0)):03d}h"
+
+    single_sources = joint_pareto_scaled_single_lateral_sources(
+        lateral_sources,
+        base_parameters=base_parameters,
+        scale_grid=scale_grid,
+    )
+    if top_lateral <= 0 or not single_sources:
+        return joint_pareto_raw_combination_states(
+            top_longitudinal_sources=top_longitudinal_sources,
+            top_lateral_sources=[
+                {
+                    "candidate_id": "no_lateral_update",
+                    "parameters": dict(base_parameters),
+                    "updates": {},
+                    "source_priority": 0.0,
+                }
+            ],
+            base_parameters=base_parameters,
+            audit_window_s=alignment_window_s,
+        )[:max_candidates]
+
+    probe_states: list[dict[str, Any]] = []
+    for index, source in enumerate(single_sources):
+        params = joint_pareto_combined_parameters(
+            best_longitudinal["parameters"],
+            base_parameters=base_parameters,
+            lateral_parameters=source["parameters"],
+        )
+        probe_states.append(
+            {
+                "candidate_id": f"{audit_prefix}_probe_{index:03d}_{short_source_id(str(source['candidate_id']), limit=36)}",
+                "parameters": params,
+                "updates": parameter_updates(base_parameters, params),
+                "sweep_stage": "joint_pareto_heavy_lateral_probe",
+                "summary": None,
+                "lateral_source_id": source["candidate_id"],
+                "single_source": source,
+            }
+        )
+    evaluated_probes = compact_joint_sweep_evaluate_states(
+        probe_states,
         rows=heldout_rows,
         split="heldout",
         replay_dt_s=replay_dt_s,
-        alignment_window_s=audit_window_s,
+        alignment_window_s=alignment_window_s,
         workers=workers,
     )
-    reference_candidates = [
-        state
-        for state in evaluated_combinations
-        if str(state.get("lateral_source_id", "")) == "no_lateral_update"
-    ]
-    reference_state = min(
-        reference_candidates or evaluated_combinations,
-        key=lambda state: finite_value(state.get("longitudinal_score")),
+    probe_by_source = {
+        str(state.get("lateral_source_id", "")): state
+        for state in evaluated_probes
+    }
+    ranked_singles = sorted(
+        single_sources,
+        key=lambda source: (
+            finite_value(probe_by_source.get(str(source["candidate_id"]), {}).get("lateral_score")),
+            finite_value(probe_by_source.get(str(source["candidate_id"]), {}).get("longitudinal_score")),
+            finite_value(source.get("source_priority")),
+            str(source["candidate_id"]),
+        ),
+    )[:top_lateral]
+
+    bundles = joint_pareto_heavy_lateral_bundles(
+        ranked_singles,
+        max_lateral_order=max_lateral_order,
+        top_triples=top_triples,
+        probe_by_source=probe_by_source,
     )
-    rows = joint_pareto_audit_candidate_rows(
-        evaluated_combinations,
-        base_parameters=base_parameters,
-        reference_state=reference_state,
-        alignment_window_s=audit_window_s,
-    )
-    joint_pareto_audit_mark_pareto(rows)
-    selected_rows = joint_pareto_audit_selected_rows(rows)
-    return rows, selected_rows
+    combination_states: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for long_index, longitudinal in enumerate(top_longitudinal_sources):
+        no_lateral_state = {
+            "candidate_id": f"{audit_prefix}_L{long_index:02d}_{short_source_id(str(longitudinal['candidate_id']))}_X00_no_lateral",
+            "parameters": dict(longitudinal["parameters"]),
+            "updates": parameter_updates(base_parameters, longitudinal["parameters"]),
+            "sweep_stage": "joint_pareto_heavy",
+            "summary": None,
+            "longitudinal_source_id": str(longitudinal["candidate_id"]),
+            "lateral_source_id": "no_lateral_update",
+            "bundle_order": 0,
+        }
+        signature = compact_joint_sweep_signature(no_lateral_state["parameters"], base_parameters)
+        if signature not in seen:
+            seen.add(signature)
+            combination_states.append(no_lateral_state)
+            if len(combination_states) >= max_candidates:
+                return combination_states
+
+        for bundle_index, bundle in enumerate(bundles, start=1):
+            lateral_params = joint_pareto_lateral_bundle_parameters(
+                base_parameters=base_parameters,
+                bundle_sources=bundle,
+            )
+            params = joint_pareto_combined_parameters(
+                longitudinal["parameters"],
+                base_parameters=base_parameters,
+                lateral_parameters=lateral_params,
+            )
+            signature = compact_joint_sweep_signature(params, base_parameters)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            bundle_id = "_".join(short_source_id(str(source["candidate_id"]), limit=20) for source in bundle)
+            combination_states.append(
+                {
+                    "candidate_id": (
+                        f"{audit_prefix}_L{long_index:02d}_{short_source_id(str(longitudinal['candidate_id']), limit=24)}"
+                        f"_X{bundle_index:03d}_{short_source_id(bundle_id, limit=48)}"
+                    ),
+                    "parameters": params,
+                    "updates": parameter_updates(base_parameters, params),
+                    "sweep_stage": "joint_pareto_heavy",
+                    "summary": None,
+                    "longitudinal_source_id": str(longitudinal["candidate_id"]),
+                    "lateral_source_id": "+".join(str(source["candidate_id"]) for source in bundle),
+                    "bundle_order": len(bundle),
+                }
+            )
+            if len(combination_states) >= max_candidates:
+                return combination_states
+    return combination_states
+
+
+def joint_pareto_scaled_single_lateral_sources(
+    lateral_sources: list[dict[str, Any]],
+    *,
+    base_parameters: dict[str, float],
+    scale_grid: tuple[float, ...],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in lateral_sources:
+        if str(source.get("candidate_id", "")) == "no_lateral_update":
+            continue
+        updates = {
+            key: float(value)
+            for key, value in (source.get("updates", {}) or {}).items()
+            if joint_pareto_heavy_allowed_lateral_key(str(key))
+        }
+        for key, value in sorted(updates.items()):
+            base_value = float(base_parameters.get(key, 0.0))
+            delta = float(value) - base_value
+            if abs(delta) <= 1.0e-12:
+                continue
+            for scale in scale_grid:
+                if abs(float(scale)) <= 1.0e-12:
+                    continue
+                params = dict(base_parameters)
+                params[key] = replay_fit.bounded_parameter_value(key, base_value + float(scale) * delta)
+                single_updates = parameter_updates(base_parameters, params)
+                if not single_updates:
+                    continue
+                signature = json.dumps(single_updates, sort_keys=True)
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                source_id = (
+                    f"{short_source_id(str(source.get('candidate_id', 'source')), limit=28)}"
+                    f"__{short_source_id(key, limit=30)}__s{str(float(scale)).replace('.', 'p').replace('-', 'm')}"
+                )
+                out.append(
+                    {
+                        "candidate_id": source_id,
+                        "parameters": params,
+                        "updates": single_updates,
+                        "sweep_stage": "joint_pareto_heavy_single_lateral_source",
+                        "summary": None,
+                        "source_priority": finite_value(source.get("source_priority")),
+                        "source_key": key,
+                        "source_scale": float(scale),
+                    }
+                )
+    return out
+
+
+def joint_pareto_heavy_allowed_lateral_key(key: str) -> bool:
+    if key in set(ATTACHED_LATERAL_PARAMETER_KEYS + TRANSITION_LATERAL_PARAMETER_KEYS):
+        return True
+    return key.startswith(("post_stall_side_force_", "post_stall_roll_moment_", "post_stall_yaw_moment_"))
+
+
+def joint_pareto_heavy_lateral_bundles(
+    ranked_singles: list[dict[str, Any]],
+    *,
+    max_lateral_order: int,
+    top_triples: int,
+    probe_by_source: dict[str, dict[str, Any]],
+) -> list[tuple[dict[str, Any], ...]]:
+    bundles: list[tuple[dict[str, Any], ...]] = []
+    if max_lateral_order >= 1:
+        bundles.extend((source,) for source in ranked_singles)
+    if max_lateral_order >= 2:
+        bundles.extend(
+            bundle
+            for bundle in itertools.combinations(ranked_singles, 2)
+            if joint_pareto_lateral_bundle_has_unique_keys(bundle)
+        )
+    if max_lateral_order >= 3 and top_triples > 0:
+        triples = [
+            bundle
+            for bundle in itertools.combinations(ranked_singles, 3)
+            if joint_pareto_lateral_bundle_has_unique_keys(bundle)
+        ]
+        triples = sorted(
+            triples,
+            key=lambda bundle: sum(
+                finite_value(probe_by_source.get(str(source["candidate_id"]), {}).get("lateral_score"))
+                for source in bundle
+            ),
+        )[:top_triples]
+        bundles.extend(triples)
+    return bundles
+
+
+def joint_pareto_lateral_bundle_has_unique_keys(bundle_sources: tuple[dict[str, Any], ...]) -> bool:
+    keys = []
+    for source in bundle_sources:
+        source_keys = [key for key in (source.get("updates", {}) or {}) if joint_pareto_heavy_allowed_lateral_key(str(key))]
+        if len(source_keys) != 1:
+            return False
+        keys.append(str(source_keys[0]))
+    return len(keys) == len(set(keys))
+
+
+def joint_pareto_lateral_bundle_parameters(
+    *,
+    base_parameters: dict[str, float],
+    bundle_sources: tuple[dict[str, Any], ...],
+) -> dict[str, float]:
+    params = dict(base_parameters)
+    for source in bundle_sources:
+        for key, value in (source.get("updates", {}) or {}).items():
+            if joint_pareto_heavy_allowed_lateral_key(str(key)):
+                params[str(key)] = replay_fit.bounded_parameter_value(str(key), float(value))
+    return params
 
 
 def joint_pareto_longitudinal_source_states(
@@ -4366,17 +4840,31 @@ def joint_pareto_longitudinal_source_states(
     candidate_parameters: dict[str, float],
     cm_stage_history_rows: list[dict[str, Any]],
     joint_sweep_extra_models: list[tuple[str, dict[str, float]]],
+    include_rejected_stage_candidates: bool = False,
 ) -> list[dict[str, Any]]:
     sources: list[tuple[str, dict[str, float]]] = []
     sources.append(("active_baseline", joint_pareto_longitudinal_only_parameters(base_parameters, base_parameters)))
     staged_parameters = dict(base_parameters)
     for row in cm_stage_history_rows:
+        stage_id = short_source_id(f"stage_{row.get('stage_index', '')}_{row.get('stage_id', '')}")
+        stage_index_value = finite_value(row.get("stage_index"))
+        if bool(include_rejected_stage_candidates) and math.isfinite(stage_index_value) and int(stage_index_value) > 0:
+            proposed_updates = parse_json_mapping(row.get("proposed_parameter_updates_json", "{}"))
+            if proposed_updates:
+                proposed_parameters = dict(staged_parameters)
+                for key, value in proposed_updates.items():
+                    proposed_parameters[str(key)] = replay_fit.bounded_parameter_value(str(key), float(value))
+                sources.append(
+                    (
+                        f"proposal_{stage_id}",
+                        joint_pareto_longitudinal_only_parameters(base_parameters, proposed_parameters),
+                    )
+                )
         if not bool(row.get("accepted", False)):
             continue
         updates = parse_json_mapping(row.get("parameter_updates_json", "{}"))
         for key, value in updates.items():
             staged_parameters[str(key)] = replay_fit.bounded_parameter_value(str(key), float(value))
-        stage_id = short_source_id(f"stage_{row.get('stage_index', '')}_{row.get('stage_id', '')}")
         sources.append((stage_id, joint_pareto_longitudinal_only_parameters(base_parameters, staged_parameters)))
     sources.append(("primary_candidate", joint_pareto_longitudinal_only_parameters(base_parameters, candidate_parameters)))
     for name, params in joint_sweep_extra_models:
@@ -4551,16 +5039,26 @@ def joint_pareto_audit_candidate_rows(
     *,
     base_parameters: dict[str, float],
     reference_state: dict[str, Any],
+    reference_by_longitudinal: dict[str, dict[str, Any]] | None = None,
+    global_reference_state: dict[str, Any] | None = None,
     alignment_window_s: float,
+    profile: str = DEFAULT_JOINT_PARETO_PROFILE,
 ) -> list[dict[str, Any]]:
-    reference_summary = reference_state.get("summary", {}) or {}
-    reference_longitudinal_score = finite_value(reference_state.get("longitudinal_score"))
-    reference_lateral_score = finite_value(reference_state.get("lateral_score"))
+    reference_lookup = reference_by_longitudinal or {}
+    global_reference = global_reference_state or reference_state
+    global_reference_summary = global_reference.get("summary", {}) or {}
+    global_reference_longitudinal_score = finite_value(global_reference.get("longitudinal_score"))
+    global_reference_lateral_score = finite_value(global_reference.get("lateral_score"))
     rows = []
     for state in states:
         summary = state.get("summary", {}) or {}
         lateral_source_id = str(state.get("lateral_source_id", ""))
         has_lateral_update = lateral_source_id != "no_lateral_update"
+        longitudinal_source_id = str(state.get("longitudinal_source_id", ""))
+        matched_reference = reference_lookup.get(longitudinal_source_id, reference_state)
+        reference_summary = matched_reference.get("summary", {}) or {}
+        reference_longitudinal_score = finite_value(matched_reference.get("longitudinal_score"))
+        reference_lateral_score = finite_value(matched_reference.get("lateral_score"))
         accepted, reason = joint_pareto_audit_acceptance(
             reference_summary,
             summary,
@@ -4570,11 +5068,14 @@ def joint_pareto_audit_candidate_rows(
         row = {
             "candidate_id": state.get("candidate_id", ""),
             "selection_class": "",
+            "joint_pareto_profile": str(profile),
             "accepted": bool(accepted),
             "acceptance_reason": reason,
             "pareto_member": False,
             "alignment_window_s": float(alignment_window_s),
-            "longitudinal_source_id": state.get("longitudinal_source_id", ""),
+            "reference_candidate_id": matched_reference.get("candidate_id", ""),
+            "global_reference_candidate_id": global_reference.get("candidate_id", ""),
+            "longitudinal_source_id": longitudinal_source_id,
             "lateral_source_id": lateral_source_id,
             "split": state.get("split", ""),
             "score": finite_value(state.get("score")),
@@ -4584,11 +5085,24 @@ def joint_pareto_audit_candidate_rows(
             "lateral_score": finite_value(state.get("lateral_score")),
             "reference_lateral_score": reference_lateral_score,
             "delta_lateral_score": finite_value(state.get("lateral_score")) - reference_lateral_score,
+            "global_reference_longitudinal_score": global_reference_longitudinal_score,
+            "global_delta_longitudinal_score": finite_value(state.get("longitudinal_score")) - global_reference_longitudinal_score,
+            "global_reference_lateral_score": global_reference_lateral_score,
+            "global_delta_lateral_score": finite_value(state.get("lateral_score")) - global_reference_lateral_score,
             "parameter_count": len(updates),
             "lateral_parameter_count": joint_sweep_lateral_parameter_count(updates),
             "parameter_updates_json": json.dumps(updates, sort_keys=True),
         }
         row.update(joint_pareto_metric_deltas(reference_summary, summary))
+        row.update(
+            joint_pareto_metric_deltas(
+                global_reference_summary,
+                summary,
+                include_candidate_values=False,
+                reference_key_prefix="global_",
+                delta_key_prefix="global_",
+            )
+        )
         rows.append(row)
     return sorted(rows, key=lambda row: (not bool(row.get("accepted", False)), finite_value(row.get("score"))))
 
@@ -4596,6 +5110,10 @@ def joint_pareto_audit_candidate_rows(
 def joint_pareto_metric_deltas(
     reference_summary: dict[str, Any],
     candidate_summary: dict[str, Any],
+    *,
+    include_candidate_values: bool = True,
+    reference_key_prefix: str = "",
+    delta_key_prefix: str = "",
 ) -> dict[str, float]:
     metrics = {
         "dx_mae_m": "dx_mae_m",
@@ -4610,9 +5128,10 @@ def joint_pareto_metric_deltas(
     for row_key, summary_key in metrics.items():
         candidate_value = finite_value(candidate_summary.get(summary_key))
         reference_value = finite_value(reference_summary.get(summary_key))
-        out[row_key] = candidate_value
-        out[f"reference_{row_key}"] = reference_value
-        out[f"delta_{row_key}"] = candidate_value - reference_value
+        if include_candidate_values:
+            out[row_key] = candidate_value
+        out[f"{reference_key_prefix}reference_{row_key}"] = reference_value
+        out[f"{delta_key_prefix}delta_{row_key}"] = candidate_value - reference_value
     return out
 
 
@@ -4673,7 +5192,7 @@ def joint_pareto_audit_mark_pareto(rows: list[dict[str, Any]]) -> None:
         row["pareto_member"] = not dominated
 
 
-def joint_pareto_audit_selected_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def joint_pareto_audit_selected_rows(rows: list[dict[str, Any]], *, selected_limit: int = JOINT_PARETO_AUDIT_SELECTED_LIMIT) -> list[dict[str, Any]]:
     selected = [
         dict(row)
         for row in rows
@@ -4682,7 +5201,7 @@ def joint_pareto_audit_selected_rows(rows: list[dict[str, Any]]) -> list[dict[st
     selected = sorted(
         selected,
         key=lambda row: (finite_value(row.get("lateral_score")), finite_value(row.get("longitudinal_score"))),
-    )[:JOINT_PARETO_AUDIT_SELECTED_LIMIT]
+    )[: max(1, int(selected_limit))]
     for row in selected:
         row["selection_class"] = "accepted_pareto"
     return selected
@@ -5439,6 +5958,104 @@ def stage_replay_summary_rows(
     return summarize_stage_replay_samples(sample_rows)
 
 
+def joint_pareto_heavy_stage_replay_summary_rows(
+    *,
+    candidate_rows: list[dict[str, Any]],
+    selected_rows: list[dict[str, Any]],
+    base_parameters: dict[str, float],
+    heldout_rows: list[dict[str, Any]],
+    replay_dt_s: float,
+    alignment_window_s: float,
+    workers: int,
+) -> list[dict[str, Any]]:
+    if not selected_rows or not heldout_rows:
+        return []
+    row_by_id = {str(row.get("candidate_id", "")): row for row in candidate_rows}
+    model_specs: list[tuple[str, str, str, dict[str, float]]] = []
+    for selected in selected_rows:
+        selected_id = str(selected.get("candidate_id", ""))
+        if not selected_id:
+            continue
+        model_specs.append(
+            (
+                selected_id,
+                "selected_candidate",
+                selected_id,
+                joint_pareto_parameters_from_row(base_parameters, selected),
+            )
+        )
+        reference_id = str(selected.get("reference_candidate_id", ""))
+        reference_row = row_by_id.get(reference_id)
+        if reference_row is not None:
+            model_specs.append(
+                (
+                    f"{selected_id}__matched_reference",
+                    "matched_longitudinal_reference",
+                    selected_id,
+                    joint_pareto_parameters_from_row(base_parameters, reference_row),
+                )
+            )
+        global_reference_id = str(selected.get("global_reference_candidate_id", ""))
+        global_reference_row = row_by_id.get(global_reference_id)
+        if global_reference_row is not None:
+            model_specs.append(
+                (
+                    f"{selected_id}__global_reference",
+                    "global_longitudinal_reference",
+                    selected_id,
+                    joint_pareto_parameters_from_row(base_parameters, global_reference_row),
+                )
+            )
+
+    unique_specs: list[tuple[str, str, str, dict[str, float]]] = []
+    seen_model_ids: set[str] = set()
+    for spec in model_specs:
+        if spec[0] in seen_model_ids:
+            continue
+        seen_model_ids.add(spec[0])
+        unique_specs.append(spec)
+    if not unique_specs:
+        return []
+
+    payloads = [
+        (model_id, "heldout", row, parameters, replay_dt_s, alignment_window_s)
+        for model_id, _, _, parameters in unique_specs
+        for row in heldout_rows
+    ]
+    if int(workers) > 1 and len(payloads) > 1:
+        with ProcessPoolExecutor(max_workers=int(workers)) as executor:
+            nested = list(executor.map(stage_replay_sample_rows_payload, payloads))
+    else:
+        nested = [stage_replay_sample_rows_payload(payload) for payload in payloads]
+    sample_rows = [row for rows in nested for row in rows]
+    summary_rows = summarize_stage_replay_samples(sample_rows)
+    metadata_by_model = {
+        model_id: {"model_role": role, "matched_candidate_id": matched_id}
+        for model_id, role, matched_id, _ in unique_specs
+    }
+    out = []
+    for model_id, role, matched_id, _ in unique_specs:
+        for regime in ("attached", "transition", "post_stall"):
+            row = stage_replay_row(summary_rows, model_id, "heldout", regime)
+            enriched = dict(row)
+            enriched["model_id"] = model_id
+            enriched["model_role"] = metadata_by_model[model_id]["model_role"]
+            enriched["matched_candidate_id"] = metadata_by_model[model_id]["matched_candidate_id"]
+            enriched["split"] = "heldout"
+            enriched["regime"] = regime
+            enriched["report_regime"] = "normal" if regime == "attached" else regime
+            out.append(enriched)
+    return out
+
+
+def joint_pareto_parameters_from_row(base_parameters: dict[str, float], row: dict[str, Any]) -> dict[str, float]:
+    params = dict(base_parameters)
+    updates = parse_json_mapping(row.get("parameter_updates_json", "{}"))
+    for key, value in updates.items():
+        params[str(key)] = replay_fit.bounded_parameter_value(str(key), float(value))
+    return params
+
+
 def tag_alignment_sensitivity_rows(
     rows: list[dict[str, Any]],
     *,
@@ -5923,6 +6540,7 @@ def write_manifest(
     sensitivity_alignment_windows_s: tuple[float, ...],
     joint_pareto_audit: bool,
     joint_pareto_audit_alignment_window_s: float,
+    joint_pareto_config: dict[str, Any],
     derivative_window_s: float,
     replay_dt_s: float,
     ridge_lambda: float,
@@ -5966,6 +6584,7 @@ def write_manifest(
     joint_sweep_selected_rows: list[dict[str, Any]],
     joint_pareto_audit_candidate_rows: list[dict[str, Any]],
     joint_pareto_audit_selected_rows: list[dict[str, Any]],
+    joint_pareto_heavy_stage_replay_rows: list[dict[str, Any]],
 ) -> None:
     manifest = {
         "fit_id": str(run_label),
@@ -6012,11 +6631,35 @@ def write_manifest(
             "alignment_window_s": float(joint_pareto_audit_alignment_window_s),
             "candidate_csv": "metrics/neutral_aero_residual_joint_pareto_audit_candidates.csv",
             "selected_csv": "metrics/neutral_aero_residual_joint_pareto_audit_selected.csv",
+            "heavy_candidate_csv": (
+                "metrics/neutral_aero_residual_joint_pareto_heavy_candidates.csv"
+                if str(joint_pareto_config.get("profile", "")) == "heavy"
+                else ""
+            ),
+            "heavy_selected_csv": (
+                "metrics/neutral_aero_residual_joint_pareto_heavy_selected.csv"
+                if str(joint_pareto_config.get("profile", "")) == "heavy"
+                else ""
+            ),
+            "heavy_stage_replay_csv": (
+                "metrics/neutral_aero_residual_joint_pareto_heavy_stage_replay.csv"
+                if str(joint_pareto_config.get("profile", "")) == "heavy"
+                else ""
+            ),
             "candidate_row_count": len(joint_pareto_audit_candidate_rows),
             "accepted_row_count": sum(bool(row.get("accepted", False)) for row in joint_pareto_audit_candidate_rows),
             "selected_row_count": len(joint_pareto_audit_selected_rows),
-            "top_longitudinal": JOINT_PARETO_AUDIT_TOP_LONGITUDINAL,
-            "top_lateral": JOINT_PARETO_AUDIT_TOP_LATERAL,
+            "heavy_stage_replay_row_count": len(joint_pareto_heavy_stage_replay_rows),
+            "profile": str(joint_pareto_config.get("profile", "")),
+            "top_longitudinal": int(joint_pareto_config.get("top_longitudinal", 0)),
+            "top_lateral": int(joint_pareto_config.get("top_lateral", 0)),
+            "max_lateral_order": int(joint_pareto_config.get("max_lateral_order", 0)),
+            "top_triples": int(joint_pareto_config.get("top_triples", 0)),
+            "max_candidates": int(joint_pareto_config.get("max_candidates", 0)),
+            "selected_limit": int(joint_pareto_config.get("selected_limit", 0)),
+            "scale_grid": [float(value) for value in joint_pareto_config.get("scale_grid", ())],
+            "reference_policy": str(joint_pareto_config.get("reference_policy", "")),
+            "scaled_single_term_bundles": bool(joint_pareto_config.get("scaled_single_term_bundles", False)),
             "longitudinal_tolerances": dict(JOINT_SWEEP_BALANCED_LONGITUDINAL_TOLERANCES),
         },
         "derivative_window_s": float(derivative_window_s),
@@ -6086,6 +6729,7 @@ def write_manifest(
             sensitivity_alignment_windows_s=sensitivity_alignment_windows_s,
             joint_pareto_audit=joint_pareto_audit,
             joint_pareto_audit_alignment_window_s=joint_pareto_audit_alignment_window_s,
+            joint_pareto_config=joint_pareto_config,
             derivative_window_s=derivative_window_s,
             replay_dt_s=replay_dt_s,
             ridge_lambda=ridge_lambda,
@@ -6117,6 +6761,34 @@ def write_manifest(
     path = output_dir / "manifests" / "neutral_aero_residual_fit_manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if str(joint_pareto_config.get("profile", "")) == "heavy":
+        heavy_manifest = {
+            "fit_id": str(run_label),
+            "artifact": "neutral_aero_residual_joint_pareto_heavy",
+            "alignment_window_s": float(joint_pareto_audit_alignment_window_s),
+            "workers": int(workers),
+            "profile": str(joint_pareto_config.get("profile", "")),
+            "top_longitudinal": int(joint_pareto_config.get("top_longitudinal", 0)),
+            "top_lateral": int(joint_pareto_config.get("top_lateral", 0)),
+            "max_lateral_order": int(joint_pareto_config.get("max_lateral_order", 0)),
+            "top_triples": int(joint_pareto_config.get("top_triples", 0)),
+            "max_candidates": int(joint_pareto_config.get("max_candidates", 0)),
+            "selected_limit": int(joint_pareto_config.get("selected_limit", 0)),
+            "scale_grid": [float(value) for value in joint_pareto_config.get("scale_grid", ())],
+            "reference_policy": str(joint_pareto_config.get("reference_policy", "")),
+            "candidate_count": len(joint_pareto_audit_candidate_rows),
+            "accepted_count": sum(bool(row.get("accepted", False)) for row in joint_pareto_audit_candidate_rows),
+            "selected_count": len(joint_pareto_audit_selected_rows),
+            "stage_replay_row_count": len(joint_pareto_heavy_stage_replay_rows),
+            "candidate_csv": "metrics/neutral_aero_residual_joint_pareto_heavy_candidates.csv",
+            "selected_csv": "metrics/neutral_aero_residual_joint_pareto_heavy_selected.csv",
+            "stage_replay_csv": "metrics/neutral_aero_residual_joint_pareto_heavy_stage_replay.csv",
+            "command": manifest["rerun_command"],
+            "command_line": replay_fit.powershell_command_line(manifest["rerun_command"]),
+            "generated_at": manifest["generated_at"],
+        }
+        heavy_path = output_dir / "manifests" / "neutral_aero_residual_joint_pareto_heavy_manifest.json"
+        heavy_path.write_text(json.dumps(heavy_manifest, indent=2) + "\n", encoding="utf-8")
 
 
 def fit_rerun_command(
@@ -6129,6 +6801,7 @@ def fit_rerun_command(
     sensitivity_alignment_windows_s: tuple[float, ...],
     joint_pareto_audit: bool,
     joint_pareto_audit_alignment_window_s: float,
+    joint_pareto_config: dict[str, Any],
     derivative_window_s: float,
     replay_dt_s: float,
     ridge_lambda: float,
@@ -6203,6 +6876,20 @@ def fit_rerun_command(
         [
             "--joint-pareto-audit-alignment-window-s",
             f"{float(joint_pareto_audit_alignment_window_s):.6g}",
+            "--joint-pareto-profile",
+            str(joint_pareto_config.get("profile", DEFAULT_JOINT_PARETO_PROFILE)),
+            "--joint-pareto-top-longitudinal",
+            str(int(joint_pareto_config.get("top_longitudinal", JOINT_PARETO_AUDIT_TOP_LONGITUDINAL))),
+            "--joint-pareto-top-lateral",
+            str(int(joint_pareto_config.get("top_lateral", JOINT_PARETO_AUDIT_TOP_LATERAL))),
+            "--joint-pareto-max-lateral-order",
+            str(int(joint_pareto_config.get("max_lateral_order", 1))),
+            "--joint-pareto-top-triples",
+            str(int(joint_pareto_config.get("top_triples", 0))),
+            "--joint-pareto-max-candidates",
+            str(int(joint_pareto_config.get("max_candidates", 64))),
+            "--joint-pareto-selected-limit",
+            str(int(joint_pareto_config.get("selected_limit", JOINT_PARETO_AUDIT_SELECTED_LIMIT))),
         ]
     )
     command.append("--filter-aligned-launch-state" if filter_aligned_launch_state else "--no-filter-aligned-launch-state")
@@ -6322,6 +7009,7 @@ def write_report(
     sensitivity_alignment_windows_s: tuple[float, ...],
     joint_pareto_audit: bool,
     joint_pareto_audit_alignment_window_s: float,
+    joint_pareto_config: dict[str, Any],
     derivative_window_s: float,
     replay_dt_s: float,
     ridge_lambda: float,
@@ -6362,6 +7050,7 @@ def write_report(
     joint_sweep_selected_rows: list[dict[str, Any]],
     joint_pareto_audit_candidate_rows: list[dict[str, Any]],
     joint_pareto_audit_selected_rows: list[dict[str, Any]],
+    joint_pareto_heavy_stage_replay_rows: list[dict[str, Any]],
     regime_summary: list[dict[str, Any]],
     stage_fit_summary: list[dict[str, Any]],
     validation_rows: list[dict[str, Any]],
@@ -6389,6 +7078,7 @@ def write_report(
             sensitivity_alignment_windows_s=sensitivity_alignment_windows_s,
             joint_pareto_audit=joint_pareto_audit,
             joint_pareto_audit_alignment_window_s=joint_pareto_audit_alignment_window_s,
+            joint_pareto_config=joint_pareto_config,
             derivative_window_s=derivative_window_s,
             replay_dt_s=replay_dt_s,
             ridge_lambda=ridge_lambda,
@@ -6536,11 +7226,17 @@ def write_report(
         "- candidate CSV: `metrics/neutral_aero_residual_joint_pareto_audit_candidates.csv`",
         "- selected CSV: `metrics/neutral_aero_residual_joint_pareto_audit_selected.csv`",
         "- policy: diagnostic held-out replay at the launch-handoff-aligned window; accepted rows must keep longitudinal metrics within balanced tolerance while improving dy, roll, and yaw.",
+        f"- profile: `{joint_pareto_config.get('profile', DEFAULT_JOINT_PARETO_PROFILE)}`",
         joint_pareto_audit_report_lines(
             candidate_rows=joint_pareto_audit_candidate_rows,
             selected_rows=joint_pareto_audit_selected_rows,
             enabled=joint_pareto_audit,
             alignment_window_s=joint_pareto_audit_alignment_window_s,
+        ),
+        joint_pareto_heavy_report_lines(
+            config=joint_pareto_config,
+            selected_rows=joint_pareto_audit_selected_rows,
+            stage_replay_rows=joint_pareto_heavy_stage_replay_rows,
         ),
         "",
         "## Lateral Launch-Correlation Audit",
@@ -6611,6 +7307,38 @@ def write_report(
     path = output_dir / "reports" / "neutral_aero_residual_fit_report.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if str(joint_pareto_config.get("profile", "")) == "heavy":
+        heavy_lines = [
+            "# Heavy 40 ms Joint Pareto SysID Refit",
+            "",
+            f"- fit id: `{run_label}`",
+            f"- alignment window: `{joint_pareto_audit_alignment_window_s:.3f}` s",
+            f"- workers: `{workers}`",
+            f"- top longitudinal: `{int(joint_pareto_config.get('top_longitudinal', 0))}`",
+            f"- top lateral: `{int(joint_pareto_config.get('top_lateral', 0))}`",
+            f"- max lateral order: `{int(joint_pareto_config.get('max_lateral_order', 0))}`",
+            f"- top triples: `{int(joint_pareto_config.get('top_triples', 0))}`",
+            f"- max candidates: `{int(joint_pareto_config.get('max_candidates', 0))}`",
+            f"- selected limit: `{int(joint_pareto_config.get('selected_limit', 0))}`",
+            "- candidate CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_candidates.csv`",
+            "- selected CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_selected.csv`",
+            "- stage replay CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_stage_replay.csv`",
+            "",
+            "## Selected Candidates",
+            "",
+            joint_pareto_audit_report_lines(
+                candidate_rows=joint_pareto_audit_candidate_rows,
+                selected_rows=joint_pareto_audit_selected_rows,
+                enabled=joint_pareto_audit,
+                alignment_window_s=joint_pareto_audit_alignment_window_s,
+            ),
+            "",
+            "## Held-Out Regime Replay",
+            "",
+            joint_pareto_heavy_stage_replay_report_lines(joint_pareto_heavy_stage_replay_rows),
+        ]
+        heavy_path = output_dir / "reports" / "neutral_aero_residual_joint_pareto_heavy_report.md"
+        heavy_path.write_text("\n".join(heavy_lines) + "\n", encoding="utf-8")
 
 
 def alignment_sensitivity_report_lines(
@@ -6946,6 +7674,57 @@ def joint_pareto_audit_report_lines(
                 f"lateral-score delta `{finite_value(row.get('delta_lateral_score')):.3f}`, "
                 f"longitudinal-score delta `{finite_value(row.get('delta_longitudinal_score')):.3f}`"
             )
+    return "\n".join(lines)
+
+
+def joint_pareto_heavy_report_lines(
+    *,
+    config: dict[str, Any],
+    selected_rows: list[dict[str, Any]],
+    stage_replay_rows: list[dict[str, Any]],
+) -> str:
+    if str(config.get("profile", "")) != "heavy":
+        return ""
+    return "\n".join(
+        [
+            "- heavy candidate CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_candidates.csv`",
+            "- heavy selected CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_selected.csv`",
+            "- heavy stage replay CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_stage_replay.csv`",
+            f"- heavy selected row count: `{len(selected_rows)}`",
+            f"- heavy stage replay row count: `{len(stage_replay_rows)}`",
+        ]
+    )
+
+
+def joint_pareto_heavy_stage_replay_report_lines(stage_replay_rows: list[dict[str, Any]]) -> str:
+    if not stage_replay_rows:
+        return "- no heavy stage replay rows available"
+    lines: list[str] = []
+    matched_ids = sorted({str(row.get("matched_candidate_id", "")) for row in stage_replay_rows if str(row.get("matched_candidate_id", ""))})
+    for matched_id in matched_ids:
+        lines.append(f"- selected candidate `{matched_id}`:")
+        subset = [row for row in stage_replay_rows if str(row.get("matched_candidate_id", "")) == matched_id]
+        for role in ("matched_longitudinal_reference", "selected_candidate", "global_longitudinal_reference"):
+            role_rows = [row for row in subset if str(row.get("model_role", "")) == role]
+            if not role_rows:
+                continue
+            lines.append(f"  - `{role}`:")
+            for regime in ("normal", "transition", "post_stall"):
+                row = next((item for item in role_rows if str(item.get("report_regime", "")) == regime), None)
+                if row is None:
+                    continue
+                lines.append(
+                    "    - "
+                    f"{regime}: n `{int(finite_value(row.get('sample_count'))) if math.isfinite(finite_value(row.get('sample_count'))) else 0}`, "
+                    f"throws `{int(finite_value(row.get('throw_count'))) if math.isfinite(finite_value(row.get('throw_count'))) else 0}`, "
+                    f"dx `{finite_value(row.get('dx_mae_m')):.4f}` m, "
+                    f"dy `{finite_value(row.get('dy_mae_m')):.4f}` m, "
+                    f"alt `{finite_value(row.get('altitude_loss_mae_m')):.4f}` m, "
+                    f"sink `{finite_value(row.get('sink_rate_mae_m_s')):.4f}` m/s, "
+                    f"roll `{finite_value(row.get('roll_mae_deg')):.3f}` deg, "
+                    f"pitch `{finite_value(row.get('pitch_mae_deg')):.3f}` deg, "
+                    f"yaw `{finite_value(row.get('yaw_mae_deg')):.3f}` deg"
+                )
     return "\n".join(lines)
 
 

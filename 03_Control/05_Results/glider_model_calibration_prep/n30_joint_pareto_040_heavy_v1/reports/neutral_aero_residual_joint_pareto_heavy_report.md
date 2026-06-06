@@ -1,0 +1,109 @@
+# Heavy 40 ms Joint Pareto SysID Refit
+
+- fit id: `n30_joint_pareto_040_heavy_v1`
+- alignment window: `0.040` s
+- workers: `8`
+- top longitudinal: `6`
+- top lateral: `10`
+- max lateral order: `3`
+- top triples: `80`
+- max candidates: `900`
+- selected limit: `8`
+- candidate CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_candidates.csv`
+- selected CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_selected.csv`
+- stage replay CSV: `metrics/neutral_aero_residual_joint_pareto_heavy_stage_replay.csv`
+
+## Selected Candidates
+
+- audit alignment window: `0.040` s
+- candidate rows: `210`
+- accepted rows: `41`
+- selected accepted Pareto rows: `6`
+- accepted Pareto candidates:
+  - `jp040h_L05_proposal_stage_9_stage9__X026_ablation_attached_Cn_ablation_post_stall` from `proposal_stage_9_stage9_post_blend_post_stall_lift_dr` + `ablation_attached_Cn_beta__yaw_moment_beta_coeff__s1p25+ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p75`: dx delta `0.0278` m, dy delta `-0.0042` m, pitch delta `-0.329` deg, roll delta `-8.044` deg, yaw delta `-0.266` deg
+  - `jp040h_L05_proposal_stage_9_stage9__X029_ablation_post_stall_ablation_attached_Cn` from `proposal_stage_9_stage9_post_blend_post_stall_lift_dr` + `ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p75+ablation_attached_Cn_beta__yaw_moment_beta_coeff__s1p0`: dx delta `0.0211` m, dy delta `-0.0084` m, pitch delta `-0.298` deg, roll delta `-8.065` deg, yaw delta `-0.064` deg
+  - `jp040h_L00_proposal_stage_5_stage5__X029_ablation_post_stall_ablation_attached_Cn` from `proposal_stage_5_stage5_transition_blend` + `ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p75+ablation_attached_Cn_beta__yaw_moment_beta_coeff__s1p0`: dx delta `0.0202` m, dy delta `-0.0262` m, pitch delta `-0.209` deg, roll delta `-8.431` deg, yaw delta `-0.306` deg
+  - `jp040h_L00_proposal_stage_5_stage5__X031_ablation_attached_Cn_ablation_post_stall` from `proposal_stage_5_stage5_transition_blend` + `ablation_attached_Cn_beta__yaw_moment_beta_coeff__s1p0+ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p5`: dx delta `0.0184` m, dy delta `-0.0246` m, pitch delta `-0.216` deg, roll delta `-6.866` deg, yaw delta `-1.192` deg
+  - `jp040h_L00_proposal_stage_5_stage5__X033_ablation_attached_Cn_ablation_post_stall` from `proposal_stage_5_stage5_transition_blend` + `ablation_attached_Cn_beta__yaw_moment_beta_coeff__s0p75+ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p5`: dx delta `0.0127` m, dy delta `-0.0263` m, pitch delta `-0.172` deg, roll delta `-6.573` deg, yaw delta `-0.575` deg
+  - `jp040h_L00_proposal_stage_5_stage5__X008_ablation_attached_Cn` from `proposal_stage_5_stage5_transition_blend` + `ablation_attached_Cn_beta__yaw_moment_beta_coeff__s0p75`: dx delta `0.0130` m, dy delta `-0.0243` m, pitch delta `-0.146` deg, roll delta `-2.782` deg, yaw delta `-1.605` deg
+
+## Held-Out Regime Replay
+
+- selected candidate `jp040h_L00_proposal_stage_5_stage5__X008_ablation_attached_Cn`:
+  - `matched_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+  - `selected_candidate`:
+    - normal: n `604`, throws `14`, dx `0.1450` m, dy `0.2387` m, alt `0.1496` m, sink `0.2440` m/s, roll `6.537` deg, pitch `4.015` deg, yaw `1.290` deg
+    - transition: n `1630`, throws `14`, dx `0.1590` m, dy `0.2551` m, alt `0.2722` m, sink `0.4243` m/s, roll `7.032` deg, pitch `6.843` deg, yaw `2.987` deg
+    - post_stall: n `164`, throws `5`, dx `0.3065` m, dy `0.2747` m, alt `0.3332` m, sink `0.4952` m/s, roll `10.654` deg, pitch `5.708` deg, yaw `5.896` deg
+  - `global_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+- selected candidate `jp040h_L00_proposal_stage_5_stage5__X029_ablation_post_stall_ablation_attached_Cn`:
+  - `matched_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+  - `selected_candidate`:
+    - normal: n `604`, throws `14`, dx `0.1459` m, dy `0.2330` m, alt `0.1490` m, sink `0.2433` m/s, roll `4.513` deg, pitch `3.942` deg, yaw `1.960` deg
+    - transition: n `1630`, throws `14`, dx `0.1613` m, dy `0.2566` m, alt `0.2723` m, sink `0.4243` m/s, roll `4.443` deg, pitch `6.760` deg, yaw `2.972` deg
+    - post_stall: n `164`, throws `5`, dx `0.3130` m, dy `0.2883` m, alt `0.3350` m, sink `0.4978` m/s, roll `8.363` deg, pitch `5.776` deg, yaw `8.297` deg
+  - `global_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+- selected candidate `jp040h_L00_proposal_stage_5_stage5__X031_ablation_attached_Cn_ablation_post_stall`:
+  - `matched_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+  - `selected_candidate`:
+    - normal: n `604`, throws `14`, dx `0.1456` m, dy `0.2345` m, alt `0.1490` m, sink `0.2433` m/s, roll `5.168` deg, pitch `3.948` deg, yaw `1.556` deg
+    - transition: n `1630`, throws `14`, dx `0.1610` m, dy `0.2567` m, alt `0.2723` m, sink `0.4243` m/s, roll `5.095` deg, pitch `6.785` deg, yaw `2.930` deg
+    - post_stall: n `164`, throws `5`, dx `0.3121` m, dy `0.2876` m, alt `0.3347` m, sink `0.4973` m/s, roll `8.694` deg, pitch `5.771` deg, yaw `7.596` deg
+  - `global_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+- selected candidate `jp040h_L00_proposal_stage_5_stage5__X033_ablation_attached_Cn_ablation_post_stall`:
+  - `matched_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+  - `selected_candidate`:
+    - normal: n `604`, throws `14`, dx `0.1449` m, dy `0.2362` m, alt `0.1500` m, sink `0.2443` m/s, roll `5.242` deg, pitch `3.953` deg, yaw `1.771` deg
+    - transition: n `1630`, throws `14`, dx `0.1590` m, dy `0.2545` m, alt `0.2723` m, sink `0.4244` m/s, roll `5.341` deg, pitch `6.791` deg, yaw `2.968` deg
+    - post_stall: n `164`, throws `5`, dx `0.3071` m, dy `0.2746` m, alt `0.3336` m, sink `0.4958` m/s, roll `9.090` deg, pitch `5.707` deg, yaw `6.702` deg
+  - `global_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+- selected candidate `jp040h_L05_proposal_stage_9_stage9__X026_ablation_attached_Cn_ablation_post_stall`:
+  - `matched_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1587` m, dy `0.2470` m, alt `0.1711` m, sink `0.2635` m/s, roll `7.127` deg, pitch `4.042` deg, yaw `1.817` deg
+    - transition: n `1630`, throws `14`, dx `0.1690` m, dy `0.2490` m, alt `0.2944` m, sink `0.4518` m/s, roll `8.500` deg, pitch `6.693` deg, yaw `3.268` deg
+    - post_stall: n `164`, throws `5`, dx `0.3270` m, dy `0.2352` m, alt `0.3780` m, sink `0.5584` m/s, roll `13.502` deg, pitch `4.850` deg, yaw `3.978` deg
+  - `selected_candidate`:
+    - normal: n `604`, throws `14`, dx `0.1634` m, dy `0.2292` m, alt `0.1674` m, sink `0.2598` m/s, roll `4.590` deg, pitch `3.893` deg, yaw `1.719` deg
+    - transition: n `1630`, throws `14`, dx `0.1799` m, dy `0.2570` m, alt `0.2952` m, sink `0.4522` m/s, roll `4.349` deg, pitch `6.540` deg, yaw `3.136` deg
+    - post_stall: n `164`, throws `5`, dx `0.3499` m, dy `0.2907` m, alt `0.3828` m, sink `0.5651` m/s, roll `8.144` deg, pitch `5.198` deg, yaw `9.137` deg
+  - `global_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg
+- selected candidate `jp040h_L05_proposal_stage_9_stage9__X029_ablation_post_stall_ablation_attached_Cn`:
+  - `matched_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1587` m, dy `0.2470` m, alt `0.1711` m, sink `0.2635` m/s, roll `7.127` deg, pitch `4.042` deg, yaw `1.817` deg
+    - transition: n `1630`, throws `14`, dx `0.1690` m, dy `0.2490` m, alt `0.2944` m, sink `0.4518` m/s, roll `8.500` deg, pitch `6.693` deg, yaw `3.268` deg
+    - post_stall: n `164`, throws `5`, dx `0.3270` m, dy `0.2352` m, alt `0.3780` m, sink `0.5584` m/s, roll `13.502` deg, pitch `4.850` deg, yaw `3.978` deg
+  - `selected_candidate`:
+    - normal: n `604`, throws `14`, dx `0.1624` m, dy `0.2310` m, alt `0.1684` m, sink `0.2608` m/s, roll `4.597` deg, pitch `3.903` deg, yaw `1.915` deg
+    - transition: n `1630`, throws `14`, dx `0.1772` m, dy `0.2548` m, alt `0.2949` m, sink `0.4520` m/s, roll `4.482` deg, pitch `6.556` deg, yaw `2.969` deg
+    - post_stall: n `164`, throws `5`, dx `0.3442` m, dy `0.2777` m, alt `0.3813` m, sink `0.5631` m/s, roll `8.241` deg, pitch `5.115` deg, yaw `7.893` deg
+  - `global_longitudinal_reference`:
+    - normal: n `604`, throws `14`, dx `0.1438` m, dy `0.2530` m, alt `0.1522` m, sink `0.2465` m/s, roll `7.289` deg, pitch `4.056` deg, yaw `1.979` deg
+    - transition: n `1630`, throws `14`, dx `0.1539` m, dy `0.2530` m, alt `0.2727` m, sink `0.4252` m/s, roll `8.639` deg, pitch `6.881` deg, yaw `3.357` deg
+    - post_stall: n `164`, throws `5`, dx `0.2946` m, dy `0.2406` m, alt `0.3315` m, sink `0.4928` m/s, roll `13.370` deg, pitch `5.513` deg, yaw `4.227` deg

@@ -1,0 +1,84 @@
+parameter,value,applied_to_replay,description
+post_stall_surface_replay_scale,1,True,Train-replay-selected multiplier used by non-staged post-stall ablations.
+attached_cm_bias_coeff,0.1130983242,False,Attached-flow Cm value applied through attached_pitch_moment_bias_coeff when accepted.
+transition_cm_bias_coeff,0.05711558898,False,Transition-window Cm value applied through transition_pitch_moment_bias_coeff when accepted.
+transition_before_post_stall_cm_bias_coeff,-0.04313995191,False,Transition Cm diagnostic before first post-stall exposure in each throw.
+transition_after_post_stall_cm_bias_coeff,-0.005798187194,False,Transition Cm diagnostic after the throw has already entered post-stall.
+post_stall_lift_residual_coeff,0,False,Compact scalar post-stall CL value applied when the staged replay gate accepts lift cleanup.
+post_stall_drag_residual_coeff,0,False,Compact scalar post-stall CD value applied when the staged replay gate accepts drag cleanup.
+post_stall_pitch_moment_coeff,0.07585874586,False,Compact scalar post-stall Cm value applied only through the post-stall pitch weight when accepted.
+post_stall_pitch_damping_coeff,4,False,"Positive-AoA Cmq-style value using q_hat = q c / (2V), applied only when accepted."
+post_stall_residual_blend_start_alpha_deg,12,False,Residual activation start alpha applied after the staged blend gate accepts it.
+post_stall_residual_blend_full_alpha_deg,22,False,Residual activation full-alpha point applied after the staged blend gate accepts it.
+side_force_bias_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+side_force_beta_coeff,-1.980266903,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+side_force_p_hat_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+side_force_r_hat_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+roll_moment_bias_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+roll_moment_beta_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+roll_moment_p_hat_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+roll_moment_r_hat_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+yaw_moment_bias_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+yaw_moment_beta_coeff,-0.0125,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+yaw_moment_p_hat_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+yaw_moment_r_hat_coeff,0,False,"Compact attached lateral residual term. Default primary fit leaves attached lateral terms report-only; the secondary diagnostic applies only CY_beta, Cl_p, and Cn_r."
+transition_side_force_bias_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_side_force_beta_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_side_force_p_hat_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_side_force_r_hat_coeff,-3,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_roll_moment_bias_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_roll_moment_beta_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_roll_moment_p_hat_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_roll_moment_r_hat_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_yaw_moment_bias_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_yaw_moment_beta_coeff,-0.01467582447,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_yaw_moment_p_hat_coeff,-0.1461483136,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+transition_yaw_moment_r_hat_coeff,0,False,"Compact transition-window lateral delta multiplied by 4*smoothstep*(1-smoothstep). Disabled by default; only CY_beta, Cl_p, and Cn_r are fit when enabled."
+post_stall_lift_rbf_20_coeff,0,False,Diagnostic rich post-stall CL alpha-RBF coefficient at 20 deg AoA. Disabled in the compact default.
+post_stall_lift_rbf_45_coeff,0,False,Diagnostic rich post-stall CL alpha-RBF coefficient at 45 deg AoA. Disabled in the compact default.
+post_stall_lift_rbf_70_coeff,0,False,Diagnostic rich post-stall CL alpha-RBF coefficient at 70 deg AoA. Disabled in the compact default.
+post_stall_drag_rbf_20_coeff,0,False,Diagnostic rich post-stall CD alpha-RBF coefficient at 20 deg AoA. Disabled in the compact default.
+post_stall_drag_rbf_45_coeff,0,False,Diagnostic rich post-stall CD alpha-RBF coefficient at 45 deg AoA. Disabled in the compact default.
+post_stall_drag_rbf_70_coeff,0,False,Diagnostic rich post-stall CD alpha-RBF coefficient at 70 deg AoA. Disabled in the compact default.
+post_stall_pitch_moment_rbf_20_coeff,0,False,Diagnostic rich post-stall Cm alpha-RBF coefficient at 20 deg AoA. Disabled in the compact default.
+post_stall_pitch_moment_rbf_45_coeff,0,False,Diagnostic rich post-stall Cm alpha-RBF coefficient at 45 deg AoA. Disabled in the compact default.
+post_stall_pitch_moment_rbf_70_coeff,0,False,Diagnostic rich post-stall Cm alpha-RBF coefficient at 70 deg AoA. Disabled in the compact default.
+post_stall_pitch_damping_rbf_20_coeff,0,False,Diagnostic rich post-stall Cmq alpha-RBF coefficient at 20 deg AoA. Disabled in the compact default.
+post_stall_pitch_damping_rbf_45_coeff,0,False,Diagnostic rich post-stall Cmq alpha-RBF coefficient at 45 deg AoA. Disabled in the compact default.
+post_stall_pitch_damping_rbf_70_coeff,0,False,Diagnostic rich post-stall Cmq alpha-RBF coefficient at 70 deg AoA. Disabled in the compact default.
+post_stall_side_force_bias_rbf_20_coeff,0,False,Neutral post-stall CY residual coefficient multiplying bias at 20 deg AoA.
+post_stall_side_force_bias_rbf_45_coeff,0,False,Neutral post-stall CY residual coefficient multiplying bias at 45 deg AoA.
+post_stall_side_force_bias_rbf_70_coeff,0,False,Neutral post-stall CY residual coefficient multiplying bias at 70 deg AoA.
+post_stall_side_force_beta_rbf_20_coeff,0,False,Neutral post-stall CY residual coefficient multiplying beta at 20 deg AoA.
+post_stall_side_force_beta_rbf_45_coeff,0,False,Neutral post-stall CY residual coefficient multiplying beta at 45 deg AoA.
+post_stall_side_force_beta_rbf_70_coeff,0,False,Neutral post-stall CY residual coefficient multiplying beta at 70 deg AoA.
+post_stall_side_force_p_hat_rbf_20_coeff,0,False,Neutral post-stall CY residual coefficient multiplying p_hat at 20 deg AoA.
+post_stall_side_force_p_hat_rbf_45_coeff,0,False,Neutral post-stall CY residual coefficient multiplying p_hat at 45 deg AoA.
+post_stall_side_force_p_hat_rbf_70_coeff,0,False,Neutral post-stall CY residual coefficient multiplying p_hat at 70 deg AoA.
+post_stall_side_force_r_hat_rbf_20_coeff,0,False,Neutral post-stall CY residual coefficient multiplying r_hat at 20 deg AoA.
+post_stall_side_force_r_hat_rbf_45_coeff,0,False,Neutral post-stall CY residual coefficient multiplying r_hat at 45 deg AoA.
+post_stall_side_force_r_hat_rbf_70_coeff,0,False,Neutral post-stall CY residual coefficient multiplying r_hat at 70 deg AoA.
+post_stall_roll_moment_bias_rbf_20_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying bias at 20 deg AoA.
+post_stall_roll_moment_bias_rbf_45_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying bias at 45 deg AoA.
+post_stall_roll_moment_bias_rbf_70_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying bias at 70 deg AoA.
+post_stall_roll_moment_beta_rbf_20_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying beta at 20 deg AoA.
+post_stall_roll_moment_beta_rbf_45_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying beta at 45 deg AoA.
+post_stall_roll_moment_beta_rbf_70_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying beta at 70 deg AoA.
+post_stall_roll_moment_p_hat_rbf_20_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying p_hat at 20 deg AoA.
+post_stall_roll_moment_p_hat_rbf_45_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying p_hat at 45 deg AoA.
+post_stall_roll_moment_p_hat_rbf_70_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying p_hat at 70 deg AoA.
+post_stall_roll_moment_r_hat_rbf_20_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying r_hat at 20 deg AoA.
+post_stall_roll_moment_r_hat_rbf_45_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying r_hat at 45 deg AoA.
+post_stall_roll_moment_r_hat_rbf_70_coeff,0,False,Neutral post-stall Cl residual coefficient multiplying r_hat at 70 deg AoA.
+post_stall_yaw_moment_bias_rbf_20_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying bias at 20 deg AoA.
+post_stall_yaw_moment_bias_rbf_45_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying bias at 45 deg AoA.
+post_stall_yaw_moment_bias_rbf_70_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying bias at 70 deg AoA.
+post_stall_yaw_moment_beta_rbf_20_coeff,-0.01870860145,False,Neutral post-stall Cn residual coefficient multiplying beta at 20 deg AoA.
+post_stall_yaw_moment_beta_rbf_45_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying beta at 45 deg AoA.
+post_stall_yaw_moment_beta_rbf_70_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying beta at 70 deg AoA.
+post_stall_yaw_moment_p_hat_rbf_20_coeff,-0.07119920085,False,Neutral post-stall Cn residual coefficient multiplying p_hat at 20 deg AoA.
+post_stall_yaw_moment_p_hat_rbf_45_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying p_hat at 45 deg AoA.
+post_stall_yaw_moment_p_hat_rbf_70_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying p_hat at 70 deg AoA.
+post_stall_yaw_moment_r_hat_rbf_20_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying r_hat at 20 deg AoA.
+post_stall_yaw_moment_r_hat_rbf_45_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying r_hat at 45 deg AoA.
+post_stall_yaw_moment_r_hat_rbf_70_coeff,0,False,Neutral post-stall Cn residual coefficient multiplying r_hat at 70 deg AoA.
