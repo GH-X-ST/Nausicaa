@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +78,8 @@ class FrozenFlightController:
         self._active_payload: dict[str, Any] | None = None
         self._active_variant_id = ""
         self._prepared_launch_decision: dict[str, Any] | None = None
+        self._prepared_continuation_decision: dict[str, Any] | None = None
+        self._prepared_decision_lock = threading.Lock()
         self._last_command_norm = np.zeros(3, dtype=float)
         self.sequence = 0
         self.memory_state = RealFlightMemoryState(enabled=bool(config.experiment_memory_enabled))
@@ -122,7 +125,8 @@ class FrozenFlightController:
         prepared["selection_state"] = state.copy()
         prepared["prepared_decision_time_s"] = time.perf_counter() - started
         if prepared.get("payload") is None:
-            self._prepared_launch_decision = None
+            with self._prepared_decision_lock:
+                self._prepared_launch_decision = None
             return {
                 "ready": False,
                 "reason": str(prepared["reason"]),
@@ -131,7 +135,8 @@ class FrozenFlightController:
                 "viable_count": int(prepared["viable_count"]),
                 "primitive_variant_id": "",
             }
-        self._prepared_launch_decision = prepared
+        with self._prepared_decision_lock:
+            self._prepared_launch_decision = prepared
         return {
             "ready": True,
             "reason": "selected",
@@ -148,8 +153,9 @@ class FrozenFlightController:
         """Emit the already selected launch primitive from the latest post-handoff state."""
 
         commit_started = time.perf_counter()
-        prepared = self._prepared_launch_decision
-        self._prepared_launch_decision = None
+        with self._prepared_decision_lock:
+            prepared = self._prepared_launch_decision
+            self._prepared_launch_decision = None
         state = as_state_vector(state_vector)
         if prepared is None or prepared.get("payload") is None:
             route = _validation_route_for_primitive_step(0, state=state)
@@ -160,6 +166,114 @@ class FrozenFlightController:
                 governor_mode=_governor_mode_for_route(route),
                 candidate_count=0,
                 viable_count=0,
+            )
+        prepared_time_s = float(prepared.get("prepared_decision_time_s", 0.0))
+        return self._emit_selected_decision(
+            prepared=prepared,
+            command_state=state,
+            started=commit_started,
+            prepared_decision_time_s=prepared_time_s,
+        )
+
+    def prepare_continuation_decision(
+        self,
+        state_vector: np.ndarray,
+        *,
+        primitive_step_index: int,
+        target_boundary_s: float,
+        prepare_started_elapsed_s: float,
+        prediction_dt_s: float,
+    ) -> dict[str, object]:
+        """Select the next primitive before its boundary without emitting a packet."""
+
+        started = time.perf_counter()
+        state = as_state_vector(state_vector)
+        prepared = self._select_payload_for_state(
+            state,
+            primitive_step_index=primitive_step_index,
+            started=started,
+        )
+        prepared["selection_state"] = state.copy()
+        prepared["prepared_decision_time_s"] = time.perf_counter() - started
+        prepared["primitive_step_index"] = int(primitive_step_index)
+        prepared["target_boundary_s"] = float(target_boundary_s)
+        prepared["prepare_started_elapsed_s"] = float(prepare_started_elapsed_s)
+        prepared["prediction_dt_s"] = float(prediction_dt_s)
+        with self._prepared_decision_lock:
+            self._prepared_continuation_decision = prepared
+        if prepared.get("payload") is None:
+            return {
+                "ready": False,
+                "reason": str(prepared["reason"]),
+                "decision_time_s": float(prepared["prepared_decision_time_s"]),
+                "candidate_count": int(prepared["candidate_count"]),
+                "viable_count": int(prepared["viable_count"]),
+                "primitive_step_index": int(primitive_step_index),
+                "target_boundary_s": float(target_boundary_s),
+                "prepare_started_elapsed_s": float(prepare_started_elapsed_s),
+                "prediction_dt_s": float(prediction_dt_s),
+                "primitive_variant_id": "",
+            }
+        return {
+            "ready": True,
+            "reason": "selected",
+            "decision_time_s": float(prepared["prepared_decision_time_s"]),
+            "candidate_count": int(prepared["candidate_count"]),
+            "viable_count": int(prepared["viable_count"]),
+            "primitive_step_index": int(primitive_step_index),
+            "target_boundary_s": float(target_boundary_s),
+            "prepare_started_elapsed_s": float(prepare_started_elapsed_s),
+            "prediction_dt_s": float(prediction_dt_s),
+            "primitive_variant_id": str(prepared["variant_id"]),
+            "primitive_id": str(prepared["primitive_id"]),
+            "controller_id": str(prepared["controller_id"]),
+            "expected_energy_residual_m": float(prepared["expected_energy_residual_m"]),
+        }
+
+    def commit_prepared_continuation_decision(
+        self,
+        state_vector: np.ndarray,
+        *,
+        primitive_step_index: int,
+    ) -> FlightControllerDecision:
+        """Emit the prepared continuation primitive using the latest real state."""
+
+        commit_started = time.perf_counter()
+        state = as_state_vector(state_vector)
+        with self._prepared_decision_lock:
+            prepared = self._prepared_continuation_decision
+            self._prepared_continuation_decision = None
+        route = _validation_route_for_primitive_step(primitive_step_index, state=state)
+        if prepared is None:
+            return self._neutral_decision(
+                reason="continuation_decision_not_prepared",
+                started=commit_started,
+                route=route,
+                governor_mode=_governor_mode_for_route(route),
+                candidate_count=0,
+                viable_count=0,
+            )
+        if int(prepared.get("primitive_step_index", -1)) != int(primitive_step_index):
+            return self._neutral_decision(
+                reason=(
+                    "continuation_decision_step_mismatch:"
+                    f"prepared={int(prepared.get('primitive_step_index', -1))}:"
+                    f"requested={int(primitive_step_index)}"
+                ),
+                started=commit_started,
+                route=route,
+                governor_mode=_governor_mode_for_route(route),
+                candidate_count=int(prepared.get("candidate_count", 0)),
+                viable_count=int(prepared.get("viable_count", 0)),
+            )
+        if prepared.get("payload") is None:
+            return self._neutral_decision(
+                reason=str(prepared.get("reason", "no_viable_primitive")),
+                started=commit_started,
+                route=dict(prepared.get("route", route)),
+                governor_mode=str(prepared.get("governor_mode", _governor_mode_for_route(route))),
+                candidate_count=int(prepared.get("candidate_count", 0)),
+                viable_count=int(prepared.get("viable_count", 0)),
             )
         prepared_time_s = float(prepared.get("prepared_decision_time_s", 0.0))
         return self._emit_selected_decision(

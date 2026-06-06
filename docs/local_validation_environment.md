@@ -119,9 +119,19 @@ active primitive from the latest post-handoff state; step-0 evidence reports
 surface states from the command history using the same measured nominal
 command-onset delay and one-pole actuator lag envelope as the simulation nominal
 latency case; packet output itself remains the hardware command path, not a
-simulated delay. Later in-flight decisions are prepared before
-primitive-boundary commit where possible. This is an offline wall-clock audit,
-not a hardware real-time claim. The current compact controller-row selector timing boundary matches the active code path: full spatial-belief query plus compact controller-row library selection is in the timed controller path, while full candidate-row expansion, table flushing, and post-hoc diagnostics are outside it. Latest targeted C16 sanity check: 40 final launches, 430 history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory switches, and required heavy/balanced in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full R10/R11 validation.
+simulated delay. Later real-flight in-flight decisions use the same hybrid
+scheduler as the deployment runtime: a predicted boundary state selects the
+next primitive before commit, the latest Vicon state emits the first command
+packet at commit, and late preparation is logged instead of becoming a new
+flight blocker. This is an offline wall-clock audit, not a hardware real-time
+claim. The current compact controller-row selector timing boundary matches the
+active code path: full spatial-belief query plus compact controller-row library
+selection is in the timed controller path, while full candidate-row expansion,
+table flushing, and post-hoc diagnostics are outside it. Latest targeted C16
+sanity check: 40 final launches, 430 history launches, 0 hard failures, 0
+no-viable events, 13/13 accepted memory switches, and required heavy/balanced
+in-flight decisions at 144/144 under 0.100 s with max 0.0937 s; this is
+targeted diagnostic evidence only, not full R10/R11 validation.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`

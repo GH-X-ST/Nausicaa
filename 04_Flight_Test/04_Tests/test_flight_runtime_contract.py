@@ -54,7 +54,7 @@ from real_flight_io import (  # noqa: E402
     aggregate_to_physical_surface_norm,
     encode_arduino_command_packet,
 )
-from run_real_flight import _validate_closed_loop_deployment_evidence, run_real_flight  # noqa: E402
+from run_real_flight import _predict_boundary_state, _validate_closed_loop_deployment_evidence, run_real_flight  # noqa: E402
 from run_experiment_sequence import run_experiment_sequence  # noqa: E402
 from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_DURATION_BY_ABS_COMMAND,
@@ -747,6 +747,44 @@ def test_frozen_controller_loads_and_returns_quantised_command() -> None:
     assert decision.candidate_count > 0
     assert all(value in {-1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.0} for value in decision.command_norm)
     assert len(decision.packet_bytes) == 15
+
+
+def test_frozen_controller_prepares_continuation_without_emitting_packet() -> None:
+    controller = FrozenFlightController(FlightRuntimeConfig(run_label="pytest_continuation_prepare"))
+    selection_state = _state(x_w=1.8, y_w=2.2, z_w=1.6, u=6.0)
+    commit_state = selection_state.copy()
+    commit_state[STATE_INDEX["theta"]] += 0.04
+    sequence_before = controller.sequence
+
+    prepared = controller.prepare_continuation_decision(
+        selection_state,
+        primitive_step_index=1,
+        target_boundary_s=0.14,
+        prepare_started_elapsed_s=0.04,
+        prediction_dt_s=0.10,
+    )
+
+    assert prepared["ready"] is True
+    assert prepared["primitive_step_index"] == 1
+    assert controller.sequence == sequence_before
+
+    decision = controller.commit_prepared_continuation_decision(commit_state, primitive_step_index=1)
+
+    assert decision.selected is True
+    assert len(decision.packet_bytes) == 15
+    assert controller.sequence == sequence_before + 1
+    assert decision.decision_time_s >= float(prepared["decision_time_s"])
+
+
+def test_runtime_boundary_predictor_propagates_short_horizon_state() -> None:
+    state = _state(x_w=1.0, y_w=2.0, z_w=1.5, psi=0.0, u=6.0, v=0.5, w=-0.4, r=0.2)
+
+    predicted = _predict_boundary_state(state, 0.10)
+
+    assert predicted[STATE_INDEX["x_w"]] == pytest.approx(1.6)
+    assert predicted[STATE_INDEX["y_w"]] == pytest.approx(2.05)
+    assert predicted[STATE_INDEX["z_w"]] == pytest.approx(1.54)
+    assert predicted[STATE_INDEX["psi"]] == pytest.approx(0.02)
 
 
 def test_frozen_controller_pushes_command_fifo_old_to_new() -> None:

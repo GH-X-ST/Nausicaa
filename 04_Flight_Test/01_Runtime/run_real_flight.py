@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
@@ -40,7 +41,7 @@ if str(CONTROLLER_ROOT) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_ROOT))
 
 from real_flight_io import NausicaaViconStateAdapter, ViconArenaFrameTransform  # noqa: E402
-from state_contract import STATE_INDEX, state_dataframe_row  # noqa: E402
+from state_contract import STATE_INDEX, STATE_SIZE, state_dataframe_row  # noqa: E402
 
 
 def run_real_flight(
@@ -109,7 +110,8 @@ def run_real_flight(
                 else "not_active"
             ),
             "closed_loop_command_execution_policy": (
-                "governor_selects_primitive_at_10hz_lqr_slot_command_recomputed_from_latest_vicon_state_at_50hz"
+                "hybrid_scheduler_prepares_next_0p10s_primitive_before_boundary_from_predicted_boundary_state;"
+                "first_packet_and_50hz_lqr_slot_commands_are_recomputed_from_latest_vicon_state"
                 if config.controller_mode == "closed_loop"
                 else "not_active"
             ),
@@ -200,6 +202,15 @@ def run_real_flight(
         "launch_handoff_neutral_packet_count": 0,
         "first_active_command_elapsed_s": 0.0,
         "first_launch_decision_ready_before_handoff": False,
+        "continuation_scheduler_policy": (
+            "predict_boundary_prepare_next_primitive_commit_with_latest_vicon_state"
+            if config.controller_mode == "closed_loop"
+            else "not_active"
+        ),
+        "continuation_prepare_started_count": 0,
+        "continuation_prepared_decision_count": 0,
+        "continuation_commit_count": 0,
+        "continuation_late_decision_count": 0,
         "flight_cancelled": False,
         "cancellation_reason": "",
         "exit_gate_triggered": False,
@@ -221,6 +232,100 @@ def run_real_flight(
     decision_records: list[dict[str, object]] = []
     controller_decision_rows: list[dict[str, object]] = []
     terminal_record_appended = False
+    continuation_executor = (
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="real_flight_governor_prepare")
+        if config.controller_mode == "closed_loop"
+        else None
+    )
+    continuation_future: Future[dict[str, object]] | None = None
+    continuation_target_step_index = -1
+    continuation_target_boundary_s = 0.0
+    continuation_prepare_started_elapsed_s = 0.0
+    continuation_prediction_dt_s = 0.0
+    continuation_late_logged_step = -1
+
+    def _start_continuation_prepare(
+        *,
+        state: np.ndarray,
+        loop_elapsed_s: float,
+        target_boundary_s: float,
+        target_step_index: int,
+    ) -> None:
+        nonlocal continuation_future
+        nonlocal continuation_target_step_index
+        nonlocal continuation_target_boundary_s
+        nonlocal continuation_prepare_started_elapsed_s
+        nonlocal continuation_prediction_dt_s
+        nonlocal continuation_late_logged_step
+        if continuation_executor is None:
+            return
+        if continuation_future is not None and not continuation_future.done():
+            return
+        prediction_dt_s = max(0.0, float(target_boundary_s) - float(loop_elapsed_s))
+        predicted_state = _predict_boundary_state(state, prediction_dt_s)
+        continuation_target_step_index = int(target_step_index)
+        continuation_target_boundary_s = float(target_boundary_s)
+        continuation_prepare_started_elapsed_s = float(loop_elapsed_s)
+        continuation_prediction_dt_s = float(prediction_dt_s)
+        continuation_late_logged_step = -1
+        summary["continuation_prepare_started_count"] = int(summary["continuation_prepare_started_count"]) + 1
+        _append_runtime_event(
+            logger,
+            "continuation_decision_prepare_started",
+            primitive_step_index=int(target_step_index),
+            prepare_started_elapsed_s=float(loop_elapsed_s),
+            target_boundary_s=float(target_boundary_s),
+            prediction_dt_s=float(prediction_dt_s),
+        )
+        continuation_future = continuation_executor.submit(
+            controller.prepare_continuation_decision,
+            predicted_state,
+            primitive_step_index=int(target_step_index),
+            target_boundary_s=float(target_boundary_s),
+            prepare_started_elapsed_s=float(loop_elapsed_s),
+            prediction_dt_s=float(prediction_dt_s),
+        )
+
+    def _record_controller_decision(
+        decision: object,
+        *,
+        decision_t_s: float,
+        decision_state: np.ndarray,
+        executed_primitive_step_index: int,
+        scheduler_decision_source: str,
+        scheduler_prepared_before_boundary: bool,
+        scheduler_target_boundary_s: float,
+        scheduler_prepare_started_elapsed_s: float,
+        scheduler_prediction_dt_s: float,
+    ) -> None:
+        decision_records.append(
+            {
+                "t_s": float(decision_t_s),
+                "state": decision_state.copy(),
+                "expected_energy_residual_m": float(decision.expected_energy_residual_m),
+                "primitive_variant_id": decision.primitive_variant_id,
+            }
+        )
+        summary["controller_decision_count"] = int(summary["controller_decision_count"]) + 1
+        summary["max_decision_time_s"] = max(
+            float(summary["max_decision_time_s"]),
+            float(decision.decision_time_s),
+        )
+        decision_row = {
+            "t_host_s": time.perf_counter(),
+            "decision_elapsed_s": float(decision_t_s),
+            "executed_primitive_step_index": int(executed_primitive_step_index),
+            "scheduler_policy": "hybrid_predict_boundary_prepare_then_commit_latest_vicon",
+            "scheduler_decision_source": str(scheduler_decision_source),
+            "scheduler_prepared_before_primitive_boundary": bool(scheduler_prepared_before_boundary),
+            "scheduler_target_boundary_s": float(scheduler_target_boundary_s),
+            "scheduler_prepare_started_elapsed_s": float(scheduler_prepare_started_elapsed_s),
+            "scheduler_prediction_dt_s": float(scheduler_prediction_dt_s),
+            "scheduler_commit_lag_s": float(decision_t_s) - float(scheduler_target_boundary_s),
+            **asdict(decision),
+        }
+        controller_decision_rows.append(decision_row)
+        logger.append_metric_row("controller_decisions.csv", decision_row)
 
     try:
         tx.open()
@@ -436,25 +541,26 @@ def run_real_flight(
                 summary["completed"] = False
                 return summary
             pending_slot_packet = latest_decision.packet_bytes
-            decision_records.append(
-                {
-                    "t_s": 0.0,
-                    "state": pending_launch_decision_state.copy(),
-                    "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
-                    "primitive_variant_id": latest_decision.primitive_variant_id,
-                }
+            _record_controller_decision(
+                latest_decision,
+                decision_t_s=0.0,
+                decision_state=pending_launch_decision_state,
+                executed_primitive_step_index=0,
+                scheduler_decision_source="initial_launch_precomputed_before_release",
+                scheduler_prepared_before_boundary=True,
+                scheduler_target_boundary_s=launch_handoff_duration_s,
+                scheduler_prepare_started_elapsed_s=0.0,
+                scheduler_prediction_dt_s=0.0,
             )
             pending_launch_decision_state = None
             primitive_step_index = 1
             next_governor_s = launch_handoff_duration_s + float(config.governor_period_s)
-            summary["controller_decision_count"] += 1
-            summary["max_decision_time_s"] = max(
-                float(summary["max_decision_time_s"]),
-                float(latest_decision.decision_time_s),
+            _start_continuation_prepare(
+                state=latest_state,
+                loop_elapsed_s=launch_handoff_duration_s,
+                target_boundary_s=next_governor_s,
+                target_step_index=primitive_step_index,
             )
-            decision_row = {"t_host_s": time.perf_counter(), **asdict(latest_decision)}
-            controller_decision_rows.append(decision_row)
-            logger.append_metric_row("controller_decisions.csv", decision_row)
 
         while (time.perf_counter() - started) <= float(config.max_duration_s):
             loop_elapsed_s = time.perf_counter() - started
@@ -541,38 +647,84 @@ def run_real_flight(
                 break
 
             if config.controller_mode == "closed_loop" and loop_elapsed_s + 1e-12 >= next_governor_s:
-                decision_state = (
-                    pending_launch_decision_state
-                    if primitive_step_index == 0 and pending_launch_decision_state is not None
-                    else latest_state
-                )
-                if primitive_step_index == 0 and pending_launch_decision_state is not None:
+                if (
+                    continuation_future is not None
+                    and continuation_target_step_index == primitive_step_index
+                    and continuation_future.done()
+                ):
+                    prepared_status = continuation_future.result()
+                    summary["continuation_prepared_decision_count"] = (
+                        int(summary["continuation_prepared_decision_count"]) + 1
+                    )
+                    latest_decision = controller.commit_prepared_continuation_decision(
+                        latest_state,
+                        primitive_step_index=primitive_step_index,
+                    )
+                    pending_slot_packet = latest_decision.packet_bytes
+                    commit_lag_s = float(loop_elapsed_s) - float(continuation_target_boundary_s)
+                    scheduler_source = (
+                        "prepared_during_previous_primitive_window"
+                        if commit_lag_s <= 1e-12
+                        else "late_prepared_after_boundary"
+                    )
+                    _record_controller_decision(
+                        latest_decision,
+                        decision_t_s=float(loop_elapsed_s),
+                        decision_state=latest_state,
+                        executed_primitive_step_index=primitive_step_index,
+                        scheduler_decision_source=scheduler_source,
+                        scheduler_prepared_before_boundary=commit_lag_s <= 1e-12,
+                        scheduler_target_boundary_s=continuation_target_boundary_s,
+                        scheduler_prepare_started_elapsed_s=continuation_prepare_started_elapsed_s,
+                        scheduler_prediction_dt_s=continuation_prediction_dt_s,
+                    )
+                    summary["continuation_commit_count"] = int(summary["continuation_commit_count"]) + 1
                     _append_runtime_event(
                         logger,
-                        "first_decision_uses_approved_launch_state",
-                        source="launch_gate_interpolated_or_window_state",
+                        "continuation_decision_committed",
+                        primitive_step_index=int(primitive_step_index),
+                        scheduler_decision_source=scheduler_source,
+                        prepared_ready=bool(prepared_status.get("ready", False)),
+                        selected=bool(latest_decision.selected),
+                        reason=str(latest_decision.reason),
+                        target_boundary_s=float(continuation_target_boundary_s),
+                        commit_elapsed_s=float(loop_elapsed_s),
+                        commit_lag_s=float(commit_lag_s),
+                        decision_time_s=float(latest_decision.decision_time_s),
                     )
-                    pending_launch_decision_state = None
-                latest_decision = controller.decide(decision_state, primitive_step_index=primitive_step_index)
-                pending_slot_packet = latest_decision.packet_bytes
-                decision_records.append(
-                    {
-                        "t_s": float(loop_elapsed_s),
-                        "state": decision_state.copy(),
-                        "expected_energy_residual_m": float(latest_decision.expected_energy_residual_m),
-                        "primitive_variant_id": latest_decision.primitive_variant_id,
-                    }
-                )
-                primitive_step_index += 1
-                next_governor_s += float(config.governor_period_s)
-                summary["controller_decision_count"] += 1
-                summary["max_decision_time_s"] = max(
-                    float(summary["max_decision_time_s"]),
-                    float(latest_decision.decision_time_s),
-                )
-                decision_row = {"t_host_s": time.perf_counter(), **asdict(latest_decision)}
-                controller_decision_rows.append(decision_row)
-                logger.append_metric_row("controller_decisions.csv", decision_row)
+                    primitive_step_index += 1
+                    next_governor_s += float(config.governor_period_s)
+                    continuation_future = None
+                    _start_continuation_prepare(
+                        state=latest_state,
+                        loop_elapsed_s=float(loop_elapsed_s),
+                        target_boundary_s=next_governor_s,
+                        target_step_index=primitive_step_index,
+                    )
+                else:
+                    if continuation_future is None:
+                        _start_continuation_prepare(
+                            state=latest_state,
+                            loop_elapsed_s=float(loop_elapsed_s),
+                            target_boundary_s=next_governor_s,
+                            target_step_index=primitive_step_index,
+                        )
+                    if continuation_late_logged_step != primitive_step_index:
+                        continuation_late_logged_step = primitive_step_index
+                        summary["continuation_late_decision_count"] = (
+                            int(summary["continuation_late_decision_count"]) + 1
+                        )
+                        _append_runtime_event(
+                            logger,
+                            "continuation_decision_late",
+                            primitive_step_index=int(primitive_step_index),
+                            target_boundary_s=float(next_governor_s),
+                            elapsed_s=float(loop_elapsed_s),
+                            active_primitive_variant_id=(
+                                latest_decision.primitive_variant_id if latest_decision is not None else ""
+                            ),
+                            action="continue_streaming_active_primitive_until_prepared_decision_ready",
+                        )
 
             if loop_elapsed_s + 1e-12 >= next_serial_s:
                 if config.controller_mode == "open_loop_neutral":
@@ -650,6 +802,8 @@ def run_real_flight(
                 event="final_neutral_packet",
                 quiet=True,
             )
+        if continuation_executor is not None:
+            continuation_executor.shutdown(wait=True, cancel_futures=True)
         tx.close()
         vicon.close()
         posthoc_score = _real_flight_posthoc_score_row(
@@ -1154,6 +1308,50 @@ def _send_neutral_tail(
         neutral_packet_count=packet_count,
         post_exit_neutral_tail_s=float(config.post_exit_neutral_tail_s),
     )
+
+
+def _predict_boundary_state(state_vector: np.ndarray, dt_s: float) -> np.ndarray:
+    """Short-horizon boundary-state predictor for governor selection only."""
+
+    state = np.asarray(state_vector, dtype=float).reshape(STATE_SIZE).copy()
+    dt = max(0.0, min(float(dt_s), 0.25))
+    if dt <= 0.0:
+        return state
+    phi = float(state[STATE_INDEX["phi"]])
+    theta = float(state[STATE_INDEX["theta"]])
+    psi = float(state[STATE_INDEX["psi"]])
+    c_phi, s_phi = np.cos(phi), np.sin(phi)
+    c_theta, s_theta = np.cos(theta), np.sin(theta)
+    c_psi, s_psi = np.cos(psi), np.sin(psi)
+    c_wb = np.asarray(
+        [
+            [
+                c_theta * c_psi,
+                s_phi * s_theta * c_psi - c_phi * s_psi,
+                c_phi * s_theta * c_psi + s_phi * s_psi,
+            ],
+            [
+                c_theta * s_psi,
+                s_phi * s_theta * s_psi + c_phi * c_psi,
+                c_phi * s_theta * s_psi - s_phi * c_psi,
+            ],
+            [-s_theta, s_phi * c_theta, c_phi * c_theta],
+        ],
+        dtype=float,
+    )
+    body_velocity = state[[STATE_INDEX["u"], STATE_INDEX["v"], STATE_INDEX["w"]]]
+    world_internal_velocity = c_wb @ body_velocity
+    state[STATE_INDEX["x_w"]] += float(world_internal_velocity[0]) * dt
+    state[STATE_INDEX["y_w"]] += float(world_internal_velocity[1]) * dt
+    state[STATE_INDEX["z_w"]] -= float(world_internal_velocity[2]) * dt
+    state[STATE_INDEX["phi"]] += float(state[STATE_INDEX["p"]]) * dt
+    state[STATE_INDEX["theta"]] += float(state[STATE_INDEX["q"]]) * dt
+    state[STATE_INDEX["psi"]] = _wrap_to_pi(float(state[STATE_INDEX["psi"]]) + float(state[STATE_INDEX["r"]]) * dt)
+    return state
+
+
+def _wrap_to_pi(value: float) -> float:
+    return float((float(value) + np.pi) % (2.0 * np.pi) - np.pi)
 
 
 def _append_runtime_event(logger: FlightLogger, event: str, **details: object) -> None:
