@@ -1,0 +1,98 @@
+{
+  "between_throw_policy": "pre_arm_and_cooldown_streamed_neutral_only_without_vicon_reads;each_throw_started_with_lazy_vicon_launch_gate_wait",
+  "calibration_profile": {
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "derivative_cutoff_hz": 8.0,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "profile_hash": "c4fca6c930dd4a9c9836c53fd3bb796ac14973d08c32796a1ecf0d155edd2d2f",
+    "profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "profile_version": "position:1.0;attitude:1.0",
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "requested_vicon_tracking_rate_hz": 200.0,
+    "vicon_attitude_offset_rad": [
+      0.0007439979282497512,
+      7.203523529364376e-05,
+      0.0006251279824196487
+    ],
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_position_offset_m": [
+      3.855562304586611,
+      2.4518762988877687,
+      0.03760914985856823
+    ],
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "case": {
+    "case_id": "E0.1",
+    "case_name": "Dry-air shakedown before E1",
+    "controller_mode": "closed_loop",
+    "evidence_role": "shakedown_only",
+    "expected_visible_fan_max": 0,
+    "expected_visible_fan_min": 0,
+    "layout_id": "E0_dry_air_shakedown",
+    "memory_enabled": false,
+    "target_valid_throws": 5
+  },
+  "controller_memory": {
+    "memory_cell_count": 0,
+    "memory_enabled": false,
+    "memory_launch_index": 0,
+    "memory_policy": "disabled",
+    "memory_update_count": 0
+  },
+  "invalid_attempt_count": 0,
+  "launch_gate_body_rate_limits_policy": "formal_evidence_default",
+  "launch_gate_body_rate_limits_rad_s": [
+    1.2,
+    1.2,
+    1.8
+  ],
+  "posthoc_score_audit": {
+    "case_id": "E0.1",
+    "case_name": "Dry-air shakedown before E1",
+    "claim_status": "real_flight_session_posthoc_score_audit_not_runtime_control",
+    "controller_mode": "closed_loop",
+    "h0_throw_count": 0,
+    "h11_30_plus_throw_count": 0,
+    "h1_3_throw_count": 0,
+    "h4_10_throw_count": 0,
+    "invalid_attempt_count": 0,
+    "layout_id": "E0_dry_air_shakedown",
+    "mean_accumulated_selected_score": NaN,
+    "mean_executed_selected_decision_count": NaN,
+    "mean_final_observable_specific_energy_m": NaN,
+    "memory_enabled": false,
+    "no_memory_throw_count": 0,
+    "open_loop_throw_count": 0,
+    "posthoc_score_source": "child_throw_runtime_summary_posthoc_fields",
+    "posthoc_throw_row_count": 0,
+    "valid_throw_count": 0
+  },
+  "pre_arm_vicon_inactive_delay_s": 3.0,
+  "session_label": "20260606_192711",
+  "target_valid_throws": 2,
+  "valid_throw_count": 0,
+  "vicon_attitude_offset_rad_phi_theta_psi": [
+    0.0007439979282497512,
+    7.203523529364376e-05,
+    0.0006251279824196487
+  ],
+  "vicon_attitude_signs_phi_theta_psi": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "vicon_poll_period_s": 0.005,
+  "vicon_tracking_rate_hz": 200.0
+}

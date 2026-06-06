@@ -54,7 +54,7 @@ from real_flight_io import (  # noqa: E402
     aggregate_to_physical_surface_norm,
     encode_arduino_command_packet,
 )
-from run_real_flight import run_real_flight  # noqa: E402
+from run_real_flight import _validate_closed_loop_deployment_evidence, run_real_flight  # noqa: E402
 from run_experiment_sequence import run_experiment_sequence  # noqa: E402
 from run_glider_calibration_sequence import (  # noqa: E402
     PULSE_DURATION_BY_ABS_COMMAND,
@@ -246,6 +246,72 @@ def test_armed_closed_loop_requires_matching_deployment_evidence_manifest(tmp_pa
 
     with pytest.raises(RuntimeError, match="deployment evidence manifest is missing"):
         run_real_flight(config, mode="armed")
+
+
+def test_armed_closed_loop_allows_position_only_calibration_hash_drift(tmp_path: Path) -> None:
+    profile = ACTIVE_CALIBRATION_PROFILE.to_manifest()
+    profile["profile_id"] = f"{profile['profile_id']}+pytest_position_recheck"
+    profile["profile_hash"] = "pytest_position_only_profile_hash"
+    profile["vicon_position_offset_m"] = [
+        float(ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m[0]) + 0.1,
+        float(ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m[1]) - 0.1,
+        float(ACTIVE_CALIBRATION_PROFILE.vicon_position_offset_m[2]) + 0.02,
+    ]
+    manifest_path = tmp_path / "deployment_evidence_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "calibration_profile_hash": "pytest_position_only_manifest_hash",
+                "active_calibration_profile": profile,
+                "evidence_regenerated_after_calibration": True,
+                "r5_label": "E03",
+                "r7_label": "E03",
+                "r8_label": "E03",
+                "r10_label": "E03",
+                "r11_label": "E03.1",
+            },
+            sort_keys=True,
+        ),
+        encoding="ascii",
+    )
+    config = FlightRuntimeConfig(
+        run_label="T_position_only_guard",
+        output_root=tmp_path,
+        deployment_evidence_manifest_path=manifest_path,
+    )
+
+    _validate_closed_loop_deployment_evidence(config=config, mode="armed")
+
+
+def test_armed_closed_loop_rejects_evidence_sensitive_calibration_drift(tmp_path: Path) -> None:
+    profile = ACTIVE_CALIBRATION_PROFILE.to_manifest()
+    profile["profile_hash"] = "pytest_bad_attitude_profile_hash"
+    profile["vicon_attitude_signs"] = [1.0, 1.0, -1.0]
+    manifest_path = tmp_path / "deployment_evidence_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "calibration_profile_hash": "pytest_bad_attitude_manifest_hash",
+                "active_calibration_profile": profile,
+                "evidence_regenerated_after_calibration": True,
+                "r5_label": "E03",
+                "r7_label": "E03",
+                "r8_label": "E03",
+                "r10_label": "E03",
+                "r11_label": "E03.1",
+            },
+            sort_keys=True,
+        ),
+        encoding="ascii",
+    )
+    config = FlightRuntimeConfig(
+        run_label="T_attitude_guard",
+        output_root=tmp_path,
+        deployment_evidence_manifest_path=manifest_path,
+    )
+
+    with pytest.raises(RuntimeError, match="vicon_attitude_signs"):
+        _validate_closed_loop_deployment_evidence(config=config, mode="armed")
 
 
 def test_boundary_near_uses_side_closing_speed_not_total_forward_speed() -> None:

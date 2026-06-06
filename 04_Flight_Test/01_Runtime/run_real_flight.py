@@ -1173,6 +1173,77 @@ def _deployment_guard_status(*, config: FlightRuntimeConfig, mode: str) -> str:
     return "passed"
 
 
+def _tuple_or_empty(payload: object) -> tuple[float, ...]:
+    if not isinstance(payload, (list, tuple)):
+        return ()
+    try:
+        return tuple(float(value) for value in payload)
+    except (TypeError, ValueError):
+        return ()
+
+
+def _calibration_convention_mismatches(
+    *,
+    manifest_profile: dict[str, object],
+    config: FlightRuntimeConfig,
+) -> list[str]:
+    """Return mismatches that affect the frozen evidence/runtime convention.
+
+    The Vicon position offset is intentionally excluded: it maps raw lab Vicon
+    coordinates into the same arena frame used by simulation evidence and may
+    be remeasured during preflight without invalidating R5/R8/R10/R11 artifacts.
+    """
+
+    checks: tuple[tuple[str, object, float], ...] = (
+        ("vicon_yaw_alignment_deg", config.vicon_yaw_alignment_deg, 1e-12),
+        ("vicon_attitude_signs", config.vicon_attitude_signs, 1e-12),
+        ("vicon_attitude_offset_rad", config.vicon_attitude_offset_rad, 1e-12),
+        ("requested_vicon_tracking_rate_hz", 1.0 / float(config.vicon_poll_period_s), 1e-9),
+        ("derivative_cutoff_hz", config.derivative_cutoff_hz, 1e-12),
+        ("body_rate_limit_rad_s", config.body_rate_limit_rad_s, 1e-12),
+        ("body_rate_observer_window_frames", config.body_rate_observer_window_frames, 0.0),
+        ("launch_gate_required_consecutive_frames", config.launch_gate_required_consecutive_frames, 0.0),
+        ("launch_gate_rate_confidence_min", config.launch_gate_rate_confidence_min, 1e-12),
+        ("launch_gate_body_rate_limits_rad_s", config.launch_gate_body_rate_limits_rad_s, 1e-12),
+        ("rejected_launch_attempt_min_speed_m_s", config.rejected_launch_attempt_min_speed_m_s, 1e-12),
+    )
+    mismatches: list[str] = []
+    for key, runtime_value, atol in checks:
+        if key not in manifest_profile:
+            mismatches.append(f"{key}:missing_in_manifest")
+            continue
+        manifest_value = manifest_profile[key]
+        if isinstance(runtime_value, tuple):
+            manifest_tuple = _tuple_or_empty(manifest_value)
+            runtime_tuple = tuple(float(value) for value in runtime_value)
+            if len(manifest_tuple) != len(runtime_tuple) or not np.allclose(
+                manifest_tuple,
+                runtime_tuple,
+                rtol=0.0,
+                atol=float(atol),
+            ):
+                mismatches.append(f"{key}:manifest={manifest_tuple},runtime={runtime_tuple}")
+            continue
+        if isinstance(runtime_value, int):
+            try:
+                manifest_int = int(manifest_value)
+            except (TypeError, ValueError):
+                mismatches.append(f"{key}:manifest={manifest_value},runtime={runtime_value}")
+                continue
+            if manifest_int != int(runtime_value):
+                mismatches.append(f"{key}:manifest={manifest_int},runtime={int(runtime_value)}")
+            continue
+        try:
+            manifest_float = float(manifest_value)
+            runtime_float = float(runtime_value)
+        except (TypeError, ValueError):
+            mismatches.append(f"{key}:manifest={manifest_value},runtime={runtime_value}")
+            continue
+        if not np.isclose(manifest_float, runtime_float, rtol=0.0, atol=float(atol)):
+            mismatches.append(f"{key}:manifest={manifest_float},runtime={runtime_float}")
+    return mismatches
+
+
 def _validate_closed_loop_deployment_evidence(*, config: FlightRuntimeConfig, mode: str) -> None:
     if (
         mode != "armed"
@@ -1195,11 +1266,20 @@ def _validate_closed_loop_deployment_evidence(*, config: FlightRuntimeConfig, mo
         ) from exc
     manifest_hash = str(manifest.get("calibration_profile_hash", ""))
     if manifest_hash != str(config.calibration_profile_hash):
-        raise RuntimeError(
-            "Refusing armed closed-loop flight: frozen evidence calibration profile hash does not match "
-            f"the active runtime profile. manifest={manifest_hash or '<missing>'} "
-            f"runtime={config.calibration_profile_hash}"
-        )
+        manifest_profile = manifest.get("active_calibration_profile", {})
+        if not isinstance(manifest_profile, dict):
+            raise RuntimeError(
+                "Refusing armed closed-loop flight: frozen evidence manifest has a calibration hash mismatch "
+                "and no active calibration profile object to compare evidence-sensitive conventions."
+            )
+        mismatches = _calibration_convention_mismatches(manifest_profile=manifest_profile, config=config)
+        if mismatches:
+            raise RuntimeError(
+                "Refusing armed closed-loop flight: frozen evidence calibration conventions do not match "
+                "the active runtime profile. Position-offset-only Vicon frame updates are allowed, but "
+                f"these evidence-sensitive fields differ: {'; '.join(mismatches)}. "
+                f"manifest_hash={manifest_hash or '<missing>'} runtime_hash={config.calibration_profile_hash}"
+            )
     if manifest.get("evidence_regenerated_after_calibration") is not True:
         raise RuntimeError(
             "Refusing armed closed-loop flight: deployment evidence manifest does not confirm "
