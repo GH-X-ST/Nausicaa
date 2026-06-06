@@ -32,8 +32,8 @@ DEFAULT_REAL_FLIGHT_SURFACE_COMMAND_DELAY_S = (
     + float(_SURFACE_STATE_ESTIMATOR_LATENCY.command_transport_delay_s)
 )
 REAL_FLIGHT_LIBRARY_TIER_SELECTION_REASON = (
-    "balanced_cluster_selected_for_first_real_flight_from_e01_real_flight_aligned_validation;"
-    "deployment_tier_prioritises_transition_diversity_and_defensible_high_energy_validation_after_real_flight_safety_updates;"
+    "balanced_cluster_selected_for_first_real_flight_from_e03_real_flight_aligned_validation;"
+    "deployment_tier_prioritises_transition_diversity_and_defensible_high_energy_validation_after_e03_r10_r11_updates;"
     "heavy_cluster_is_compact_runtime_fallback"
 )
 
@@ -85,13 +85,13 @@ class FlightRuntimeConfig:
     deployment_evidence_manifest_path: Path = FROZEN_INPUT_ROOT / "deployment_evidence_manifest.json"
     deployment_evidence_required_for_armed_closed_loop: bool = True
     output_root: Path = RESULT_ROOT
-    library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "E01" / "manifests"
-    outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "E01" / "metrics" / "outcome_model_table.csv"
+    library_manifest_root: Path = FROZEN_INPUT_ROOT / "R8_library_size_study" / "E03" / "manifests"
+    outcome_table_path: Path = FROZEN_INPUT_ROOT / "R8_outcome" / "E03" / "metrics" / "outcome_model_table.csv"
     controller_bundle_path: Path = (
-        FROZEN_INPUT_ROOT / "R5_dense" / "E01" / "manifests" / "frozen_w01_controller_bundle.json"
+        FROZEN_INPUT_ROOT / "R5_dense" / "E03" / "manifests" / "frozen_w01_controller_bundle.json"
     )
     governor_config_path: Path = (
-        FROZEN_INPUT_ROOT / "R10_learn" / "E01" / "manifests" / "frozen_governor_config_for_r11.json"
+        FROZEN_INPUT_ROOT / "R10_learn" / "E03" / "manifests" / "frozen_governor_config_for_r11.json"
     )
 
     @property

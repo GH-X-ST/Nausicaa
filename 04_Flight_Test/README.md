@@ -257,11 +257,15 @@ C:\ProgramData\miniforge3\python.exe 04_Flight_Test\01_Runtime\run_real_flight.p
 The first real-flight experiment uses `balanced_cluster` as the single active
 deployment tier. R11 already compares all five library tiers, so the flight test
 does not repeat the full clustering ladder. `balanced_cluster` is selected
-because E01 real-flight-aligned validation favours the broader transition
-diversity needed after the launch-rate, actuator-limit, and boundary-safety
-updates, while remaining defensible for high-energy starts with bounded memory
-behaviour. The R11 E01 result is defensible rather than strict-pass, and shows
-that starts below 5.0 m/s remain the dominant failure mode.
+because E03 is the active frozen evidence set: R5/R8/R10 executable inputs have
+been regenerated for the active calibration profile, R10 E03 passes the
+cluster-scoped training gate with balanced/light claim profiles, and R11 E03.1
+is the current held-out validation boundary. R11 E03.1 is not a strict gate
+pass; it is retained only as physically explainable evidence where
+low-start-energy dry-air and L7 full-domain cases dominate failures,
+closed-loop is not broadly worse than open-loop, spatial memory remains bounded,
+and the heavy/balanced in-flight timing audit still has limited 0.100 s
+violations.
 
 `heavy_cluster` remains a compact fallback if runtime or library size becomes
 the limiting deployment concern. This selection is a deployment tradeoff, not a

@@ -1,0 +1,142 @@
+{
+  "active_calibration_profile": {
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "derivative_cutoff_hz": 8.0,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "profile_hash": "94a08be1af177e9f71a41411abbcb2c7ac89db5227a6c0163acc65a9d9d94115",
+    "profile_id": "nausicaa_vicon_position_20260603_232209+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "profile_version": "position:1.0;attitude:1.0",
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "requested_vicon_tracking_rate_hz": 200.0,
+    "vicon_attitude_offset_rad": [
+      0.0007439979282497511,
+      7.203523529364375e-05,
+      0.0006251279824196487
+    ],
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_position_offset_m": [
+      3.9085570805120877,
+      2.4963799346478033,
+      0.03709411857233755
+    ],
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "artifacts": {
+    "r10_changed_case_manifest": {
+      "bytes": 19545,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R10_learn/E03/manifests/environment_changed_case_manifest.json",
+      "sha256": "04b7548f613a911c3f5452937112c1f4ad6149dd427a7dba1adc9de80e8f987a"
+    },
+    "r10_frozen_governor_config": {
+      "bytes": 13276,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R10_learn/E03/manifests/frozen_governor_config_for_r11.json",
+      "sha256": "e24067f217af47a12e7f084b266150e437108fdc611a993aa010c368843fda28"
+    },
+    "r10_pass_fail_gate_summary": {
+      "bytes": 3946,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R10_learn/E03/metrics/pass_fail_gate_summary.csv",
+      "sha256": "34ee9da99a7da89a4a8fa51a67178a5ae27c5955edbada68bedd18b1e9b2d19a"
+    },
+    "r11_pass_fail_gate_summary": {
+      "bytes": 1600,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R11_validation/E03.1/metrics/pass_fail_gate_summary.csv",
+      "sha256": "2eee01b8a65f9f0f6b259d1c8887decc150d8f50db64230a8e828bd3f9a5bbf0"
+    },
+    "r11_validation_manifest": {
+      "bytes": 19308,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R11_validation/E03.1/manifests/heldout_environment_validation_manifest.json",
+      "sha256": "7a45fccb5e67f08300fa196555eed263c7bbb90737d37a5acd71538ea056f5f6"
+    },
+    "r5_controller_bundle": {
+      "bytes": 23574791,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R5_dense/E03/manifests/frozen_w01_controller_bundle.json",
+      "sha256": "da7a28d6e19e074ac3ef01bbe171dbdef97e54bc7d1dfac89fff3c39f55bada3"
+    },
+    "r5_controller_bundle_summary": {
+      "bytes": 195585,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R5_dense/E03/metrics/frozen_w01_controller_bundle_summary.csv",
+      "sha256": "76bcc87189e35627b081e97ad87d6c28e525139b9809b5c12f6fa87a9ba41f8e"
+    },
+    "r5_run_manifest": {
+      "bytes": 21304,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R5_dense/E03/manifests/run_manifest.json",
+      "sha256": "bd48fd661fbf236166a5aaa9e7d5da7c15ae44ff19cf58b1a9bb7db697dec306"
+    },
+    "r8_balanced_library": {
+      "bytes": 1107024,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests/balanced_cluster_primitive_library.json",
+      "sha256": "e607b8f226926241edb39ba16f40b126b9f2ecdb1f5b0ccc1c7ce8f05ce0856c"
+    },
+    "r8_heavy_library": {
+      "bytes": 397155,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests/heavy_cluster_primitive_library.json",
+      "sha256": "5f40d6a1dc307689d7e274d29d167d5147370305e0b8c5819f8f0222ed6c4866"
+    },
+    "r8_library_study_manifest": {
+      "bytes": 4965,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests/post_w3_library_size_study_manifest.json",
+      "sha256": "3dcbc746e4ef49792680e6eb6e65df54112e18a29ff9b7f9b8fb7c2cf8ca2442"
+    },
+    "r8_light_library": {
+      "bytes": 2053271,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests/light_cluster_primitive_library.json",
+      "sha256": "2e07efbd6297f3450fe4b8e5c6353be6a62d94c4fe9a65c6a9db07f46b52c985"
+    },
+    "r8_no_cluster_no_merge_library": {
+      "bytes": 15846525,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests/no_cluster_no_merge_primitive_library.json",
+      "sha256": "0bbfb7ced838f4e3948d333b18b275e69125da77974b1303b83876e9dadebfe8"
+    },
+    "r8_outcome_manifest": {
+      "bytes": 1770,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_outcome/E03/manifests/outcome_model_manifest.json",
+      "sha256": "79dc1d03b722bb5aaa8cdbc2f757cb1fbeb9d733ea9a12257758517700f01ed9"
+    },
+    "r8_outcome_table": {
+      "bytes": 2531467,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_outcome/E03/metrics/outcome_model_table.csv",
+      "sha256": "1b6010985007434a287537ce1954fcbb3bc35c5af1899538d66d15085c2e5280"
+    },
+    "r8_super_light_library": {
+      "bytes": 3702355,
+      "path": "04_Flight_Test/03_Frozen_Inputs/R8_library_size_study/E03/manifests/super_light_cluster_primitive_library.json",
+      "sha256": "40726f613e2e2b44b7aad4d57a922c18510cd090d43e72b0dc41a08fa8548e61"
+    }
+  },
+  "calibration_profile_hash": "94a08be1af177e9f71a41411abbcb2c7ac89db5227a6c0163acc65a9d9d94115",
+  "calibration_profile_id": "nausicaa_vicon_position_20260603_232209+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+  "claim_boundary": {
+    "hardware_readiness_claim": "not_claimed_by_manifest",
+    "r10_status": "passed_cluster_scoped_training_gate",
+    "r11_acceptance_reason": "strict_gate_failed_but_behavior_physical_and_closed_loop_not_broadly_worse_than_open_loop",
+    "r11_strict_gate_passed": false,
+    "real_flight_timing_status": "not_strict_pass_required_heavy_balanced_inflight_boundary_has_limited_100ms_violations"
+  },
+  "created_utc": "2026-06-06T16:35:20.257158Z",
+  "default_library_tier": "balanced_cluster",
+  "evidence_regenerated_after_calibration": true,
+  "manifest_version": "real_flight_deployment_evidence_v4",
+  "r10_label": "E03",
+  "r11_label": "E03.1",
+  "r5_label": "E03",
+  "r7_label": "E03",
+  "r8_label": "E03",
+  "runtime_default_policy": {
+    "controller_bundle_label": "E03",
+    "governor_config_label": "E03",
+    "library_manifest_label": "E03",
+    "library_tier": "balanced_cluster",
+    "outcome_table_label": "E03"
+  }
+}
