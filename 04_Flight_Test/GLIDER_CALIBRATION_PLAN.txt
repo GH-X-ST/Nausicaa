@@ -125,11 +125,12 @@ attached, transition, and post-stall replay MAE. Keep `DELTA_A_TRIM_RAD`,
 `--fit-workflow grouped_iterative`, `--fit-workflow residual_only`,
 `--fit-attached-lateral-coupling`, `--fit-transition-lateral-coupling`,
 `--fit-post-stall-surfaces`, or `--fit-lateral-surfaces` only as explicit
-diagnostics/ablations. Do not shorten the 0.10 s alignment window unless it is
-explicitly labelled as a diagnostic sensitivity run. The active checked-in
-constants are now `neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1`,
-promoted as selected compact residual replay alignment with compact coupling
-terms.
+diagnostics/ablations. Use 0.040 s replay alignment by default so SysID matches
+the synchronized launch-handoff boundary. The active checked-in constants are
+now `neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1`,
+promoted as the conservative local 40 ms Pareto replay alignment with the S5
+transition-blend base, attached yaw-beta correction, post-stall `Cl_r` 20 deg
+correction, and conservative elevator/rudder effectiveness scales.
 The old theory-only baseline is retained only as
 `03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_theory_baseline_comparison.json`;
 simulation and real-flight runtime import only the active calibration module.

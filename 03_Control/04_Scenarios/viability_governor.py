@@ -3,11 +3,22 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 import math
+from pathlib import Path
+import sys
 
 from lqr_linearisation import lqr_speed_bin_id
 from primitive_timing_contract import PRIMITIVE_FINITE_HORIZON_S
 from state_contract import STATE_INDEX
 from transition_labels import classify_state, entry_classes_for_state_class, transition_is_chain_compatible
+
+
+_INNER_LOOP_DIR = Path(__file__).resolve().parents[1] / "02_Inner_Loop"
+if str(_INNER_LOOP_DIR) not in sys.path:
+    sys.path.insert(0, str(_INNER_LOOP_DIR))
+try:
+    from A_model_parameters import neutral_dry_air_calibration as active_calibration
+except Exception:  # pragma: no cover - fallback only for isolated docs/import tooling.
+    active_calibration = None
 
 
 GOVERNOR_MODES = ("continuation_mode", "terminal_episode_mode")
@@ -141,9 +152,38 @@ MISSION_FRONT_WALL_TOL_M = 0.05
 MISSION_BOUNDARY_TOL_M = 0.02
 MISSION_TERMINAL_ENERGY_PROXY_CAP_M = 3.0
 SPECIFIC_ENERGY_GRAVITY_M_S2 = 9.80665
-CALIBRATED_REGIME_POLICY_VERSION = "active_calibrated_regime_mismatch_risk_v1"
-CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG = 12.0
-CALIBRATED_REGIME_POST_STALL_ALPHA_DEG = 22.0
+CALIBRATED_REGIME_POLICY_VERSION = "active_calibrated_regime_mismatch_risk_v2_active_blend_boundary"
+ACTIVE_CALIBRATION_DEFAULT_TRANSITION_START_ALPHA_DEG = 14.0
+ACTIVE_CALIBRATION_DEFAULT_POST_STALL_ALPHA_DEG = 18.0
+CALIBRATED_REGIME_SOURCE_CALIBRATION_ID = (
+    "unavailable"
+    if active_calibration is None
+    else str(getattr(active_calibration, "CALIBRATION_ID", "unknown_active_calibration"))
+)
+CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG = (
+    ACTIVE_CALIBRATION_DEFAULT_TRANSITION_START_ALPHA_DEG
+    if active_calibration is None
+    else float(
+        getattr(
+            active_calibration,
+            "POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG",
+            ACTIVE_CALIBRATION_DEFAULT_TRANSITION_START_ALPHA_DEG,
+        )
+    )
+)
+CALIBRATED_REGIME_POST_STALL_ALPHA_DEG = (
+    ACTIVE_CALIBRATION_DEFAULT_POST_STALL_ALPHA_DEG
+    if active_calibration is None
+    else float(
+        getattr(
+            active_calibration,
+            "POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG",
+            ACTIVE_CALIBRATION_DEFAULT_POST_STALL_ALPHA_DEG,
+        )
+    )
+)
+if CALIBRATED_REGIME_POST_STALL_ALPHA_DEG <= CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG:
+    CALIBRATED_REGIME_POST_STALL_ALPHA_DEG = CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG + 1.0
 
 
 @dataclass(frozen=True)
@@ -229,6 +269,9 @@ def calibrated_regime_risk_features(
     label = "normal" if alpha_abs < transition_start else "transition" if alpha_abs < post_stall else "post_stall"
     return {
         "calibrated_regime_policy_version": CALIBRATED_REGIME_POLICY_VERSION,
+        "calibrated_regime_source_calibration_id": CALIBRATED_REGIME_SOURCE_CALIBRATION_ID,
+        "calibrated_regime_transition_start_alpha_deg": float(transition_start),
+        "calibrated_regime_post_stall_alpha_deg": float(post_stall),
         "calibrated_regime_alpha_source": source,
         "calibrated_regime_alpha_proxy_deg": float(alpha_deg),
         "calibrated_regime_alpha_abs_deg": float(alpha_abs),

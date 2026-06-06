@@ -107,6 +107,7 @@ JOINT_PARETO_PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "selected_limit": JOINT_PARETO_AUDIT_SELECTED_LIMIT,
         "scale_grid": (1.0,),
         "scaled_single_term_bundles": False,
+        "include_rejected_stage_candidates": False,
         "reference_policy": "global_best",
     },
     "heavy": {
@@ -118,6 +119,7 @@ JOINT_PARETO_PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "selected_limit": 8,
         "scale_grid": JOINT_PARETO_HEAVY_SCALE_GRID,
         "scaled_single_term_bundles": True,
+        "include_rejected_stage_candidates": True,
         "reference_policy": "per_base",
     },
 }
@@ -949,6 +951,11 @@ def resolved_joint_pareto_profile_config(
     config["max_candidates"] = max(1, int(config["max_candidates"]))
     config["selected_limit"] = max(1, int(config["selected_limit"]))
     config["scale_grid"] = tuple(float(value) for value in config["scale_grid"])
+    if "longitudinal_tolerances" in config:
+        config["longitudinal_tolerances"] = {
+            str(key): float(value)
+            for key, value in dict(config["longitudinal_tolerances"]).items()
+        }
     return config
 
 
@@ -4422,7 +4429,12 @@ def small_joint_pareto_audit(
         candidate_parameters=candidate_parameters,
         cm_stage_history_rows=cm_stage_history_rows,
         joint_sweep_extra_models=joint_sweep_extra_models,
-        include_rejected_stage_candidates=bool(profile_config.get("scaled_single_term_bundles", False)),
+        include_rejected_stage_candidates=bool(
+            profile_config.get(
+                "include_rejected_stage_candidates",
+                profile_config.get("scaled_single_term_bundles", False),
+            )
+        ),
     )
     if not longitudinal_sources:
         return [], []
@@ -4536,10 +4548,21 @@ def small_joint_pareto_audit(
         global_reference_state=global_reference_state,
         alignment_window_s=audit_window_s,
         profile=profile,
+        longitudinal_tolerances=joint_pareto_profile_longitudinal_tolerances(profile_config),
     )
     joint_pareto_audit_mark_pareto(rows)
     selected_rows = joint_pareto_audit_selected_rows(rows, selected_limit=selected_limit)
     return rows, selected_rows
+
+
+def joint_pareto_profile_longitudinal_tolerances(config: dict[str, Any]) -> dict[str, float]:
+    raw = dict(JOINT_SWEEP_BALANCED_LONGITUDINAL_TOLERANCES)
+    raw.update(dict(config.get("longitudinal_tolerances", {}) or {}))
+    return {
+        key: float(raw[key])
+        for key in JOINT_SWEEP_BALANCED_LONGITUDINAL_TOLERANCES
+        if key in raw
+    }
 
 
 def joint_pareto_raw_combination_states(
@@ -5043,6 +5066,7 @@ def joint_pareto_audit_candidate_rows(
     global_reference_state: dict[str, Any] | None = None,
     alignment_window_s: float,
     profile: str = DEFAULT_JOINT_PARETO_PROFILE,
+    longitudinal_tolerances: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     reference_lookup = reference_by_longitudinal or {}
     global_reference = global_reference_state or reference_state
@@ -5063,6 +5087,7 @@ def joint_pareto_audit_candidate_rows(
             reference_summary,
             summary,
             has_lateral_update=has_lateral_update,
+            longitudinal_tolerances=longitudinal_tolerances,
         )
         updates = parameter_updates(base_parameters, state["parameters"])
         row = {
@@ -5140,11 +5165,13 @@ def joint_pareto_audit_acceptance(
     candidate_summary: dict[str, Any],
     *,
     has_lateral_update: bool = True,
+    longitudinal_tolerances: dict[str, float] | None = None,
 ) -> tuple[bool, str]:
     if not bool(has_lateral_update):
         return False, "reference_longitudinal_only"
+    tolerances = dict(longitudinal_tolerances or JOINT_SWEEP_BALANCED_LONGITUDINAL_TOLERANCES)
     longitudinal_failures = []
-    for key, tolerance in JOINT_SWEEP_BALANCED_LONGITUDINAL_TOLERANCES.items():
+    for key, tolerance in tolerances.items():
         reference_value = finite_value(reference_summary.get(key))
         candidate_value = finite_value(candidate_summary.get(key))
         if not (math.isfinite(reference_value) and math.isfinite(candidate_value)):
@@ -6658,9 +6685,19 @@ def write_manifest(
             "max_candidates": int(joint_pareto_config.get("max_candidates", 0)),
             "selected_limit": int(joint_pareto_config.get("selected_limit", 0)),
             "scale_grid": [float(value) for value in joint_pareto_config.get("scale_grid", ())],
+            "local_longitudinal_source_ids": list(joint_pareto_config.get("local_longitudinal_source_ids", ())),
+            "local_yaw_beta_scale_grid": [
+                float(value) for value in joint_pareto_config.get("local_yaw_beta_scale_grid", ())
+            ],
+            "local_post_stall_clr_scale_grid": [
+                float(value) for value in joint_pareto_config.get("local_post_stall_clr_scale_grid", ())
+            ],
             "reference_policy": str(joint_pareto_config.get("reference_policy", "")),
             "scaled_single_term_bundles": bool(joint_pareto_config.get("scaled_single_term_bundles", False)),
-            "longitudinal_tolerances": dict(JOINT_SWEEP_BALANCED_LONGITUDINAL_TOLERANCES),
+            "include_rejected_stage_candidates": bool(
+                joint_pareto_config.get("include_rejected_stage_candidates", False)
+            ),
+            "longitudinal_tolerances": joint_pareto_profile_longitudinal_tolerances(joint_pareto_config),
         },
         "derivative_window_s": float(derivative_window_s),
         "replay_dt_s": float(replay_dt_s),
@@ -6776,6 +6813,9 @@ def write_manifest(
             "selected_limit": int(joint_pareto_config.get("selected_limit", 0)),
             "scale_grid": [float(value) for value in joint_pareto_config.get("scale_grid", ())],
             "reference_policy": str(joint_pareto_config.get("reference_policy", "")),
+            "include_rejected_stage_candidates": bool(
+                joint_pareto_config.get("include_rejected_stage_candidates", False)
+            ),
             "candidate_count": len(joint_pareto_audit_candidate_rows),
             "accepted_count": sum(bool(row.get("accepted", False)) for row in joint_pareto_audit_candidate_rows),
             "selected_count": len(joint_pareto_audit_selected_rows),
@@ -7339,7 +7379,6 @@ def write_report(
         ]
         heavy_path = output_dir / "reports" / "neutral_aero_residual_joint_pareto_heavy_report.md"
         heavy_path.write_text("\n".join(heavy_lines) + "\n", encoding="utf-8")
-
 
 def alignment_sensitivity_report_lines(
     *,

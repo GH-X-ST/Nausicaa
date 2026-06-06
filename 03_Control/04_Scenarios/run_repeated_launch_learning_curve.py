@@ -2671,6 +2671,15 @@ def _candidate_path_belief_features(
         "belief_candidate_path_vertical_speed_m_s": float(vertical_speed_m_s),
         "belief_candidate_path_alpha_proxy_deg": float(calibrated_regime["calibrated_regime_alpha_proxy_deg"]),
         "belief_candidate_path_alpha_abs_deg": float(calibrated_regime["calibrated_regime_alpha_abs_deg"]),
+        "belief_candidate_path_calibrated_regime_transition_start_alpha_deg": float(
+            calibrated_regime["calibrated_regime_transition_start_alpha_deg"]
+        ),
+        "belief_candidate_path_calibrated_regime_post_stall_alpha_deg": float(
+            calibrated_regime["calibrated_regime_post_stall_alpha_deg"]
+        ),
+        "belief_candidate_path_calibrated_regime_source_calibration_id": str(
+            calibrated_regime["calibrated_regime_source_calibration_id"]
+        ),
         "belief_candidate_path_calibrated_regime_label": str(calibrated_regime["calibrated_regime_label"]),
         "belief_candidate_path_calibrated_transition_activation": float(
             calibrated_regime["calibrated_transition_activation"]
@@ -5264,6 +5273,8 @@ def _write_memory_opportunity_audit_from_partitions(
         "selected_memory_shield_route_confidence",
         "selected_memory_shield_path_exit_margin_delta_m",
         "selected_calibrated_regime_alpha_abs_deg",
+        "selected_calibrated_regime_transition_start_alpha_deg",
+        "selected_calibrated_regime_post_stall_alpha_deg",
         "selected_calibrated_transition_activation",
         "selected_calibrated_post_stall_activation",
         "selected_calibrated_regime_mismatch_risk",
@@ -5341,7 +5352,10 @@ def _write_memory_opportunity_audit_from_partitions(
             "selected_memory_shield_route_confidence",
             "selected_memory_shield_path_exit_margin_delta_m",
             "selected_calibrated_regime_alpha_abs_deg",
+            "selected_calibrated_regime_transition_start_alpha_deg",
+            "selected_calibrated_regime_post_stall_alpha_deg",
             "selected_calibrated_regime_label",
+            "selected_calibrated_regime_source_calibration_id",
             "selected_calibrated_regime_mismatch_risk",
             "selected_calibrated_regime_mismatch_score_component",
             "selected_memory_shield_baseline_calibrated_regime_mismatch_risk",

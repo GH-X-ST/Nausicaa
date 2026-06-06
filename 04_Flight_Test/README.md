@@ -147,9 +147,11 @@ post-stall measured-alpha regimes, separately for train and held-out throws:
 for normal attached flow is `attached`. Use this table to see where the model
 is wrong; accept active constants only if the full-throw held-out replay
 validation does not damage the trajectory. The active checked-in constants are
-now `neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_v1`, promoted
-as selected compact residual replay alignment with compact coupling terms. The old theory-only
-baseline is retained only as
+now `neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1`,
+promoted as the conservative local 40 ms Pareto replay alignment with the S5
+transition-blend base, attached yaw-beta correction, post-stall `Cl_r` 20 deg
+correction, and conservative elevator/rudder effectiveness scales. The old
+theory-only baseline is retained only as
 `03_Control/02_Inner_Loop/A_model_parameters/neutral_dry_air_theory_baseline_comparison.json`;
 simulation and real-flight runtime import only the active calibration module.
 Pulse data are not fitted into the active model.

@@ -16,6 +16,7 @@ if str(INNER_LOOP) not in sys.path:
     sys.path.insert(0, str(INNER_LOOP))
 
 import run_fit_neutral_aero_residual_calibration as sysid  # noqa: E402
+import run_neutral_aero_residual_local_pareto_audit as local_audit  # noqa: E402
 from A_model_parameters import mass_properties_estimate  # noqa: E402
 from A_model_parameters import neutral_dry_air_calibration as active_calibration  # noqa: E402
 
@@ -109,6 +110,33 @@ def test_heavy_joint_pareto_profile_defaults_are_bounded_40ms_contract() -> None
     assert config["selected_limit"] == 8
     assert config["scale_grid"] == pytest.approx(sysid.JOINT_PARETO_HEAVY_SCALE_GRID)
     assert config["reference_policy"] == "per_base"
+    assert config["include_rejected_stage_candidates"] is True
+
+
+def test_local_promising_is_not_a_full_calibration_runner_profile() -> None:
+    parser = sysid.build_arg_parser()
+
+    assert "local_promising" not in sysid.JOINT_PARETO_PROFILE_DEFAULTS
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--joint-pareto-profile", "local_promising"])
+
+
+def test_local_pareto_audit_script_is_audit_only_entrypoint() -> None:
+    source = inspect.getsource(local_audit)
+    forbidden_calls = (
+        "residual_rows(",
+        "fit_pitch_residual_coefficients(",
+        "cm_regime_staged_refinement(",
+        "lateral_ablation_diagnostic_rows(",
+    )
+
+    assert local_audit.DEFAULT_RUN_LABEL == "n30_joint_pareto_040_local_promising_v1"
+    assert local_audit.LONGITUDINAL_SOURCE_IDS == (
+        "proposal_stage_5_stage5_transition_blend",
+        "proposal_stage_9_stage9_post_blend_post_stall_lift_dr",
+        "active_baseline",
+    )
+    assert all(call not in source for call in forbidden_calls)
 
 
 def test_replay_alignment_accepts_synchronized_40ms_handoff_window() -> None:
@@ -407,6 +435,115 @@ def test_heavy_joint_pareto_candidate_generation_respects_limits_and_lateral_fam
         assert all(sysid.joint_pareto_heavy_allowed_lateral_key(key) for key in lateral_keys)
 
 
+def test_local_audit_candidate_generation_is_exact_dense_two_term_grid() -> None:
+    base = sysid.active_parameter_dict()
+    top_longitudinal = []
+    for index, source_id in enumerate(local_audit.LONGITUDINAL_SOURCE_IDS):
+        params = dict(base)
+        params["post_stall_residual_blend_start_alpha_deg"] = 14.0 + index
+        params["post_stall_residual_blend_full_alpha_deg"] = 18.0 + index
+        top_longitudinal.append({"candidate_id": source_id, "parameters": params, "longitudinal_score": float(index)})
+    source_values = {
+        local_audit.YAW_BETA_KEY: base[local_audit.YAW_BETA_KEY] - 0.05,
+        local_audit.POST_STALL_CLR_KEY: base[local_audit.POST_STALL_CLR_KEY] - 0.4,
+    }
+
+    states = local_audit.build_local_candidate_states(
+        longitudinal_sources=top_longitudinal,
+        base_parameters=base,
+        source_values=source_values,
+        alignment_window_s=0.040,
+    )
+
+    assert len(states) == 243
+    assert sum(state["lateral_source_id"] == "no_lateral_update" for state in states) == 3
+    assert sum(int(state["bundle_order"]) == 1 for state in states) == 48
+    assert sum(int(state["bundle_order"]) == 2 for state in states) == 192
+    allowed_lateral = {
+        local_audit.YAW_BETA_KEY,
+        local_audit.POST_STALL_CLR_KEY,
+    }
+    for state in states:
+        lateral_keys = {
+            key
+            for key in sysid.parameter_updates(base, state["parameters"])
+            if sysid.joint_sweep_is_lateral_parameter(key)
+        }
+        assert lateral_keys <= allowed_lateral
+
+
+def test_local_audit_infers_scaled_source_values_from_heavy_candidate_rows() -> None:
+    base = sysid.active_parameter_dict()
+    source_value = base[local_audit.POST_STALL_CLR_KEY] - 0.4
+    rows = [
+        {
+            "lateral_source_id": "ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p5",
+            "parameter_updates_json": json.dumps(
+                {
+                    local_audit.POST_STALL_CLR_KEY: base[local_audit.POST_STALL_CLR_KEY]
+                    + 0.5 * (source_value - base[local_audit.POST_STALL_CLR_KEY])
+                }
+            ),
+        },
+        {
+            "lateral_source_id": "ablation_post_stall_Cl_r__post_stall_roll_moment_r_hat_r__s0p75",
+            "parameter_updates_json": json.dumps(
+                {
+                    local_audit.POST_STALL_CLR_KEY: base[local_audit.POST_STALL_CLR_KEY]
+                    + 0.75 * (source_value - base[local_audit.POST_STALL_CLR_KEY])
+                }
+            ),
+        },
+    ]
+
+    inferred = local_audit.infer_scaled_source_value(
+        rows,
+        base_parameters=base,
+        key=local_audit.POST_STALL_CLR_KEY,
+        source_pattern=local_audit.CLR_SOURCE_PATTERN,
+    )
+
+    assert inferred == pytest.approx(source_value)
+
+
+def test_local_audit_acceptance_uses_stricter_per_base_longitudinal_gate() -> None:
+    reference = {
+        "dx_mae_m": 0.20,
+        "altitude_loss_mae_m": 0.10,
+        "sink_mae_m_s": 0.10,
+        "final_theta_mae_deg": 5.0,
+        "dy_mae_m": 0.60,
+        "final_phi_mae_deg": 12.0,
+        "final_psi_mae_deg": 15.0,
+    }
+    accepted_candidate = {
+        "dx_mae_m": 0.224,
+        "altitude_loss_mae_m": 0.109,
+        "sink_mae_m_s": 0.109,
+        "final_theta_mae_deg": 5.4,
+        "dy_mae_m": 0.59,
+        "final_phi_mae_deg": 11.9,
+        "final_psi_mae_deg": 14.9,
+    }
+    accepted, reason = sysid.joint_pareto_audit_acceptance(
+        reference,
+        accepted_candidate,
+        longitudinal_tolerances=local_audit.STRICT_LONGITUDINAL_TOLERANCES,
+    )
+    assert accepted is True
+    assert reason == "accepted_lateral_metrics_improved_with_longitudinal_tolerance"
+
+    rejected_candidate = dict(accepted_candidate)
+    rejected_candidate["dx_mae_m"] = 0.226
+    accepted, reason = sysid.joint_pareto_audit_acceptance(
+        reference,
+        rejected_candidate,
+        longitudinal_tolerances=local_audit.STRICT_LONGITUDINAL_TOLERANCES,
+    )
+    assert accepted is False
+    assert reason == "rejected_longitudinal_metrics_degraded:dx_mae_m"
+
+
 def test_joint_pareto_rows_accept_against_each_longitudinal_base() -> None:
     base = sysid.active_parameter_dict()
     reference_good = {
@@ -511,7 +648,7 @@ def test_heavy_stage_replay_rows_use_normal_report_label(monkeypatch: pytest.Mon
                 "model_id": model_id,
                 "split": split,
                 "session_label": "s",
-                "throw_id": regime,
+                "throw_id": "same_throw",
                 "regime": regime,
                 "dx_residual_actual_minus_sim_m": 0.1,
                 "dy_residual_actual_minus_sim_m": 0.2,
@@ -537,6 +674,7 @@ def test_heavy_stage_replay_rows_use_normal_report_label(monkeypatch: pytest.Mon
 
     assert {row["report_regime"] for row in rows} == {"normal", "transition", "post_stall"}
     assert all(row["split"] == "heldout" for row in rows)
+    assert all(int(row["throw_count"]) == 1 for row in rows)
     assert any(row["model_role"] == "selected_candidate" for row in rows)
     assert any(row["model_role"] == "matched_longitudinal_reference" for row in rows)
 
@@ -662,23 +800,35 @@ def test_post_stall_pitch_damping_upper_bound_is_released_for_diagnostics() -> N
 
 def test_active_calibration_is_promoted_compact_coupled_replay_model() -> None:
     assert active_calibration.CALIBRATION_ID == (
-        "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_rudder_effectiveness_tiny_cnbeta_heavy_sweep_v1"
+        "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1"
     )
     assert active_calibration.CLAIM_BOUNDARY == (
-        "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_conservative_elevator_and_rudder_effectiveness_and_tiny_cnbeta_lateral_replay_correction"
+        "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_and_post_stall_clr_corrections_conservative_elevator_and_rudder_effectiveness"
     )
-    assert active_calibration.SOURCE_SELECTED_CANDIDATE == "joint_0270_post_stall_Cn_p_1.5"
-    assert active_calibration.SOURCE_LATERAL_CNBETA_CANDIDATE == "H0049_Cn_beta"
+    assert active_calibration.SOURCE_PREP_RUN.endswith("n30_joint_pareto_040_local_promising_v1")
+    assert active_calibration.SOURCE_HEAVY_JOINT_PARETO_RUN.endswith("n30_joint_pareto_040_heavy_v1")
+    assert active_calibration.SOURCE_SELECTED_CANDIDATE == (
+        "jp040local_L00_proposal_stage_5_stage5_tran_local_yaw_beta_s0p75_local_post_stall_Cl_r_s0p6"
+    )
+    assert active_calibration.SOURCE_SELECTED_LONGITUDINAL_BASE == "proposal_stage_5_stage5_transition_blend"
+    assert active_calibration.SOURCE_SELECTED_LATERAL_BUNDLE == (
+        "local_yaw_beta_s0p75+local_post_stall_Cl_r_s0p6"
+    )
+    assert active_calibration.ALIGNMENT_WINDOW_S == pytest.approx(0.040)
     assert active_calibration.ATTACHED_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.11309832420327923)
     assert active_calibration.TRANSITION_PITCH_MOMENT_BIAS_COEFF == pytest.approx(0.05711558897899738)
     assert active_calibration.POST_STALL_PITCH_MOMENT_COEFF == pytest.approx(0.07585874586245771)
     assert active_calibration.POST_STALL_PITCH_DAMPING_COEFF == pytest.approx(4.0)
-    assert active_calibration.POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG == pytest.approx(22.0)
+    assert active_calibration.POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG == pytest.approx(14.0)
+    assert active_calibration.POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG == pytest.approx(18.0)
     assert active_calibration.SIDE_FORCE_BETA_COEFF == pytest.approx(-1.9802669025044202)
-    assert active_calibration.YAW_MOMENT_BETA_COEFF == pytest.approx(-0.0125)
+    assert active_calibration.YAW_MOMENT_BETA_COEFF == pytest.approx(-0.034325897691662534)
     assert active_calibration.TRANSITION_SIDE_FORCE_R_HAT_COEFF == pytest.approx(-3.0)
     assert active_calibration.TRANSITION_YAW_MOMENT_BETA_COEFF == pytest.approx(-0.01467582447)
     assert active_calibration.TRANSITION_YAW_MOMENT_P_HAT_COEFF == pytest.approx(-0.1461483136170422)
+    assert np.asarray(active_calibration.POST_STALL_ROLL_MOMENT_RBF_COEFFS, dtype=float)[3, 0] == pytest.approx(
+        -0.46003383312128726
+    )
     assert np.asarray(active_calibration.POST_STALL_YAW_MOMENT_RBF_COEFFS, dtype=float)[1, 0] == pytest.approx(
         -0.01870860145
     )

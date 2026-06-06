@@ -93,8 +93,10 @@ At the time of this historical audit, the rich-run parameters were not promoted
 and the active checked-in constants were still the older accepted
 `neutral_dry_air_aligned_0p20_N07` values. Later code now uses the selected
 compact n30 replay row with attached Cm, transition Cm, post-stall Cm/Cmq,
-12--22 deg blend timing, and selected compact coupling terms. This audit was
-replay-diagnosis evidence, not the current active dry-air correction.
+14--18 deg blend timing, and selected compact coupling terms from
+`neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1`.
+This audit was replay-diagnosis evidence, not the current active dry-air
+correction.
 
 ## Control-Effect Audit
 

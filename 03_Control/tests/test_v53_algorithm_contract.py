@@ -91,6 +91,9 @@ from plant_instance import (
     RUDDER_CONTROL_EFFECTIVENESS_MULTIPLIER_RANGE,
 )
 from viability_governor import (
+    CALIBRATED_REGIME_POST_STALL_ALPHA_DEG,
+    CALIBRATED_REGIME_SOURCE_CALIBRATION_ID,
+    CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG,
     DEFAULT_GOVERNOR_CONFIG,
     REJECTION_REASONS,
     governor_candidate_row,
@@ -569,6 +572,9 @@ def test_v53_calibrated_regime_risk_score_is_backward_compatible_and_bounded() -
 
 
 def test_v53_candidate_rows_classify_calibrated_regime_from_reference_alpha() -> None:
+    assert CALIBRATED_REGIME_TRANSITION_START_ALPHA_DEG == pytest.approx(14.0)
+    assert CALIBRATED_REGIME_POST_STALL_ALPHA_DEG == pytest.approx(18.0)
+    assert "n30_joint_pareto_040_local_s5_yaw0p75_clr0p60" in CALIBRATED_REGIME_SOURCE_CALIBRATION_ID
     timing_payload = _v53_timing_payload()
     base_representative = {
         "compact_library_id": "launch",
@@ -608,11 +614,14 @@ def test_v53_candidate_rows_classify_calibrated_regime_from_reference_alpha() ->
             governor_mode="continuation_mode",
         )
 
-    normal = row(5.0)
-    transition = row(17.0)
-    post_stall = row(25.0)
+    normal = row(13.5)
+    transition = row(16.0)
+    post_stall = row(18.0)
     assert normal["calibrated_regime_label"] == "normal"
     assert normal["calibrated_regime_mismatch_risk"] == pytest.approx(0.0)
+    assert normal["calibrated_regime_transition_start_alpha_deg"] == pytest.approx(14.0)
+    assert normal["calibrated_regime_post_stall_alpha_deg"] == pytest.approx(18.0)
+    assert normal["calibrated_regime_source_calibration_id"] == CALIBRATED_REGIME_SOURCE_CALIBRATION_ID
     assert transition["calibrated_regime_label"] == "transition"
     assert 0.0 < float(transition["calibrated_regime_mismatch_risk"]) < 1.0
     assert post_stall["calibrated_regime_label"] == "post_stall"

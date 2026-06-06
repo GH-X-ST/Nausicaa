@@ -1,13 +1,14 @@
 """Active neutral dry-air and surface-effectiveness calibration constants.
 
-The active model is the selected compact residual-calibrated replay alignment
-promoted from the n30 neutral open-loop throw set. It includes the longitudinal
-terms plus the compact coupling terms from the selected replay row; this is
-still replay alignment rather than a full aerodynamic SysID claim. A subsequent
-control-surface pulse diagnostics promote conservative elevator and rudder
-aerodynamic effectiveness scales; aileron pulse evidence remains diagnostic.
-The comparison-only theory baseline is archived as JSON next to this file and
-is not imported by runtime code.
+The active model is the conservative 0.040 s local Pareto replay promotion from
+the n30 neutral open-loop throw set. It keeps the compact replay-alignment
+family, promotes the stage-5 transition-blend longitudinal base, and adds the
+selected local yaw-beta plus post-stall roll-damping correction; this remains
+replay alignment rather than a full aerodynamic SysID claim. The earlier
+control-surface pulse diagnostics still provide conservative elevator and
+rudder aerodynamic effectiveness scales; aileron pulse evidence remains
+diagnostic. The comparison-only theory baseline is archived as JSON next to
+this file and is not imported by runtime code.
 """
 
 from __future__ import annotations
@@ -24,18 +25,20 @@ from __future__ import annotations
 # 1) Calibration Metadata
 # =============================================================================
 CALIBRATION_ACTIVE = True
-CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_compact_coupled_elevator_rudder_effectiveness_tiny_cnbeta_heavy_sweep_v1"
-SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_compact_joint_sweep_from_active_v1"
-SOURCE_DIAGNOSTIC_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_cmq_wide_diagnostic_v1"
-SOURCE_LATERAL_CNBETA_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_tiny_cnbeta_heavy_sweep_v1"
-SOURCE_SELECTED_CANDIDATE = "joint_0270_post_stall_Cn_p_1.5"
-SOURCE_LATERAL_CNBETA_CANDIDATE = "H0049_Cn_beta"
+CALIBRATION_ID = "neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1"
+SOURCE_PREP_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_local_promising_v1"
+SOURCE_HEAVY_JOINT_PARETO_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_heavy_v1"
+SOURCE_LOCAL_PARETO_RUN = "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_local_promising_v1"
+SOURCE_SELECTED_CANDIDATE = "jp040local_L00_proposal_stage_5_stage5_tran_local_yaw_beta_s0p75_local_post_stall_Cl_r_s0p6"
+SOURCE_SELECTED_LONGITUDINAL_BASE = "proposal_stage_5_stage5_transition_blend"
+SOURCE_SELECTED_LATERAL_BUNDLE = "local_yaw_beta_s0p75+local_post_stall_Cl_r_s0p6"
 SOURCE_THROW_COUNT = 105
-SOURCE_FILTERED_THROW_COUNT = 74
+SOURCE_FILTERED_THROW_COUNT = 9
 HELDOUT_POLICY = "randomised_stratified_by_session_label"
-HELDOUT_COUNT = 11
+HELDOUT_COUNT = 14
 HELDOUT_SEED = 606
-CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_selected_coupling_terms_conservative_elevator_and_rudder_effectiveness_and_tiny_cnbeta_lateral_replay_correction"
+ALIGNMENT_WINDOW_S = 0.040
+CLAIM_BOUNDARY = "compact_residual_calibrated_replay_alignment_with_40ms_local_pareto_transition_blend_yaw_beta_and_post_stall_clr_corrections_conservative_elevator_and_rudder_effectiveness"
 
 # =============================================================================
 # 2) Active Aerodynamic Correction
@@ -55,8 +58,9 @@ ATTACHED_PITCH_MOMENT_BIAS_COEFF = 0.11309832420327923
 TRANSITION_PITCH_MOMENT_BIAS_COEFF = 0.05711558897899738
 YAW_MOMENT_BIAS_COEFF = 0.0
 # Attached-flow lateral-directional residual derivatives. The selected compact
-# replay row promotes CY_beta; the later heavy narrow Cn_beta sweep adds only a
-# very small attached yaw-beta replay correction.
+# replay row promotes CY_beta; the 0.040 s local Pareto audit promotes the
+# conservative attached yaw-beta correction from the selected S5/yaw0.75/Cl_r0.60
+# candidate.
 SIDE_FORCE_BIAS_COEFF = 0.0
 SIDE_FORCE_BETA_COEFF = -1.9802669025044202
 SIDE_FORCE_P_HAT_COEFF = 0.0
@@ -64,7 +68,7 @@ SIDE_FORCE_R_HAT_COEFF = 0.0
 ROLL_MOMENT_BETA_COEFF = 0.0
 ROLL_MOMENT_P_HAT_COEFF = 0.0
 ROLL_MOMENT_R_HAT_COEFF = 0.0
-YAW_MOMENT_BETA_COEFF = -0.0125
+YAW_MOMENT_BETA_COEFF = -0.034325897691662534
 YAW_MOMENT_P_HAT_COEFF = 0.0
 YAW_MOMENT_R_HAT_COEFF = 0.0
 # Transition-only lateral deltas. They are multiplied by a bounded
@@ -90,11 +94,11 @@ POST_STALL_LIFT_RESIDUAL_COEFF = 0.0
 POST_STALL_DRAG_RESIDUAL_COEFF = 0.0
 POST_STALL_PITCH_MOMENT_COEFF = 0.07585874586245771
 POST_STALL_PITCH_DAMPING_COEFF = 4.0
-POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG = 12.0
-POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG = 22.0
+POST_STALL_RESIDUAL_BLEND_START_ALPHA_DEG = 14.0
+POST_STALL_RESIDUAL_BLEND_FULL_ALPHA_DEG = 18.0
 # Compact neutral SysID residual-surface basis. The active model includes only
-# the selected post-stall Cn_p 20 deg term from the compact replay row plus a
-# tiny post-stall Cn_beta 20 deg term from the heavy frozen-baseline sweep.
+# the inherited compact post-stall Cn terms plus the selected local post-stall
+# Cl_r 20 deg correction from the conservative 0.040 s Pareto promotion.
 POST_STALL_RBF_ALPHA_CENTERS_DEG = (20.0, 45.0, 70.0)
 POST_STALL_RBF_ALPHA_WIDTH_DEG = 15.0
 POST_STALL_LIFT_RBF_COEFFS = (0.0, 0.0, 0.0)
@@ -112,7 +116,7 @@ POST_STALL_ROLL_MOMENT_RBF_COEFFS = (
     (0.0, 0.0, 0.0),
     (0.0, 0.0, 0.0),
     (0.0, 0.0, 0.0),
-    (0.0, 0.0, 0.0),
+    (-0.46003383312128726, 0.0, 0.0),
 )
 POST_STALL_YAW_MOMENT_RBF_COEFFS = (
     (0.0, 0.0, 0.0),

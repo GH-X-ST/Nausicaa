@@ -1035,6 +1035,15 @@ def selector_decision_row(
         "selected_calibrated_regime_alpha_abs_deg": (
             0.0 if selected is None else float(selected.get("calibrated_regime_alpha_abs_deg", 0.0))
         ),
+        "selected_calibrated_regime_transition_start_alpha_deg": (
+            0.0 if selected is None else float(selected.get("calibrated_regime_transition_start_alpha_deg", 0.0))
+        ),
+        "selected_calibrated_regime_post_stall_alpha_deg": (
+            0.0 if selected is None else float(selected.get("calibrated_regime_post_stall_alpha_deg", 0.0))
+        ),
+        "selected_calibrated_regime_source_calibration_id": (
+            "" if selected is None else str(selected.get("calibrated_regime_source_calibration_id", ""))
+        ),
         "selected_calibrated_regime_label": (
             "" if selected is None else str(selected.get("calibrated_regime_label", ""))
         ),

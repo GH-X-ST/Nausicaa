@@ -1,0 +1,82 @@
+{
+  "fit_id": "n30_joint_pareto_040_local_promising_v1",
+  "artifact": "neutral_aero_residual_joint_pareto_local",
+  "audit_only": true,
+  "source_run": "n30_joint_pareto_040_heavy_v1",
+  "source_run_dir": "C:\\Users\\GH-X-ST\\OneDrive - Imperial College London\\Year 4\\Final Year Project\\01 - Github\\Nausicaa\\03_Control\\05_Results\\glider_model_calibration_prep\\n30_joint_pareto_040_heavy_v1",
+  "rerun_full_calibration": false,
+  "alignment_window_s": 0.04,
+  "replay_dt_s": 0.005,
+  "workers": 8,
+  "heldout_indices": [
+    1,
+    4,
+    11,
+    12,
+    20,
+    27,
+    30,
+    35,
+    44,
+    46,
+    77,
+    80,
+    94,
+    95
+  ],
+  "longitudinal_source_ids": [
+    "proposal_stage_5_stage5_transition_blend",
+    "proposal_stage_9_stage9_post_blend_post_stall_lift_dr",
+    "active_baseline"
+  ],
+  "yaw_beta_scale_grid": [
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9,
+    0.95,
+    1.0
+  ],
+  "post_stall_clr_scale_grid": [
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75
+  ],
+  "source_values": {
+    "yaw_moment_beta_coeff": -0.04160119692221671,
+    "post_stall_roll_moment_r_hat_rbf_20_coeff": -0.7667230552021455
+  },
+  "longitudinal_tolerances": {
+    "dx_mae_m": 0.025,
+    "altitude_loss_mae_m": 0.01,
+    "sink_mae_m_s": 0.01,
+    "final_theta_mae_deg": 0.5
+  },
+  "candidate_count": 243,
+  "accepted_count": 164,
+  "selected_count": 8,
+  "stage_replay_row_count": 72,
+  "candidate_csv": "metrics/neutral_aero_residual_joint_pareto_local_candidates.csv",
+  "selected_csv": "metrics/neutral_aero_residual_joint_pareto_local_selected.csv",
+  "stage_replay_csv": "metrics/neutral_aero_residual_joint_pareto_local_stage_replay.csv",
+  "command": [
+    "03_Control/02_Inner_Loop/run_neutral_aero_residual_local_pareto_audit.py",
+    "--source-run-dir",
+    "03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_heavy_v1",
+    "--run-label",
+    "n30_joint_pareto_040_local_promising_v1",
+    "--workers",
+    "8",
+    "--selected-limit",
+    "8"
+  ],
+  "command_line": "03_Control/02_Inner_Loop/run_neutral_aero_residual_local_pareto_audit.py --source-run-dir 03_Control/05_Results/glider_model_calibration_prep/n30_joint_pareto_040_heavy_v1 --run-label n30_joint_pareto_040_local_promising_v1 --workers 8 --selected-limit 8",
+  "generated_at": "2026-06-06T03:36:23"
+}

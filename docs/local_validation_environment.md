@@ -82,9 +82,13 @@ progress-gated terminal total specific-energy proxy, wrong-boundary avoidance,
 and then updraft/lift plus optional spatial-memory correction after unchanged
 safety and transition-entry filters. The current governor also applies calibrated
 normal / transition / post-stall regime-mismatch risk as a bounded score penalty
-and memory-shield non-regression diagnostic, so high-AoA lift exploitation remains
-possible only when it earns enough mission value to justify the active-model
-mismatch exposure.
+and memory-shield non-regression diagnostic. The risk boundary is read from the
+active `neutral_dry_air_calibration.py` residual-blend limits, currently
+14--18 deg for the promoted
+`neutral_dry_air_residual_calibrated_replay_n30_joint_pareto_040_local_s5_yaw0p75_clr0p60_elevator_rudder_effectiveness_v1`
+model, and candidate/selector logs record the source calibration ID plus boundary
+values. High-AoA lift exploitation remains possible only when it earns enough
+mission value to justify the active-model mismatch exposure.
 R9/R10/R11 final launch scoring uses the current front-wall mission score:
 front-wall terminal success at `x_w = 6.6 m` with y/z inside the true safe
 bounds is the main success component, updraft-gain and lift-dwell terms remain
