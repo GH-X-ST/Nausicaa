@@ -140,6 +140,35 @@ retain positive selected and memory score components, but the raw
 E2.2-versus-E2.1 comparison is speed-confounded and remains a transfer and
 diagnostic record rather than a broad standalone memory-improvement proof.
 
+Completed fixed four-fan E3 records now include E3.0 `20260607_202556`, the
+open-loop neutral baseline with 10 valid throws, 4 launch-gate rejected starts,
+four visible fan snapshots per throw, speed range 5.769--6.642 m/s, mean speed
+6.123 m/s, mean final observable specific energy 1.119 m, 1 front-wall exit,
+and 9 floor exits; E3.1 `20260607_204604`, the closed-loop no-memory run with
+30 valid rows, 20 rejected starts, 29 usable controlled rows plus one logged
+launch-handoff abort, speed range 5.345--6.803 m/s, mean speed 6.170 m/s, max
+decision time 0.01959 s, mean final observable specific energy 1.773 m, and 18
+front-wall exits / 11 floor exits over usable controlled rows; and E3.2 memory
+sessions `20260607_213312` plus `20260607_214908`, collected as two
+30-valid-throw runs with 60 valid rows total, 33 rejected starts, max decision
+times 0.08203 s and 0.07195 s, mean speed 6.232 m/s, mean final observable
+specific energy 1.600 m, and 34 front-wall exits / 26 floor exits. E3 supports
+fixed four-fan W2 transfer and memory diagnostics with a speed-conditioned
+boundary: open loop is non-robust in this setup, closed-loop control is highly
+reliable above about 6.5 m/s, and memory keeps positive accumulated selected
+score in the 6.0--6.5 m/s transition band. This is a bounded controller and
+memory-opportunity interpretation, not a claim that memory rescues very
+low-energy launches.
+
+The active remaining fan-layout real-flight sequence skips the old hard-shifted
+E4 diagnostic stage. After E3 fixed four-fan evidence, `E4a`, `E4b`, `E4c`, and
+`E4d` are the four active random-layout families; each has `.0` open-loop
+neutral, `.1` closed-loop no-memory, and `.2` closed-loop memory-enabled
+variants, expects one to four visible fans, and keeps the 30-valid-throw memory
+invocation with an optional second independent session when time allows. Old
+`E5a`--`E5d` names are retired from the active registry and should be treated
+only as historical naming if they appear in old notes or result folders.
+
 Current replay diagnostics are stored under
 `04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/` and
 `04_Flight_Test/A_figures/real_flight_sim_replay_E2_random_samples/`. The E1
@@ -147,7 +176,13 @@ sample set plots E1.0 redo `20260607_190445` throws 005 and 010, E1.1
 no-memory `20260606_230007` throws 005 and 011, and E1.2 memory
 `20260607_122640` throws 002 and 029. The E2 sample set plots E2.0
 `20260607_163303` throws 001 and 002, E2.1 `20260607_165533` throws 016 and
-027, and two throws from each completed E2.2 memory session. The plotting code
+027, and two throws from each completed E2.2 memory session. The E3
+representative replay audit is stored under
+`04_Flight_Test/A_figures/real_flight_sim_replay_E3_representative/` and plots
+E3.0 throws 001/008, E3.1 throws 009/023, and E3.2 throws 013/016 with
+`balanced_cluster`, logged real-decision timing, exact first-0.040 s state
+splice, and W2 measured-fan `four_annular_gp_grid` replay with `fan_count=4`
+and `active_fan_count=4`. The plotting code
 accepts open-loop neutral throws without `controller_decisions.csv`; for those
 cases, the `sim_real_decisions` replay has an empty selected-primitive sequence
 and remains neutral after the measured 0.040 s handoff splice. The first-0.040 s

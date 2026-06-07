@@ -41,11 +41,12 @@ alignment record, not a new R10/R11 evidence claim.
   `E2.2` and `E3.2` were `3 x 30` valid throws, while `E4*.2` and `E5*.2` were
   `2 x 30` valid throws. This is now historical: the active time-limited
   workflow defaults each memory invocation to one 30-valid-throw session for
-  `E2.2`, `E3.2`, `E4*.2`, and `E5*.2`, and the operator collects a second
-  independent 30-throw session manually if time allows. `run_experiment_sequence.py`
-  still exposes `--repeat-sessions` for explicit chained repeats; each repeat
-  creates a separate session folder and starts a new controller instance with
-  empty memory.
+  `E2.2`, `E3.2`, and the active random-layout `E4*.2` cases, and the operator
+  collects a second independent 30-throw session manually if time allows.
+  `run_experiment_sequence.py` still exposes `--repeat-sessions` for explicit
+  chained repeats; each repeat creates a separate session folder and starts a
+  new controller instance with empty memory. The old hard-shifted E4 diagnostic
+  stage and old E5 random-layout naming are retired from the active registry.
 
 ## Evidence Boundary
 

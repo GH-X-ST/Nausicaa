@@ -32,10 +32,12 @@ completed E2 workflow.
   controlled evidence, so it does not update memory or consume a target valid
   throw.
 - The repeated-session fan evidence protocol from v4.4 remains the structural
-  model, but the active time-limited registry now defaults `E2.2`, `E3.2`,
-  `E4*.2`, and `E5*.2` to one 30-valid-throw memory session per command. The
-  second independent 30-throw memory session is collected by running the same
-  case again when time allows, not by chaining a default 60-throw command.
+  model, but the active time-limited registry now defaults `E2.2`, `E3.2`, and
+  the active random-layout `E4*.2` cases to one 30-valid-throw memory session
+  per command. The second independent 30-throw memory session is collected by
+  running the same case again when time allows, not by chaining a default
+  60-throw command. The old hard-shifted E4 diagnostic stage and old E5
+  random-layout naming are retired from the active registry.
 
 ## Superseded E1 Dry-Air Workflow
 

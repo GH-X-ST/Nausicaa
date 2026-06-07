@@ -1,0 +1,192 @@
+{
+  "calibration_mode": "four_fan",
+  "check_count": 2,
+  "current_attitude_offset_rad": [
+    0.0007439979282497512,
+    7.203523529364376e-05,
+    0.0006251279824196487
+  ],
+  "current_attitude_signs_phi_theta_psi": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "current_position_offset_m": [
+    3.870777309775952,
+    2.4944796384255516,
+    0.037177300662830134
+  ],
+  "current_yaw_alignment_deg": 0.0,
+  "elapsed_s": 10.041815500007942,
+  "error_axis": "xy",
+  "error_metric": "max_abs_xy_per_axis",
+  "latest_rows": [
+    {
+      "all_visible": true,
+      "all_within_tolerance": true,
+      "check_index": 2,
+      "dx_m": -0.02661480714383302,
+      "dy_m": -0.020652735394855792,
+      "dz_m": -0.36219195647820707,
+      "elapsed_s": 10.039581999997608,
+      "error_axis": "xy",
+      "error_m": 0.02661480714383302,
+      "fan_subject": "Fan_1",
+      "frame_number": 4902363,
+      "raw_x_m": -0.8973921169197848,
+      "raw_y_m": 1.0848676261795929,
+      "raw_z_m": 0.3506307428589628,
+      "reason": "ok",
+      "target_x_w_m": 3.0,
+      "target_y_w_m": 3.6,
+      "target_z_w_m": 0.75,
+      "visible": true,
+      "within_tolerance": true,
+      "x_w_m": 2.973385192856167,
+      "y_w_m": 3.5793472646051443,
+      "z_w_m": 0.38780804352179293
+    },
+    {
+      "all_visible": true,
+      "all_within_tolerance": true,
+      "check_index": 2,
+      "dx_m": 0.015282421104442001,
+      "dy_m": 0.03682422776154182,
+      "dz_m": -0.3687947836022141,
+      "elapsed_s": 10.039581999997608,
+      "error_axis": "xy",
+      "error_m": 0.03682422776154182,
+      "fan_subject": "Fan_2",
+      "frame_number": 4902363,
+      "raw_x_m": 1.5445051113284902,
+      "raw_y_m": 1.1423445893359903,
+      "raw_z_m": 0.3440279157349557,
+      "reason": "ok",
+      "target_x_w_m": 5.4,
+      "target_y_w_m": 3.6,
+      "target_z_w_m": 0.75,
+      "visible": true,
+      "within_tolerance": true,
+      "x_w_m": 5.415282421104442,
+      "y_w_m": 3.636824227761542,
+      "z_w_m": 0.3812052163977859
+    },
+    {
+      "all_visible": true,
+      "all_within_tolerance": true,
+      "check_index": 2,
+      "dx_m": 0.011857842162228405,
+      "dy_m": -0.004455216042372978,
+      "dz_m": -0.3746418099860619,
+      "elapsed_s": 10.039581999997608,
+      "error_axis": "xy",
+      "error_m": 0.011857842162228405,
+      "fan_subject": "Fan_3",
+      "frame_number": 4902363,
+      "raw_x_m": -0.8589194676137235,
+      "raw_y_m": -1.2989348544679247,
+      "raw_z_m": 0.33818088935110796,
+      "reason": "ok",
+      "target_x_w_m": 3.0,
+      "target_y_w_m": 1.2,
+      "target_z_w_m": 0.75,
+      "visible": true,
+      "within_tolerance": true,
+      "x_w_m": 3.0118578421622284,
+      "y_w_m": 1.195544783957627,
+      "z_w_m": 0.3753581900139381
+    },
+    {
+      "all_visible": true,
+      "all_within_tolerance": true,
+      "check_index": 2,
+      "dx_m": -0.04519178707747251,
+      "dy_m": -0.03772223083161852,
+      "dz_m": -0.37687456087103255,
+      "elapsed_s": 10.039581999997608,
+      "error_axis": "xy",
+      "error_m": 0.04519178707747251,
+      "fan_subject": "Fan_4",
+      "frame_number": 4902363,
+      "raw_x_m": 1.4840309031465757,
+      "raw_y_m": -1.3322018692571702,
+      "raw_z_m": 0.3359481384661373,
+      "reason": "ok",
+      "target_x_w_m": 5.4,
+      "target_y_w_m": 1.2,
+      "target_z_w_m": 0.75,
+      "visible": true,
+      "within_tolerance": true,
+      "x_w_m": 5.354808212922528,
+      "y_w_m": 1.1622777691683814,
+      "z_w_m": 0.37312543912896745
+    }
+  ],
+  "loaded_active_profile_hash": "c5de8677a8205ec8bb3d8d39dc61649ab2f2e5c14531fb69a05a734f602743f4",
+  "loaded_active_profile_id": "nausicaa_real_flight_vicon_calibration_20260607_200041_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+  "notes": "Fan check modes do not update calibration files. Live Vicon fan translations are transformed through the active arena transform before independent horizontal x/y comparison. Measured z is displayed and logged for operator awareness only; fan height is not part of the placement tolerance. The fixed simulation targets mirror 03_Control/04_Scenarios/updraft_models.py; runtime replay fan positions are listed separately because they are hardware-free placeholders, not the target for physical placement.",
+  "print_interval_s": 10.0,
+  "requested_error_axis": "xy",
+  "runtime_replay_fan_positions_m": {
+    "Fan_1": [
+      2.7,
+      1.6,
+      0.75
+    ],
+    "Fan_2": [
+      2.7,
+      2.8,
+      0.75
+    ],
+    "Fan_3": [
+      4.5,
+      1.6,
+      0.75
+    ],
+    "Fan_4": [
+      4.5,
+      2.8,
+      0.75
+    ]
+  },
+  "simulation_target_positions_m": {
+    "Fan_1": [
+      3.0,
+      3.6,
+      0.75
+    ],
+    "Fan_2": [
+      5.4,
+      3.6,
+      0.75
+    ],
+    "Fan_3": [
+      3.0,
+      1.2,
+      0.75
+    ],
+    "Fan_4": [
+      5.4,
+      1.2,
+      0.75
+    ]
+  },
+  "status": "within_tolerance",
+  "timeout_s": 0.0,
+  "tolerance_applies_per_axis": true,
+  "tolerance_m": 0.05,
+  "tracked_fan_subject_names": [
+    "Fan_1",
+    "Fan_2",
+    "Fan_3",
+    "Fan_4"
+  ],
+  "vicon_default_fan_subject_names": [
+    "Fan_1",
+    "Fan_2",
+    "Fan_3",
+    "Fan_4"
+  ],
+  "vicon_host": "192.168.0.100:801",
+  "z_display_only": true
+}

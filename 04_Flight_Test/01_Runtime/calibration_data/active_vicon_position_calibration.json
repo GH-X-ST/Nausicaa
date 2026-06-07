@@ -1,11 +1,11 @@
 {
   "calibration_type": "vicon_position",
-  "profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position",
+  "profile_id": "nausicaa_real_flight_vicon_calibration_20260607_200041_position",
   "profile_version": "1.0",
   "requested_vicon_tracking_rate_hz": 200.0,
   "vicon_position_offset_m": [
-    3.855562304586611,
-    2.4518762988877687,
-    0.03760914985856823
+    3.870777309775952,
+    2.4944796384255516,
+    0.037177300662830134
   ]
 }
