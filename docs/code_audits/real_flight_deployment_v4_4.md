@@ -6,15 +6,16 @@ This note aligns the current documentation with the post-v4.3 real-flight
 runtime and replay-plotting changes. It is a documentation and diagnostic
 alignment record, not a new R10/R11 evidence claim.
 
-## Current-Code Alignment
+## Historical Code Alignment
 
 - `04_Flight_Test/01_Runtime/run_real_flight.py` keeps the hybrid closed-loop
   scheduler from v4.3, but now buffers active metric rows with
   `buffer_active_rows_flush_after_active_record` so time-critical governor
   commit and 50 Hz packet emission occur before active metric flushing.
-- Active fan-position logging is intentionally limited to
-  prelaunch/handoff/post-exit snapshots. This keeps fan-placement evidence in
-  the logs without spending repeated active-loop time on fan table writes.
+- At v4.4, active fan-position logging was intentionally limited to
+  prelaunch/handoff/post-exit snapshots. This behavior is now historical:
+  v4.8 supersedes it with one prelaunch fan snapshot per throw and no fan
+  polling during launch handoff or post-exit.
 - The active runtime wakes 2 ms ahead of scheduled active-loop events to reduce
   scheduler-lag risk while preserving the 0.040 s launch handoff and 0.100 s /
   five-slot primitive contract.

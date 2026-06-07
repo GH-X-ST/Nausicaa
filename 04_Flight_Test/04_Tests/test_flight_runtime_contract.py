@@ -68,7 +68,11 @@ from run_glider_calibration_sequence import (  # noqa: E402
 )
 from run_vicon_orientation_check import _evaluate_steps, _sample_rate_summary  # noqa: E402
 from run_surface_sign_check import SURFACE_CHECK_SEQUENCE, run_surface_sign_check  # noqa: E402
-from run_vicon_frame_calibration import _update_active_vicon_calibration_files  # noqa: E402
+from run_vicon_frame_calibration import (  # noqa: E402
+    DEFAULT_FAN_POSITION_TOLERANCE_M,
+    _fan_position_error_m,
+    _update_active_vicon_calibration_files,
+)
 from state_contract import STATE_INDEX  # noqa: E402
 from episode_selector import select_compact_representative  # noqa: E402
 from transition_labels import classify_state  # noqa: E402
@@ -974,11 +978,59 @@ def test_closed_loop_dry_run_buffers_active_metrics_off_timing_path(tmp_path: Pa
     assert summary["active_metric_logging_policy"] == "buffer_active_rows_flush_after_active_record"
     assert int(summary["active_metric_buffered_row_count"]) > 0
     assert int(summary["active_metric_buffer_flush_count"]) == int(summary["active_metric_buffered_row_count"])
-    assert summary["active_fan_logging_policy"] == "prelaunch_handoff_and_post_exit_snapshot_only"
+    assert summary["active_fan_logging_policy"] == "single_prelaunch_snapshot_only"
     assert float(summary["active_runtime_wake_ahead_s"]) > 0.0
     assert (tmp_path / "T_buffered_active_metrics" / "metrics" / "controller_decisions.csv").exists()
     assert (tmp_path / "T_buffered_active_metrics" / "metrics" / "runtime_events.csv").exists()
     assert (tmp_path / "T_buffered_active_metrics" / "metrics" / "state_samples.csv").exists()
+
+
+def test_fan_positions_are_single_prelaunch_snapshot_per_throw(tmp_path: Path) -> None:
+    config = FlightRuntimeConfig(
+        run_label="T_fan_snapshot",
+        output_root=tmp_path,
+        experiment_case_id="E3.1",
+        experiment_case_name="Fixed four-fan snapshot contract",
+        experiment_layout_id="four_fan_fixed",
+        max_duration_s=0.12,
+        post_exit_neutral_tail_s=0.0,
+    )
+
+    summary = run_real_flight(config, mode="dry-run", expected_visible_fan_range=(4, 4))
+
+    assert summary["completed"] is True
+    assert summary["active_fan_logging_policy"] == "single_prelaunch_snapshot_only"
+    assert summary["fan_visible_count_latest"] == 4
+    assert summary["fan_expected_count_ok_latest"] is True
+    fan_path = tmp_path / "T_fan_snapshot" / "metrics" / "fan_positions.csv"
+    with fan_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 4
+    assert {row["phase"] for row in rows} == {"prelaunch"}
+    assert {row["fan_subject"] for row in rows} == {"Fan_1", "Fan_2", "Fan_3", "Fan_4"}
+    assert all(row["visible"] == "True" for row in rows)
+    assert all(row["visible_count"] == "4" for row in rows)
+    assert all(row["expected_count_ok"] == "True" for row in rows)
+    assert {"t_host_s", "phase", "fan_subject", "visible", "reason", "x_w", "y_w", "z_w"}.issubset(
+        rows[0].keys()
+    )
+
+
+def test_vicon_fan_position_check_uses_five_cm_independent_xy_tolerance() -> None:
+    assert DEFAULT_FAN_POSITION_TOLERANCE_M == pytest.approx(0.05)
+    target = np.asarray([3.0, 1.2, 0.75], dtype=float)
+
+    delta, error = _fan_position_error_m(target + np.asarray([0.05, -0.05, 0.40]), target)
+    np.testing.assert_allclose(delta, [0.05, -0.05, 0.40])
+    assert error == pytest.approx(0.05)
+
+    _, just_outside_x = _fan_position_error_m(target + np.asarray([0.051, 0.0, 0.0]), target)
+    _, just_outside_y = _fan_position_error_m(target + np.asarray([0.0, -0.051, 0.0]), target)
+    _, z_only = _fan_position_error_m(target + np.asarray([0.0, 0.0, 1.0]), target)
+    assert just_outside_x > DEFAULT_FAN_POSITION_TOLERANCE_M
+    assert just_outside_y > DEFAULT_FAN_POSITION_TOLERANCE_M
+    assert z_only == pytest.approx(0.0)
 
 
 def test_open_loop_neutral_dry_run_records_state_without_controller_or_memory(tmp_path: Path) -> None:

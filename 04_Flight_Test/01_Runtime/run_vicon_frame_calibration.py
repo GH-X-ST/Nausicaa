@@ -56,6 +56,7 @@ DEFAULT_FAN_POSITION_TOLERANCE_M = 0.05
 DEFAULT_FAN_CHECK_PRINT_INTERVAL_S = 10.0
 DEFAULT_FAN_CHECK_TIMEOUT_S = 0.0
 DEFAULT_FAN_POSITION_ERROR_AXIS = "xy"
+FAN_POSITION_CHECK_AXIS = "xy"
 DEFAULT_SIM_FAN_MARKER_HEIGHT_M = 0.75
 # Keep these fixed-layout targets aligned with 03_Control/04_Scenarios/updraft_models.py.
 SIM_SINGLE_FAN_TARGETS_M = {
@@ -217,16 +218,9 @@ def _fan_targets_for_mode(calibration_mode: str) -> dict[str, tuple[float, float
 def _fan_position_error_m(
     position_m: np.ndarray,
     target_m: np.ndarray,
-    *,
-    error_axis: str,
 ) -> tuple[np.ndarray, float]:
     delta = np.asarray(position_m, dtype=float).reshape(3) - np.asarray(target_m, dtype=float).reshape(3)
-    if error_axis == "xy":
-        error = float(np.linalg.norm(delta[:2]))
-    elif error_axis == "xyz":
-        error = float(np.linalg.norm(delta))
-    else:
-        raise ValueError("fan position error axis must be 'xy' or 'xyz'.")
+    error = float(np.max(np.abs(delta[:2])))
     return delta, error
 
 
@@ -250,7 +244,8 @@ def run_vicon_fan_position_check(
     tolerance = float(tolerance_m)
     interval = max(0.1, float(print_interval_s))
     timeout = max(0.0, float(timeout_s))
-    axis = str(error_axis)
+    requested_axis = str(error_axis)
+    axis = FAN_POSITION_CHECK_AXIS
     logger = FlightLogger(RESULT_ROOT / "vicon_fan_position_check" / run_label)
     reader = LiveNausicaaViconRigidBody(host=vicon_host, subject_name=subject_name)
     transform = ViconArenaFrameTransform(
@@ -270,6 +265,10 @@ def run_vicon_fan_position_check(
         "runtime_replay_fan_positions_m": RUNTIME_REPLAY_FAN_TARGETS_M,
         "tolerance_m": tolerance,
         "error_axis": axis,
+        "error_metric": "max_abs_xy_per_axis",
+        "tolerance_applies_per_axis": True,
+        "requested_error_axis": requested_axis,
+        "z_display_only": True,
         "print_interval_s": interval,
         "timeout_s": timeout,
         "loaded_active_profile_id": ACTIVE_CALIBRATION_PROFILE.profile_id,
@@ -280,7 +279,9 @@ def run_vicon_fan_position_check(
         "current_attitude_offset_rad": tuple(float(value) for value in current_attitude_offset_rad),
         "notes": (
             "Fan check modes do not update calibration files. Live Vicon fan translations are transformed "
-            "through the active arena transform before comparison. The fixed simulation targets mirror "
+            "through the active arena transform before independent horizontal x/y comparison. Measured z "
+            "is displayed and logged for operator awareness only; fan height is not part of the placement tolerance. "
+            "The fixed simulation targets mirror "
             "03_Control/04_Scenarios/updraft_models.py; runtime replay fan positions are listed separately "
             "because they are hardware-free placeholders, not the target for physical placement."
         ),
@@ -290,10 +291,19 @@ def run_vicon_fan_position_check(
     print(f"[FAN_CHECK] calibration_mode={calibration_mode}")
     print(f"[FAN_CHECK] default Vicon fan subjects: {DEFAULT_FAN_VICON_SUBJECT_NAMES}")
     print(f"[FAN_CHECK] active fan subjects for this check: {target_subjects}")
-    print(f"[FAN_CHECK] tolerance={tolerance:.3f} m over {axis}; print interval={interval:.1f}s")
+    if requested_axis != axis:
+        print(f"[FAN_CHECK] requested axis {requested_axis!r} ignored; fan placement checks x/y only")
+    print(
+        f"[FAN_CHECK] tolerance={tolerance:.3f} m per x/y axis; "
+        f"print interval={interval:.1f}s"
+    )
+    print("[FAN_CHECK] z is display-only; adjust fan floor x/y position, not height")
     print("[FAN_CHECK] simulation targets:")
     for subject, target in targets.items():
-        print(f"  {subject}: target={_format_vector(target, unit='m')}")
+        print(
+            f"  {subject}: target_xy=({_as_float_text(target[0])}, {_as_float_text(target[1])}) m; "
+            f"sim_z_reference={_as_float_text(target[2])} m"
+        )
     print("[FAN_CHECK] runtime replay fan positions, for reference only:")
     for subject, target in RUNTIME_REPLAY_FAN_TARGETS_M.items():
         print(f"  {subject}: replay={_format_vector(target, unit='m')}")
@@ -342,7 +352,7 @@ def run_vicon_fan_position_check(
                 if visible and fan is not None and fan.position_m is not None:
                     raw = np.asarray(fan.position_m, dtype=float).reshape(3)
                     world = transform.position_to_world(raw)
-                    delta, error = _fan_position_error_m(world, target, error_axis=axis)
+                    delta, error = _fan_position_error_m(world, target)
                     within = bool(error <= tolerance)
                 all_visible = all_visible and visible
                 all_within_tolerance = all_within_tolerance and within
@@ -385,13 +395,15 @@ def run_vicon_fan_position_check(
             for row in rows:
                 if row["visible"]:
                     print(
-                        f"  {row['fan_subject']}: pos="
-                        f"({_as_float_text(row['x_w_m'])}, {_as_float_text(row['y_w_m'])}, {_as_float_text(row['z_w_m'])}) m "
-                        f"target=({_as_float_text(row['target_x_w_m'])}, {_as_float_text(row['target_y_w_m'])}, "
-                        f"{_as_float_text(row['target_z_w_m'])}) m "
-                        f"delta=({_as_float_text(row['dx_m'])}, {_as_float_text(row['dy_m'])}, {_as_float_text(row['dz_m'])}) m "
-                        f"error_{axis}={_as_float_text(row['error_m'])} m "
-                        f"{'OK' if row['within_tolerance'] else 'MOVE'}"
+                        f"  {row['fan_subject']}: xy="
+                        f"({_as_float_text(row['x_w_m'])}, {_as_float_text(row['y_w_m'])}) m "
+                        f"target_xy=({_as_float_text(row['target_x_w_m'])}, {_as_float_text(row['target_y_w_m'])}) m "
+                        f"dxy=({_as_float_text(row['dx_m'])}, {_as_float_text(row['dy_m'])}) m "
+                        f"max_abs_xy={_as_float_text(row['error_m'])} m "
+                        f"z_display={_as_float_text(row['z_w_m'])} m "
+                        f"sim_z_ref={_as_float_text(row['target_z_w_m'])} m "
+                        f"dz_display={_as_float_text(row['dz_m'])} m "
+                        f"{'OK' if row['within_tolerance'] else 'MOVE_XY'}"
                     )
                 else:
                     print(f"  {row['fan_subject']}: not visible ({row['reason']})")
@@ -419,6 +431,10 @@ def run_vicon_fan_position_check(
                 f"- Status: `{result['status']}`",
                 f"- Calibration mode: `{result['calibration_mode']}`",
                 f"- Error axis: `{result['error_axis']}`",
+                f"- Error metric: `{result['error_metric']}`",
+                f"- Tolerance applies per axis: `{result['tolerance_applies_per_axis']}`",
+                f"- Requested error axis: `{result['requested_error_axis']}`",
+                f"- Z display only: `{result['z_display_only']}`",
                 f"- Tolerance (m): `{result['tolerance_m']}`",
                 f"- Simulation target positions (m): `{result['simulation_target_positions_m']}`",
                 f"- Runtime replay fan positions for reference (m): `{result['runtime_replay_fan_positions_m']}`",
@@ -754,7 +770,7 @@ def _parse_args() -> argparse.Namespace:
         "--fan-position-error-axis",
         choices=("xy", "xyz"),
         default=DEFAULT_FAN_POSITION_ERROR_AXIS,
-        help="Use xy to match simulation fan-centre geometry; xyz also checks marker height.",
+        help="Compatibility option only; fan placement tolerance is always x/y and z is display-only.",
     )
     parser.add_argument("--position-calibration-path", type=Path, default=POSITION_CALIBRATION_PATH)
     parser.add_argument("--attitude-calibration-path", type=Path, default=ATTITUDE_CALIBRATION_PATH)

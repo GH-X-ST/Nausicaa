@@ -46,7 +46,7 @@ from state_contract import STATE_INDEX, STATE_SIZE, state_dataframe_row  # noqa:
 
 ACTIVE_RUNTIME_WAKE_AHEAD_S = 0.002
 ACTIVE_METRIC_LOGGING_POLICY = "buffer_active_rows_flush_after_active_record"
-ACTIVE_FAN_LOGGING_POLICY = "prelaunch_handoff_and_post_exit_snapshot_only"
+ACTIVE_FAN_LOGGING_POLICY = "single_prelaunch_snapshot_only"
 
 
 def run_real_flight(
@@ -479,14 +479,6 @@ def run_real_flight(
 
             latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
             estimator = adapter.estimator_status()
-            _append_fan_positions(
-                logger=logger,
-                vicon=vicon,
-                adapter=adapter,
-                phase="launch_handoff",
-                expected_visible_fan_range=expected_visible_fan_range,
-                summary=summary,
-            )
             safety = evaluate_safety(latest_state)
             exit_gate = evaluate_exit_gate(latest_state)
             summary["state_sample_count"] += 1
@@ -802,17 +794,6 @@ def run_real_flight(
                     next_governor_s=next_governor_s,
                 )
 
-        if bool(summary["launch_gate_approved"]):
-            _append_fan_positions(
-                logger=logger,
-                vicon=vicon,
-                adapter=adapter,
-                phase="active_post_exit_snapshot",
-                expected_visible_fan_range=expected_visible_fan_range,
-                summary=summary,
-                metric_buffer=deferred_active_metric_rows,
-            )
-
         if bool(summary["launch_gate_approved"]) and config.controller_mode == "closed_loop":
             if latest_decision is not None and latest_state is not None and not terminal_record_appended:
                 decision_records.append(
@@ -1056,6 +1037,7 @@ def _await_launch_gate(
     next_console_status_s = 0.0
     previous_state: np.ndarray | None = None
     rate_confidence_min = float(config.launch_gate_rate_confidence_min)
+    fan_snapshot_logged = False
 
     while (time.perf_counter() - started) <= float(config.launch_wait_timeout_s):
         elapsed_s = time.perf_counter() - started
@@ -1093,14 +1075,16 @@ def _await_launch_gate(
 
         state = adapter.update(sample, command_norm=controller.last_command_norm())
         estimator = adapter.estimator_status()
-        _append_fan_positions(
-            logger=logger,
-            vicon=vicon,
-            adapter=adapter,
-            phase="prelaunch",
-            expected_visible_fan_range=expected_visible_fan_range,
-            summary=summary,
-        )
+        if not fan_snapshot_logged:
+            _append_fan_positions(
+                logger=logger,
+                vicon=vicon,
+                adapter=adapter,
+                phase="prelaunch",
+                expected_visible_fan_range=expected_visible_fan_range,
+                summary=summary,
+            )
+            fan_snapshot_logged = True
         full_window_gate = evaluate_launch_gate(
             state,
             body_rate_limits_rad_s=config.launch_gate_body_rate_limits_rad_s,
