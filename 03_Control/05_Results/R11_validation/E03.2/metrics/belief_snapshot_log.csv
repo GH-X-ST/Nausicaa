@@ -1,0 +1,2 @@
+table_name,row_level_log,storage
+belief_snapshot_log,tables/belief_snapshot_log/,partitioned
