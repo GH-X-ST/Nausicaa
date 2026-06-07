@@ -119,6 +119,32 @@ speed range 5.287--6.774 m/s, 21 front-wall exits, 9 floor exits, 297 final
 memory cells, and 339 memory updates. These are workflow and posthoc audit
 records; E1.2 is interpreted as a bounded dry-air memory null/safety test, not a
 fan-updraft memory-improvement claim.
+
+Post-v4.6 replay diagnostics are stored under
+`04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/`. The sample
+set plots two valid throws per dry-air E1 record: E1.0 redo `20260607_124146`
+throws 002 and 010, E1.1 no-memory `20260606_230007` throws 005 and 011, and
+E1.2 memory `20260607_122640` throws 002 and 029. The plotting code accepts
+open-loop neutral throws without `controller_decisions.csv`; for those cases,
+the `sim_real_decisions` replay has an empty selected-primitive sequence and
+remains neutral after the measured 0.040 s handoff splice. The first-0.040 s
+state-splice residual audit has maximum `max_abs = 0` across the sample set.
+Replay figures are model-mismatch, timing, and decision-consistency diagnostics;
+they do not recompute a simulation-side mission score. The real selected-score
+audit remains runtime/posthoc-only: E1.1 mean accumulated selected score is
+`-1.2406162083333327`, E1.2 is `0.8705906510995837`, and E1.0 is `0.0` because
+open-loop has no selected decisions.
+
+The current active-flight tracking quality is usable for post-analysis. E1.0
+active samples stayed at 200 Hz with average latency 16.4 ms, max active
+estimator gap 35 ms, 3.67 percent low-confidence/spike-rejected samples, and
+1.98 percent body-rate-limited samples. E1.2 active samples stayed at 200 Hz
+with average latency 16.4 ms, max active estimator gap 65 ms, 2.48 percent
+low-confidence/spike-rejected samples, and 0.98 percent body-rate-limited
+samples. These logs are acceptable for trajectory, launch-condition, timing,
+memory/no-memory, and replay diagnostics, but not for pristine raw body-rate
+claims. Large prelaunch frame gaps are expected when Vicon is intentionally
+inactive during cooldown/pre-arm neutral-hold periods.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, the cheap `geometry_only` candidate-path pre-pass, shortlisted
 spatial-belief queries, and compact-library selection are measured against

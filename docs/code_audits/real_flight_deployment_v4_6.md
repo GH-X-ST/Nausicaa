@@ -8,6 +8,10 @@ memory-null evidence. It is a real-flight workflow and documentation record, not
 a new R10/R11 validation, aerodynamic SysID refit, fan-flow validation,
 mission-success claim, hardware-autonomy claim, or memory-improvement claim.
 
+Superseded interpretation note: v4.7 keeps these E1 workflow numbers unchanged
+but adds the current simulation-replay, tracking-quality, and selected-score
+boundary for post-v4.6 post-analysis. Use v4.7 for replay/score interpretation.
+
 ## Current-Code Alignment
 
 - The experiment registry still defines E1.0 as dry-air open-loop neutral,

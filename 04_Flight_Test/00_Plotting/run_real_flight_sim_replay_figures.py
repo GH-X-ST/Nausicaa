@@ -217,7 +217,7 @@ def main() -> None:
     if args.max_throws is not None:
         throws = throws[: max(0, int(args.max_throws))]
     if not throws:
-        raise RuntimeError("No real-flight throws with state_samples.csv and controller_decisions.csv were found.")
+        raise RuntimeError("No real-flight throws with state_samples.csv were found.")
 
     summary_rows: list[dict[str, Any]] = []
     state_error_rows: list[dict[str, Any]] = []
@@ -383,8 +383,6 @@ def discover_throw_cases(
             continue
         seen.add(resolved)
         if not (throw_root / "metrics" / "state_samples.csv").exists():
-            continue
-        if not (throw_root / "metrics" / "controller_decisions.csv").exists():
             continue
         summary = read_json(throw_root / "manifests" / "real_flight_runtime_summary.json")
         manifest = read_json(throw_root / "manifests" / "real_flight_runtime_manifest.json")
