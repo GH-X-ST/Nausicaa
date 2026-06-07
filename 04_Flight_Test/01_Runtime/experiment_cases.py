@@ -134,32 +134,6 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
     ),
     "E4b.1": _case("E4b.1", "Random fan layout 2, no memory", layout_id="E4b_random_layout_2", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
     "E4b.2": _case("E4b.2", "Random fan layout 2, memory enabled", layout_id="E4b_random_layout_2", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4c.0": _case(
-        "E4c.0",
-        "Random fan layout 3, open-loop neutral",
-        layout_id="E4c_random_layout_3",
-        controller_mode="open_loop_neutral",
-        memory_enabled=False,
-        expected_visible_fan_min=1,
-        expected_visible_fan_max=4,
-        target_valid_throws=10,
-        evidence_role="open_loop_real_flight_baseline",
-    ),
-    "E4c.1": _case("E4c.1", "Random fan layout 3, no memory", layout_id="E4c_random_layout_3", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4c.2": _case("E4c.2", "Random fan layout 3, memory enabled", layout_id="E4c_random_layout_3", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4d.0": _case(
-        "E4d.0",
-        "Random fan layout 4, open-loop neutral",
-        layout_id="E4d_random_layout_4",
-        controller_mode="open_loop_neutral",
-        memory_enabled=False,
-        expected_visible_fan_min=1,
-        expected_visible_fan_max=4,
-        target_valid_throws=10,
-        evidence_role="open_loop_real_flight_baseline",
-    ),
-    "E4d.1": _case("E4d.1", "Random fan layout 4, no memory", layout_id="E4d_random_layout_4", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4d.2": _case("E4d.2", "Random fan layout 4, memory enabled", layout_id="E4d_random_layout_4", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
 }
 
 

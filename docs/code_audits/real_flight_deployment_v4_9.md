@@ -69,7 +69,9 @@ claim.
   starts, max decision times 0.08695 s and 0.07169 s, mean speed 5.758 m/s,
   mean final observable specific energy 1.625 m, 44 front-wall exits, 14 floor
   exits, and two blank terminal rows. One blank row is the logged non-controlled
-  launch-handoff abort `launch_handoff_abort:vicon_invalid:vicon_subject_occluded`.
+  launch-handoff abort `launch_handoff_abort:vicon_invalid:vicon_subject_occluded`;
+  current v4.11 runtime logic marks that kind of abort non-valid before it can
+  update memory or consume a target valid throw.
 - Across non-abort E2.2 memory rows, accumulated selected score remains positive
   on average and accumulated memory score is positive. The h4-10 history bucket
   gives 13/14 front-wall exits, mean speed 5.876 m/s, and mean final observable

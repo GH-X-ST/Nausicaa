@@ -131,43 +131,64 @@ controller decisions on all valid throws, max decision time 0.03197 s, speed
 range 5.053--6.412 m/s, mean final observable specific energy 1.635 m, 24
 front-wall exits, and 6 floor exits; and E2.2 memory sessions
 `20260607_173345` plus `20260607_175359`, collected as two 30-valid-throw runs
-with 60 valid rows total, 19 rejected starts, max decision times 0.08695 s and
-0.07169 s, mean final observable specific energy 1.625 m, 44 front-wall exits,
-14 floor exits, and two blank terminal rows, one of which is the logged
-non-controlled launch-handoff abort
-`launch_handoff_abort:vicon_invalid:vicon_subject_occluded`. E2.2 memory rows
-retain positive selected and memory score components, but the raw
-E2.2-versus-E2.1 comparison is speed-confounded and remains a transfer and
-diagnostic record rather than a broad standalone memory-improvement proof.
+with 60 recorded valid rows under pre-v4.11 validity logic, 19 rejected starts,
+max decision times 0.08695 s and 0.07169 s, mean final observable specific
+energy 1.625 m, 44 front-wall exits, 14 floor exits, and two blank terminal
+rows. One blank row is the logged non-controlled launch-handoff abort
+`launch_handoff_abort:vicon_invalid:vicon_subject_occluded`, which current
+v4.11 runtime logic marks non-valid before it can update memory or consume a
+target valid throw. E2.2 memory rows retain positive selected and memory score
+components, but the raw E2.2-versus-E2.1 comparison is speed-confounded and
+remains a transfer and diagnostic record rather than a broad standalone
+memory-improvement proof.
 
 Completed fixed four-fan E3 records now include E3.0 `20260607_202556`, the
 open-loop neutral baseline with 10 valid throws, 4 launch-gate rejected starts,
 four visible fan snapshots per throw, speed range 5.769--6.642 m/s, mean speed
 6.123 m/s, mean final observable specific energy 1.119 m, 1 front-wall exit,
 and 9 floor exits; E3.1 `20260607_204604`, the closed-loop no-memory run with
-30 valid rows, 20 rejected starts, 29 usable controlled rows plus one logged
-launch-handoff abort, speed range 5.345--6.803 m/s, mean speed 6.170 m/s, max
-decision time 0.01959 s, mean final observable specific energy 1.773 m, and 18
-front-wall exits / 11 floor exits over usable controlled rows; and E3.2 memory
-sessions `20260607_213312` plus `20260607_214908`, collected as two
-30-valid-throw runs with 60 valid rows total, 33 rejected starts, max decision
-times 0.08203 s and 0.07195 s, mean speed 6.232 m/s, mean final observable
-specific energy 1.600 m, and 34 front-wall exits / 26 floor exits. E3 supports
-fixed four-fan W2 transfer and memory diagnostics with a speed-conditioned
-boundary: open loop is non-robust in this setup, closed-loop control is highly
-reliable above about 6.5 m/s, and memory keeps positive accumulated selected
-score in the 6.0--6.5 m/s transition band. This is a bounded controller and
-memory-opportunity interpretation, not a claim that memory rescues very
-low-energy launches.
+30 recorded valid rows under pre-v4.11 validity logic, 20 rejected starts, 29
+usable controlled rows plus one archived launch-handoff abort artifact that
+current v4.11 runtime logic marks non-valid, speed range 5.345--6.803 m/s,
+mean speed 6.170 m/s, max decision time 0.01959 s, mean final observable
+specific energy 1.773 m, and 18 front-wall exits / 11 floor exits over usable
+controlled rows; and E3.2 memory sessions `20260607_213312` plus
+`20260607_214908`, collected as two 30-valid-throw runs with 60 valid rows
+total, 33 rejected starts, max decision times 0.08203 s and 0.07195 s, mean
+speed 6.232 m/s, mean final observable specific energy 1.600 m, and 34
+front-wall exits / 26 floor exits. E3 supports fixed four-fan W2 transfer and
+memory diagnostics with a speed-conditioned boundary: open loop is non-robust
+in this setup, closed-loop control is highly reliable above about 6.5 m/s, and
+memory keeps positive accumulated selected score in the 6.0--6.5 m/s transition
+band. This is a bounded controller and memory-opportunity interpretation, not a
+claim that memory rescues very low-energy launches.
+
+Completed random-layout E4a records now include E4a.0 `20260607_230250`, the
+three-visible-fan open-loop neutral baseline with 10 valid throws, 7
+rejected/invalid starts, speed range 4.600--5.969 m/s, mean speed 5.382 m/s,
+mean final observable specific energy 1.627 m, 3 front-wall exits, 6 floor
+exits, and 1 y-max exit; E4a.1 `20260607_224440`, the closed-loop no-memory run
+with 30 valid throws, 32 rejected/invalid starts, speed range 4.749--6.184 m/s,
+mean speed 5.655 m/s, mean final observable specific energy 1.905 m, 26
+front-wall exits, and 4 floor exits; and E4a.2 `20260607_231704`, the
+memory-enabled run with 30 recorded valid rows in the archived session, two of
+which are launch-handoff Vicon abort artifacts under old validity logic and
+should be excluded from controlled evidence, leaving 28 usable controlled
+throws with mean speed 5.360 m/s, mean final observable specific energy 1.771
+m, 21 front-wall exits, 5 floor exits, 2 y-max exits, and final memory state
+around 394 updated cells. E4a supports a bounded three-fan random-layout
+interpretation: open-loop is not reliable, closed-loop no-memory is the
+strongest E4a physical result, and memory is active but does not improve this
+speed-confounded run.
 
 The active remaining fan-layout real-flight sequence skips the old hard-shifted
-E4 diagnostic stage. After E3 fixed four-fan evidence, `E4a`, `E4b`, `E4c`, and
-`E4d` are the four active random-layout families; each has `.0` open-loop
-neutral, `.1` closed-loop no-memory, and `.2` closed-loop memory-enabled
-variants, expects one to four visible fans, and keeps the 30-valid-throw memory
-invocation with an optional second independent session when time allows. Old
-`E5a`--`E5d` names are retired from the active registry and should be treated
-only as historical naming if they appear in old notes or result folders.
+E4 diagnostic stage. After E3 fixed four-fan evidence, only `E4a` and `E4b` are
+active random-layout families; each has `.0` open-loop neutral, `.1`
+closed-loop no-memory, and `.2` closed-loop memory-enabled variants, expects one
+to four visible fans, and keeps the 30-valid-throw memory invocation with an
+optional second independent session when time allows. `E4c` and `E4d` are
+removed from the active registry for time, and old `E5a`--`E5d` names remain
+historical only.
 
 Current replay diagnostics are stored under
 `04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/` and
@@ -182,18 +203,26 @@ representative replay audit is stored under
 E3.0 throws 001/008, E3.1 throws 009/023, and E3.2 throws 013/016 with
 `balanced_cluster`, logged real-decision timing, exact first-0.040 s state
 splice, and W2 measured-fan `four_annular_gp_grid` replay with `fan_count=4`
-and `active_fan_count=4`. The plotting code
-accepts open-loop neutral throws without `controller_decisions.csv`; for those
-cases, the `sim_real_decisions` replay has an empty selected-primitive sequence
-and remains neutral after the measured 0.040 s handoff splice. The first-0.040 s
-state-splice residual audit has maximum `max_abs = 0` across the sample sets.
-Replay version `real_flight_sim_replay_measured_fan_updraft_v2` uses W0 zero
-wind for no-visible-fan E1 samples and measured-fan W2 annular-GP updraft for
-E2 samples. Replay figures are model-mismatch, timing, and decision-consistency
-diagnostics; they do not recompute a simulation-side mission score. The real
-selected-score audit remains runtime/posthoc-only: E1.1 mean accumulated
-selected score is `-1.2406162083333327`, E1.2 is `0.8705906510995837`, and
-E1.0 is `0.0` because open-loop has no selected decisions.
+and `active_fan_count=4`. The E4a representative replay audit is stored under
+`04_Flight_Test/A_figures/real_flight_sim_replay_E4a_representative/` and plots
+E4a.0 throws 004/006, E4a.1 throws 004/010, and E4a.2 throws 024/027 with
+`balanced_cluster`, logged real-decision timing, exact first-0.040 s state
+splice, W2 measured-fan replay, `fan_count=3`, `active_fan_count=3`, nominal
+fan power/width, and zero first-splice residual across state and surface fields.
+The plotting code accepts open-loop neutral throws without
+`controller_decisions.csv`; for those cases, the `sim_real_decisions` replay has
+an empty selected-primitive sequence and remains neutral after the measured
+0.040 s handoff splice. The first-0.040 s state-splice residual audit has
+maximum `max_abs = 0` across the sample sets. Replay version
+`real_flight_sim_replay_measured_fan_updraft_v2` uses W0 zero wind for
+no-visible-fan dry-air samples, measured-fan W2 annular-GP updraft for one- to
+three-visible-fan samples, and measured-fan W2 four-annular-GP replay for
+four-visible-fan samples. Replay figures are model-mismatch, timing,
+workflow-validity, and decision-consistency diagnostics; they do not recompute a
+simulation-side mission score. The real selected-score audit remains
+runtime/posthoc-only: E1.1 mean accumulated selected score is
+`-1.2406162083333327`, E1.2 is `0.8705906510995837`, and E1.0 is `0.0` because
+open-loop has no selected decisions.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, the cheap `geometry_only` candidate-path pre-pass, shortlisted
 spatial-belief queries, and compact-library selection are measured against
@@ -220,7 +249,11 @@ candidate-row expansion, table flushing, and post-hoc diagnostics are outside
 it. If step-0 memory selection misses the fixed 0.040 s launch handoff, the
 runtime logs `first_launch_decision_missed_handoff_budget`, keeps the
 launch-gate approval in the record, and marks the attempt non-valid for
-controlled evidence. Latest targeted C16 sanity check: 40 final launches, 430
+controlled evidence. Since v4.11, launch-handoff Vicon/safety/exit aborts and
+sustained post-launch active Vicon tracking loss beyond `stale_vicon_timeout_s`
+are also marked non-valid, stream neutral, and return control to the sequencer
+without consuming a target valid throw. Latest targeted C16 sanity check: 40
+final launches, 430
 history launches, 0 hard failures, 0 no-viable events, 13/13 accepted memory
 switches, and required heavy/balanced in-flight decisions at 144/144 under
 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full

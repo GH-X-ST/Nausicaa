@@ -1,0 +1,26 @@
+# Vicon Frame Calibration Report
+- Calibration mode: `position`
+- Known arena point (m): `(1.2, 1.6, 0.1)`
+- Valid samples: `150`
+- Raw Vicon mean (m): `(-2.796515601726452, -0.9228798587866076, 0.06380853171252066)`
+- Raw Vicon std (m): `(0.0002754239839406536, 0.00032454638298408124, 0.00028141847940682085)`
+- Raw Vicon Euler mean (rad): `(0.027469929086797084, 0.0004099690049943946, -0.0038852939675888586)`
+- Raw Vicon Euler std (rad): `(0.0022332913444958577, 0.002572784195098347, 0.001245096866089054)`
+- Current transformed mean (m): `(1.0742617080494983, 1.5715997796389438, 0.10098583237535086)`
+- Current transform error (m): `(-0.12573829195050168, -0.028400220361056272, 0.0009858323753508536)`
+- Current attitude mean (rad): `(0.028213927015046845, -0.0003379337697007483, 0.004510421950008527)`
+- Current attitude error (rad): `(0.02821392701504699, -0.00033793376970070454, 0.004510421950008503)`
+- Loaded active profile id: `nausicaa_real_flight_vicon_calibration_20260607_200041_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude`
+- Loaded active profile hash: `c5de8677a8205ec8bb3d8d39dc61649ab2f2e5c14531fb69a05a734f602743f4`
+- Loaded active position calibration path: `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/01_Runtime/calibration_data/active_vicon_position_calibration.json`
+- Loaded active attitude calibration path: `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/01_Runtime/calibration_data/active_vicon_attitude_calibration.json`
+- Loaded active position offset (m): `(3.870777309775952, 2.4944796384255516, 0.037177300662830134)`
+- Current minus loaded active position offset (m): `(0.0, 0.0, 0.0)`
+- Recommended position offset (m): `(3.9965156017264523, 2.5228798587866077, 0.03619146828747935)`
+- Recommended minus loaded active position offset (m): `(0.12573829195050035, 0.02840022036105605, -0.0009858323753507842)`
+- Loaded active attitude offset (deg): `(0.04262794125518778, 0.004127314958557619, 0.0358171950481742)`
+- Recommended attitude offset (rad): `(-0.02746992908679724, 0.0004099690049943483, -0.0038852939675888543)`
+- Recommended attitude offset (deg): `(-1.5739110001971415, 0.023489493717353926, -0.2226109465104798)`
+- Active profile position update requested: `True`
+- Active profile attitude update requested: `False`
+- Current yaw alignment (deg): `0.0`

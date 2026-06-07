@@ -459,8 +459,10 @@ def run_real_flight(
             sample, status = vicon.read_latest()
             if sample is None or not status.valid:
                 reason = f"launch_handoff_abort:vicon_invalid:{status.reason}"
+                summary["valid_throw"] = False
                 summary["flight_cancelled"] = True
                 summary["cancellation_reason"] = reason
+                summary["termination_reason"] = reason
                 _append_runtime_event(
                     logger,
                     "launch_handoff_abort",
@@ -501,8 +503,10 @@ def run_real_flight(
                     if not safety.safe
                     else f"launch_handoff_abort:{exit_gate.reason}"
                 )
+                summary["valid_throw"] = False
                 summary["flight_cancelled"] = True
                 summary["cancellation_reason"] = reason
+                summary["termination_reason"] = reason
                 _append_runtime_event(
                     logger,
                     "launch_handoff_abort",
@@ -578,10 +582,23 @@ def run_real_flight(
                 target_step_index=primitive_step_index,
             )
 
+        active_vicon_invalid_started_s: float | None = None
+        active_vicon_invalid_reason = ""
         while (time.perf_counter() - started) <= float(config.max_duration_s):
             loop_elapsed_s = time.perf_counter() - started
             sample, status = vicon.read_latest()
             if sample is None or not status.valid:
+                if active_vicon_invalid_started_s is None:
+                    active_vicon_invalid_started_s = float(loop_elapsed_s)
+                    active_vicon_invalid_reason = str(status.reason)
+                    _append_runtime_event(
+                        logger,
+                        "active_vicon_tracking_loss_started",
+                        metric_buffer=deferred_active_metric_rows,
+                        reason=str(status.reason),
+                        elapsed_s=float(loop_elapsed_s),
+                    )
+                continuous_invalid_s = float(loop_elapsed_s) - float(active_vicon_invalid_started_s)
                 packet = controller.neutral_packet()
                 if loop_elapsed_s + 1e-12 >= next_serial_s:
                     if _write_packet_safe(
@@ -598,7 +615,35 @@ def run_real_flight(
                     "vicon_invalid_neutral_command",
                     metric_buffer=deferred_active_metric_rows,
                     reason=status.reason,
+                    continuous_invalid_s=continuous_invalid_s,
                 )
+                if continuous_invalid_s >= float(config.stale_vicon_timeout_s):
+                    reason = f"active_vicon_tracking_lost:{status.reason}"
+                    summary["valid_throw"] = False
+                    summary["flight_cancelled"] = True
+                    summary["cancellation_reason"] = reason
+                    summary["termination_reason"] = reason
+                    _append_runtime_event(
+                        logger,
+                        "active_vicon_tracking_lost_invalid_throw",
+                        metric_buffer=deferred_active_metric_rows,
+                        reason=str(status.reason),
+                        first_invalid_reason=active_vicon_invalid_reason,
+                        continuous_invalid_s=continuous_invalid_s,
+                        stale_vicon_timeout_s=float(config.stale_vicon_timeout_s),
+                    )
+                    _send_neutral_tail(
+                        config=config,
+                        tx=tx,
+                        controller=controller,
+                        logger=logger,
+                        mode=mode,
+                        summary=summary,
+                        reason=reason,
+                        metric_buffer=deferred_active_metric_rows,
+                    )
+                    summary["completed"] = False
+                    return summary
                 if mode in {"armed", "vicon-smoke"}:
                     _sleep_until_next_runtime_poll(
                         config=config,
@@ -608,6 +653,18 @@ def run_real_flight(
                     )
                 continue
 
+            if active_vicon_invalid_started_s is not None:
+                _append_runtime_event(
+                    logger,
+                    "active_vicon_tracking_recovered",
+                    metric_buffer=deferred_active_metric_rows,
+                    first_invalid_reason=active_vicon_invalid_reason,
+                    recovered_reason=str(status.reason),
+                    continuous_invalid_s=float(loop_elapsed_s) - float(active_vicon_invalid_started_s),
+                    elapsed_s=float(loop_elapsed_s),
+                )
+                active_vicon_invalid_started_s = None
+                active_vicon_invalid_reason = ""
             latest_state = adapter.update(sample, command_norm=controller.last_command_norm())
             estimator = adapter.estimator_status()
             safety = evaluate_safety(latest_state)

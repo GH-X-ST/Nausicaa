@@ -326,11 +326,10 @@ E3.2 - Four fan fixed, memory enabled, 30 valid throws per run; collect two inde
 
 E4a.0/E4a.1/E4a.2 - Random layout 1, open-loop / no memory / memory; memory is 30 valid throws per run, collected twice if time allows.
 E4b.0/E4b.1/E4b.2 - Random layout 2, open-loop / no memory / memory; memory is 30 valid throws per run, collected twice if time allows.
-E4c.0/E4c.1/E4c.2 - Random layout 3, open-loop / no memory / memory; memory is 30 valid throws per run, collected twice if time allows.
-E4d.0/E4d.1/E4d.2 - Random layout 4, open-loop / no memory / memory; memory is 30 valid throws per run, collected twice if time allows.
   Fan markers: one to four fans expected.
-  Purpose: broader unseen-layout generalisation. The older hard-shifted E4
-  diagnostic stage is retired from the active real-flight sequence.
+  Purpose: broader unseen-layout generalisation under the remaining available
+  flight-test time. The older hard-shifted E4 diagnostic stage is retired from
+  the active real-flight sequence, and E4c/E4d are not active schedule entries.
 
 Open-loop neutral cases use the same launch gate, Vicon logging, fan logging,
 serial path, exit gate, and result folder layout as controlled cases. After

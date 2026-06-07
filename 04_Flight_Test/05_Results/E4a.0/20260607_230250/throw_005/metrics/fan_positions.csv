@@ -1,0 +1,5 @@
+t_host_s,phase,fan_subject,visible,reason,x_w,y_w,z_w,visible_count,expected_count_ok
+251347.5142612,prelaunch,Fan_1,True,ok,3.453137794596679,2.3865494560700498,0.3733066298105322,3,True
+251347.5155514,prelaunch,Fan_2,True,ok,4.766711177443995,2.4406311976113146,0.3765523599215635,3,True
+251347.5156857,prelaunch,Fan_3,True,ok,2.240506403805777,2.195836437089789,0.3693913711594749,3,True
+251347.5157436,prelaunch,Fan_4,False,fan_subject_occluded,,,,3,True

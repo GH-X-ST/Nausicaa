@@ -76,7 +76,7 @@ from run_vicon_frame_calibration import (  # noqa: E402
 from state_contract import STATE_INDEX  # noqa: E402
 from episode_selector import select_compact_representative  # noqa: E402
 from transition_labels import classify_state  # noqa: E402
-from vicon_rigid_body import ReplayNausicaaViconRigidBody  # noqa: E402
+from vicon_rigid_body import ReplayNausicaaViconRigidBody, ViconFrameStatus  # noqa: E402
 
 
 def _code(value: float) -> int:
@@ -911,6 +911,90 @@ def test_missed_first_launch_decision_is_not_counted_valid_throw(tmp_path: Path,
     assert summary["slot_command_update_count"] == 0
 
 
+def test_active_vicon_tracking_loss_is_not_counted_valid_throw(tmp_path: Path, monkeypatch) -> None:
+    import run_real_flight as runtime_module
+
+    class LaunchThenLostVicon(ReplayNausicaaViconRigidBody):
+        def __init__(self, *, host: str, subject_name: str = "Nausicaa") -> None:
+            super().__init__(dt_s=0.005, speed_m_s=6.0)
+            self.host = host
+            self.subject_name = subject_name
+            self.loss_after_index = 80
+
+        def read_latest(self):
+            if self.index >= self.loss_after_index:
+                self.index += 1
+                return None, ViconFrameStatus(
+                    False,
+                    "vicon_subject_occluded",
+                    frame_number=self.index,
+                    frame_rate_hz=200.0,
+                )
+            return super().read_latest()
+
+    monkeypatch.setattr(runtime_module, "LiveNausicaaViconRigidBody", LaunchThenLostVicon)
+    config = FlightRuntimeConfig(
+        run_label="T_active_vicon_loss",
+        output_root=tmp_path,
+        controller_mode="open_loop_neutral",
+        max_duration_s=0.5,
+        post_exit_neutral_tail_s=0.0,
+        stale_vicon_timeout_s=0.020,
+        vicon_poll_period_s=0.001,
+    )
+
+    summary = run_real_flight(config, mode="vicon-smoke")
+
+    assert summary["launch_gate_approved"] is True
+    assert summary["launch_handoff_completed"] is True
+    assert summary["valid_throw"] is False
+    assert summary["flight_cancelled"] is True
+    assert str(summary["cancellation_reason"]).startswith("active_vicon_tracking_lost:vicon_subject_occluded")
+    events_path = tmp_path / "T_active_vicon_loss" / "metrics" / "runtime_events.csv"
+    with events_path.open(newline="") as handle:
+        events = [row["event"] for row in csv.DictReader(handle)]
+    assert "active_vicon_tracking_lost_invalid_throw" in events
+
+
+def test_launch_handoff_vicon_loss_is_not_counted_valid_throw(tmp_path: Path, monkeypatch) -> None:
+    import run_real_flight as runtime_module
+
+    class LaunchThenHandoffLostVicon(ReplayNausicaaViconRigidBody):
+        def __init__(self, *, host: str, subject_name: str = "Nausicaa") -> None:
+            super().__init__(dt_s=0.005, speed_m_s=6.0)
+            self.host = host
+            self.subject_name = subject_name
+            self.loss_after_index = 13
+
+        def read_latest(self):
+            if self.index >= self.loss_after_index:
+                self.index += 1
+                return None, ViconFrameStatus(
+                    False,
+                    "vicon_subject_occluded",
+                    frame_number=self.index,
+                    frame_rate_hz=200.0,
+                )
+            return super().read_latest()
+
+    monkeypatch.setattr(runtime_module, "LiveNausicaaViconRigidBody", LaunchThenHandoffLostVicon)
+    config = FlightRuntimeConfig(
+        run_label="T_launch_handoff_vicon_loss",
+        output_root=tmp_path,
+        max_duration_s=0.5,
+        post_exit_neutral_tail_s=0.0,
+        vicon_poll_period_s=0.001,
+    )
+
+    summary = run_real_flight(config, mode="vicon-smoke")
+
+    assert summary["launch_gate_approved"] is True
+    assert summary["launch_handoff_completed"] is False
+    assert summary["valid_throw"] is False
+    assert summary["flight_cancelled"] is True
+    assert str(summary["cancellation_reason"]).startswith("launch_handoff_abort:vicon_invalid")
+
+
 def test_memory_candidate_feature_evaluator_reuses_decision_lookup_context(monkeypatch) -> None:
     import real_flight_memory as memory_module
 
@@ -1330,18 +1414,13 @@ def test_experiment_case_registry_contains_requested_cases() -> None:
         "E4b.0",
         "E4b.1",
         "E4b.2",
-        "E4c.0",
-        "E4c.1",
-        "E4c.2",
-        "E4d.0",
-        "E4d.1",
-        "E4d.2",
     }
     assert requested.issubset(EXPERIMENT_CASES)
+    assert not any(case_id.startswith(("E4c", "E4d")) for case_id in EXPERIMENT_CASES)
     assert get_experiment_case("E2.2").memory_enabled is True
     assert get_experiment_case("E1.1").memory_enabled is False
     assert get_experiment_case("E3.0").controller_mode == "open_loop_neutral"
-    for case_id in ("E2.2", "E3.2", "E4a.2", "E4b.2", "E4c.2", "E4d.2"):
+    for case_id in ("E2.2", "E3.2", "E4a.2", "E4b.2"):
         case = get_experiment_case(case_id)
         assert case.target_valid_throws == 30
         assert case.target_session_repeats == 1

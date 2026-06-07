@@ -27,7 +27,7 @@ from run_real_flight import run_real_flight
 # Current setup: use the selected registry case/targets, hardware armed on COM11.
 # Failed launch-gate attempts are ignored and do not count as throws.
 # =============================================================================
-CURRENT_EXPERIMENT_CASE = "E3.2"
+CURRENT_EXPERIMENT_CASE = "E4a.2"
 CURRENT_SESSION_LABEL = ""  # Empty means a new timestamped result folder.
 TARGET_VALID_THROWS_OVERRIDE: int | None = None
 PRE_ARM_VICON_INACTIVE_DELAY_S = 3.0

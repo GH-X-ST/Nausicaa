@@ -36,7 +36,7 @@ from real_flight_io import ViconArenaFrameTransform  # noqa: E402
 #   "diagnostic" measures both and writes neither
 #   "single_fan" checks Fan_1 against the single-fan simulation centre and writes nothing
 #   "four_fan"   checks Fan_1..Fan_4 against the fixed four-fan simulation centres and writes nothing
-CALIBRATION_MODE = "four_fan"
+CALIBRATION_MODE = "position"
 FAN_CHECK_MODES = ("single_fan", "four_fan")
 CALIBRATION_MODES = ("position", "attitude", "pose", "diagnostic", *FAN_CHECK_MODES)
 KNOWN_ARENA_POINT_M = (1.2, 1.6, 0.1)

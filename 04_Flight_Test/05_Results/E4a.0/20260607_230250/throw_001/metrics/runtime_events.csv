@@ -1,0 +1,11 @@
+t_host_s,event,details_json
+251245.5437458,launch_gate_approved_start_active_record,"{""approved"":true,""launch_gate_rate_confidence_min"":0.65,""launch_trigger_x_w_m"":1.2999999999999998,""p_rad_s"":0.4010670532114189,""phi_deg"":5.93411087961632,""psi_deg"":-0.3827562948697931,""q_rad_s"":-0.0089541917207277,""r_rad_s"":-0.027281254769693758,""rate_confidence"":0.95,""reason"":""approved_launch_gate"",""required_consecutive_frames"":2,""speed_m_s"":4.599508358062134,""theta_deg"":2.2745693629887027,""trigger_policy"":""first_valid_r5_launch_window_with_interpolated_plane_fallback"",""trigger_source"":""valid_r5_launch_window"",""u_m_s"":4.539664395345366,""v_m_s"":0.4201911708876347,""w_m_s"":0.6085751337551503,""x_w_m"":1.2259651523450317,""y_w_m"":2.034605939789191,""z_w_m"":1.520922811007753}"
+251245.5443704,launch_handoff_start,"{""launch_handoff_duration_s"":0.04,""launch_handoff_policy_version"":""launch_gate_neutral_handoff_0p040s_v1""}"
+251245.6239705,launch_handoff_complete,"{""launch_handoff_duration_s"":0.04,""neutral_packet_count"":2}"
+251245.6248209,first_active_command,"{""controller_mode"":""open_loop_neutral"",""elapsed_s"":0.040691700007300824,""source_event"":""active_open_loop_neutral_packet""}"
+251246.9689481,active_vicon_tracking_loss_started,"{""elapsed_s"":1.3483218000328634,""reason"":""vicon_subject_occluded""}"
+251246.9691336,vicon_invalid_neutral_command,"{""continuous_invalid_s"":0.0,""reason"":""vicon_subject_occluded""}"
+251246.9741233,vicon_invalid_neutral_command,"{""continuous_invalid_s"":0.039934399974299595,""reason"":""vicon_subject_occluded""}"
+251246.9773494,active_vicon_tracking_recovered,"{""continuous_invalid_s"":0.044865099975140765,""elapsed_s"":1.3931869000080042,""first_invalid_reason"":""vicon_subject_occluded"",""recovered_reason"":""ok""}"
+251247.2991647,post_exit_neutral_tail_sent,"{""neutral_packet_count"":15,""post_exit_neutral_tail_s"":0.3,""reason"":""exit_gate_floor""}"
+251247.2992269,exit_gate_terminate_active_record,"{""ceiling_margin_m"":3.1513347066657644,""floor_margin_m"":-0.05133470666576434,""inside"":false,""min_margin_m"":-0.05133470666576434,""reason"":""exit_gate_floor"",""x_w_m"":6.413585878501891,""y_w_m"":2.6805786351578726,""z_w_m"":0.3486652933342357}"

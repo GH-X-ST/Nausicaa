@@ -17,10 +17,12 @@ claim.
   throw, speed range 5.769--6.642 m/s, mean speed 6.123 m/s, mean final
   observable specific energy 1.119 m, 1 front-wall exit, and 9 floor exits.
 - `E3.1` session `20260607_204604` is fixed four-fan closed-loop no-memory:
-  30 valid rows, 20 rejected starts, 29 usable controlled rows plus one logged
-  launch-handoff abort, speed range 5.345--6.803 m/s, mean speed 6.170 m/s,
-  max decision time 0.01959 s, mean final observable specific energy 1.773 m,
-  and 18 front-wall exits / 11 floor exits over usable controlled rows.
+  30 recorded valid rows under pre-v4.11 validity logic, 20 rejected starts, 29
+  usable controlled rows plus one archived launch-handoff abort artifact that
+  current v4.11 runtime logic marks non-valid, speed range 5.345--6.803 m/s,
+  mean speed 6.170 m/s, max decision time 0.01959 s, mean final observable
+  specific energy 1.773 m, and 18 front-wall exits / 11 floor exits over usable
+  controlled rows.
 - `E3.2` was collected as two 30-valid-throw memory sessions,
   `20260607_213312` and `20260607_214908`: 60 valid rows total, 33 rejected
   starts, max decision times 0.08203 s and 0.07195 s, mean speed 6.232 m/s,
@@ -67,8 +69,8 @@ claim.
 
 - `04_Flight_Test/01_Runtime/experiment_cases.py` removes the old hard-shifted
   E4 diagnostic stage from the active real-flight registry.
-- The former random-layout E5 family is promoted into the active E4 family:
-  `E4a`, `E4b`, `E4c`, and `E4d` are now the four random-layout cases.
+- The former random-layout E5 family is promoted into the active E4 family, but
+  the time-limited active registry now keeps only `E4a` and `E4b`.
 - Each random-layout family keeps the same suffix contract:
   `.0` open-loop neutral baseline, `.1` closed-loop no-memory, and `.2`
   closed-loop memory enabled.
@@ -82,8 +84,6 @@ claim.
 
 - `E4a.0`, `E4a.1`, `E4a.2`: random layout 1.
 - `E4b.0`, `E4b.1`, `E4b.2`: random layout 2.
-- `E4c.0`, `E4c.1`, `E4c.2`: random layout 3.
-- `E4d.0`, `E4d.1`, `E4d.2`: random layout 4.
 
 ## Documentation Alignment
 
@@ -95,8 +95,8 @@ claim.
 - `docs/local_validation_environment.md` now carries the same E3 workflow and
   replay boundary in its local validation summary.
 - The active case-name text still records that the old hard-shifted E4
-  diagnostic stage is retired and the former E5 random-layout family is active
-  as E4a--E4d.
+  diagnostic stage is retired, that active random-layout testing is narrowed to
+  E4a/E4b, and that E4c/E4d are not active schedule entries.
 
 ## Checks
 

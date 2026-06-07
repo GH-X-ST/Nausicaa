@@ -1,0 +1,5 @@
+t_host_s,event,reason
+251001.0986622,vicon_invalid_waiting_for_launch,vicon_subject_occluded
+251005.3747058,vicon_invalid_waiting_for_launch,vicon_subject_occluded
+251005.8881992,vicon_invalid_waiting_for_launch,vicon_subject_occluded
+251006.3906955,vicon_invalid_waiting_for_launch,vicon_subject_occluded
