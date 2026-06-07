@@ -1,0 +1,6 @@
+library_size_case_id,rejection_reason,row_count
+balanced_cluster,,8223
+heavy_cluster,,4560
+light_cluster,,8569
+no_cluster_no_merge,,10065
+super_light_cluster,,8926

@@ -333,6 +333,10 @@ def _summary_from_final_launch_scores(
     rows: list[dict[str, object]] = []
     for keys, group in raw.groupby(group_columns, dropna=False, sort=False):
         row = dict(zip(group_columns, keys))
+        if "validation_run_label" in group.columns:
+            source_labels = sorted(str(value) for value in group["validation_run_label"].dropna().unique())
+            row["source_validation_run_count"] = len(source_labels)
+            row["source_validation_run_labels"] = ";".join(source_labels)
         launch_count = int(len(group))
         row["launch_count"] = launch_count
         for source in (
