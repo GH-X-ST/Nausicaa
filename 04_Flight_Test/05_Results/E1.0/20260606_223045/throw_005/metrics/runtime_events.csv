@@ -1,9 +1,0 @@
-t_host_s,event,details_json
-162967.958953,launch_gate_approved_start_active_record,"{""approved"":true,""launch_gate_rate_confidence_min"":0.65,""launch_trigger_x_w_m"":1.2999999999999998,""p_rad_s"":0.2420323101163708,""phi_deg"":8.299878611566589,""psi_deg"":-2.7465433589952646,""q_rad_s"":0.316383617305266,""r_rad_s"":-0.21451013408283703,""rate_confidence"":0.95,""reason"":""approved_launch_gate"",""required_consecutive_frames"":2,""speed_m_s"":6.341172881618591,""theta_deg"":5.723512489853989,""trigger_policy"":""first_valid_r5_launch_window_with_interpolated_plane_fallback"",""trigger_source"":""valid_r5_launch_window"",""u_m_s"":6.281251361563187,""v_m_s"":0.8031741534911266,""w_m_s"":0.33356577552180333,""x_w_m"":1.2619253154262897,""y_w_m"":2.0563115261565628,""z_w_m"":1.6211022349061595}"
-162967.9597166,launch_handoff_start,"{""launch_handoff_duration_s"":0.04,""launch_handoff_policy_version"":""launch_gate_neutral_handoff_0p040s_v1""}"
-162968.014041,launch_handoff_complete,"{""launch_handoff_duration_s"":0.04,""neutral_packet_count"":2}"
-162968.0155,first_active_command,"{""controller_mode"":""open_loop_neutral"",""elapsed_s"":0.04117940002470277,""source_event"":""active_open_loop_neutral_packet""}"
-162969.2856691,vicon_invalid_neutral_command,"{""reason"":""vicon_subject_occluded""}"
-162969.2891265,vicon_invalid_neutral_command,"{""reason"":""vicon_subject_occluded""}"
-162969.6020972,post_exit_neutral_tail_sent,"{""neutral_packet_count"":15,""post_exit_neutral_tail_s"":0.3,""reason"":""exit_gate_front_wall""}"
-162969.6021474,exit_gate_terminate_active_record,"{""ceiling_margin_m"":2.545301073507234,""floor_margin_m"":0.5546989264927662,""inside"":false,""min_margin_m"":-0.14298216874763447,""reason"":""exit_gate_front_wall"",""x_w_m"":6.742982168747634,""y_w_m"":1.6187354733048278,""z_w_m"":0.9546989264927662}"

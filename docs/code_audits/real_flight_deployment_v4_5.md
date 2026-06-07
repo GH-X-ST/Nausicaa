@@ -8,6 +8,11 @@ is a runtime, documentation, and evidence-boundary record, not a new R10/R11
 validation, aerodynamic SysID refit, mission-success claim, or
 memory-improvement claim.
 
+Supersession note: the E1 dry-air evidence summary in this v4.5 record is
+superseded by `docs/code_audits/real_flight_deployment_v4_6.md`. The current
+workflow record uses redo E1.0 session `20260607_124146` and completed E1.2
+session `20260607_122640`.
+
 ## Current-Code Alignment
 
 - Real-flight memory now honours the same selector contract as simulation: the
@@ -29,18 +34,17 @@ memory-improvement claim.
   `E2.2`/`E3.2` are independent `3 x 30` memory sessions, while `E4*.2` and
   `E5*.2` are independent `2 x 30` memory sessions.
 
-## Completed E1 Dry-Air Workflow
+## Superseded E1 Dry-Air Workflow
 
-- `E1.0` session `20260606_223045` is the dry-air open-loop neutral baseline:
-  10 valid throws, 0 invalid attempts, zero controller decisions, speed range
-  5.499--6.359 m/s, mean final observable specific energy 1.818 m, 7
-  front-wall exits, and 3 floor exits.
+- The original v4.5 E1.0 open-loop neutral baseline has been replaced by redo
+  E1.0 session `20260607_124146`; see v4.6 for the current dry-air workflow
+  record.
 - `E1.1` session `20260606_230007` is the dry-air closed-loop no-memory
   baseline: 30 valid throws, 16 rejected/timeout starts, 30/30 valid throws
   with active controller decisions, 10--12 controller decisions per valid throw,
   max decision time 0.00432 s, speed range 5.295--6.841 m/s, mean final
   observable specific energy 1.747 m, 28 front-wall exits, and 2 floor exits.
-- Both sessions used active calibration profile hash
+- The superseded v4.5 dry-air records used active calibration profile hash
   `c4fca6c930dd4a9c9836c53fd3bb796ac14973d08c32796a1ecf0d155edd2d2f`, profile
   id
   `nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude`,

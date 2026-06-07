@@ -106,16 +106,19 @@ baselines. Real-flight throws write `posthoc_throw.csv`, session runs write
 selected score component fields; open-loop neutral still has zero controller
 decisions but an explicit posthoc row. These tables are report-only, use short
 GitHub-safe filenames, and stay outside the real-time controller compute
-boundary. Completed dry-air real-flight workflow records now include E1.0
-`20260606_223045`, the open-loop neutral baseline with 10 valid throws and 0
-invalid attempts, and E1.1 `20260606_230007`, the closed-loop no-memory
-baseline with 30 valid throws and 16 launch-gate rejected/timeout starts. E1.0
-had zero controller decisions, speed range 5.499--6.359 m/s, 7 front-wall
-exits, and 3 floor exits. E1.1 had active controller decisions on 30/30 valid
-throws, 10--12 controller decisions per valid throw, max decision time
-0.00432 s, speed range 5.295--6.841 m/s, 28 front-wall exits, and 2 floor
-exits. These are workflow and posthoc audit records, not mission-success or
-memory-improvement claims.
+boundary. Completed dry-air real-flight workflow records now include redo E1.0
+`20260607_124146`, the open-loop neutral baseline with 10 valid throws, 4
+launch-gate rejected starts, zero controller decisions, speed range
+4.921--6.364 m/s, 1 front-wall exit, and 9 floor exits; E1.1
+`20260606_230007`, the closed-loop no-memory baseline with 30 valid throws, 16
+launch-gate rejected/timeout starts, active controller decisions on all valid
+throws, speed range 5.295--6.841 m/s, 28 front-wall exits, and 2 floor exits;
+and E1.2 `20260607_122640`, the dry-air memory null test with 30 valid throws,
+10 launch-gate rejected starts, active controller decisions on all valid throws,
+speed range 5.287--6.774 m/s, 21 front-wall exits, 9 floor exits, 297 final
+memory cells, and 339 memory updates. These are workflow and posthoc audit
+records; E1.2 is interpreted as a bounded dry-air memory null/safety test, not a
+fan-updraft memory-improvement claim.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, the cheap `geometry_only` candidate-path pre-pass, shortlisted
 spatial-belief queries, and compact-library selection are measured against
@@ -148,8 +151,10 @@ switches, and required heavy/balanced in-flight decisions at 144/144 under
 0.100 s with max 0.0937 s; this is targeted diagnostic evidence only, not full
 R10/R11 validation. The post-v4.4 real-flight memory timing probe used 159
 synthetic memory cells and 30 launch decisions, with max first-decision time
-0.0239 s and zero calls above 0.040 s; this is an engineering timing check, not
-a new R10/R11 or memory-improvement claim.
+0.0239 s and zero calls above 0.040 s; the completed E1.2 dry-air memory null
+run then recorded max step-0 first-decision time 0.0386 s, max decision time
+0.0570 s, and zero decisions above 0.100 s. These are engineering timing and
+workflow checks, not new R10/R11 or memory-improvement claims.
 
 Use the repo-local pytest temp/cache paths above so validation does not depend
 on the Windows user temp directory. Local `.venv` and `.codex_run_logs`
