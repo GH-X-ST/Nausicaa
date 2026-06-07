@@ -94,7 +94,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E2.1": _case("E2.1", "Single fan fixed, no memory", layout_id="E2_single_fan_fixed", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=1, target_valid_throws=30),
-    "E2.2": _case("E2.2", "Single fan fixed, memory enabled", layout_id="E2_single_fan_fixed", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=1, target_valid_throws=30, target_session_repeats=3),
+    "E2.2": _case("E2.2", "Single fan fixed, memory enabled", layout_id="E2_single_fan_fixed", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=1, target_valid_throws=30),
     "E3.0": _case(
         "E3.0",
         "Four fan fixed, open-loop neutral",
@@ -107,7 +107,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E3.1": _case("E3.1", "Four fan fixed, no memory", layout_id="E3_four_fan_fixed", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
-    "E3.2": _case("E3.2", "Four fan fixed, memory enabled", layout_id="E3_four_fan_fixed", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=3),
+    "E3.2": _case("E3.2", "Four fan fixed, memory enabled", layout_id="E3_four_fan_fixed", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
     "E4a.0": _case(
         "E4a.0",
         "Hard shifted fan layout 1, open-loop neutral",
@@ -120,7 +120,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E4a.1": _case("E4a.1", "Hard shifted fan layout 1, no memory", layout_id="E4a_hard_shifted_layout_1", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4a.2": _case("E4a.2", "Hard shifted fan layout 1, memory enabled", layout_id="E4a_hard_shifted_layout_1", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E4a.2": _case("E4a.2", "Hard shifted fan layout 1, memory enabled", layout_id="E4a_hard_shifted_layout_1", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
     "E4b.0": _case(
         "E4b.0",
         "Hard shifted fan layout 2, open-loop neutral",
@@ -133,7 +133,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E4b.1": _case("E4b.1", "Hard shifted fan layout 2, no memory", layout_id="E4b_hard_shifted_layout_2", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4b.2": _case("E4b.2", "Hard shifted fan layout 2, memory enabled", layout_id="E4b_hard_shifted_layout_2", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E4b.2": _case("E4b.2", "Hard shifted fan layout 2, memory enabled", layout_id="E4b_hard_shifted_layout_2", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
     "E4c.0": _case(
         "E4c.0",
         "Hard shifted fan layout 3, open-loop neutral",
@@ -146,7 +146,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E4c.1": _case("E4c.1", "Hard shifted fan layout 3, no memory", layout_id="E4c_hard_shifted_layout_3", memory_enabled=False, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
-    "E4c.2": _case("E4c.2", "Hard shifted fan layout 3, memory enabled", layout_id="E4c_hard_shifted_layout_3", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E4c.2": _case("E4c.2", "Hard shifted fan layout 3, memory enabled", layout_id="E4c_hard_shifted_layout_3", memory_enabled=True, expected_visible_fan_min=4, expected_visible_fan_max=4, target_valid_throws=30),
     "E5a.0": _case(
         "E5a.0",
         "Random fan layout 1, open-loop neutral",
@@ -159,7 +159,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E5a.1": _case("E5a.1", "Random fan layout 1, no memory", layout_id="E5a_random_layout_1", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E5a.2": _case("E5a.2", "Random fan layout 1, memory enabled", layout_id="E5a_random_layout_1", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E5a.2": _case("E5a.2", "Random fan layout 1, memory enabled", layout_id="E5a_random_layout_1", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
     "E5b.0": _case(
         "E5b.0",
         "Random fan layout 2, open-loop neutral",
@@ -172,7 +172,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E5b.1": _case("E5b.1", "Random fan layout 2, no memory", layout_id="E5b_random_layout_2", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E5b.2": _case("E5b.2", "Random fan layout 2, memory enabled", layout_id="E5b_random_layout_2", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E5b.2": _case("E5b.2", "Random fan layout 2, memory enabled", layout_id="E5b_random_layout_2", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
     "E5c.0": _case(
         "E5c.0",
         "Random fan layout 3, open-loop neutral",
@@ -185,7 +185,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E5c.1": _case("E5c.1", "Random fan layout 3, no memory", layout_id="E5c_random_layout_3", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E5c.2": _case("E5c.2", "Random fan layout 3, memory enabled", layout_id="E5c_random_layout_3", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E5c.2": _case("E5c.2", "Random fan layout 3, memory enabled", layout_id="E5c_random_layout_3", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
     "E5d.0": _case(
         "E5d.0",
         "Random fan layout 4, open-loop neutral",
@@ -198,7 +198,7 @@ EXPERIMENT_CASES: dict[str, ExperimentCase] = {
         evidence_role="open_loop_real_flight_baseline",
     ),
     "E5d.1": _case("E5d.1", "Random fan layout 4, no memory", layout_id="E5d_random_layout_4", memory_enabled=False, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
-    "E5d.2": _case("E5d.2", "Random fan layout 4, memory enabled", layout_id="E5d_random_layout_4", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30, target_session_repeats=2),
+    "E5d.2": _case("E5d.2", "Random fan layout 4, memory enabled", layout_id="E5d_random_layout_4", memory_enabled=True, expected_visible_fan_min=1, expected_visible_fan_max=4, target_valid_throws=30),
 }
 
 

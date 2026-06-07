@@ -9,9 +9,10 @@ validation, aerodynamic SysID refit, mission-success claim, or
 memory-improvement claim.
 
 Supersession note: the E1 dry-air evidence summary in this v4.5 record is
-superseded by `docs/code_audits/real_flight_deployment_v4_6.md`. The current
-workflow record uses redo E1.0 session `20260607_124146` and completed E1.2
-session `20260607_122640`.
+historical. The current E1/E2 workflow and replay interpretation is recorded in
+`docs/code_audits/real_flight_deployment_v4_9.md`, which replaces the older
+redo E1.0 session `20260607_124146` with `20260607_190445` and adds the
+completed E2 workflow.
 
 ## Current-Code Alignment
 
@@ -30,15 +31,18 @@ session `20260607_122640`.
   approval remains in the record, but the attempt is marked non-valid for
   controlled evidence, so it does not update memory or consume a target valid
   throw.
-- The repeated-session fan evidence protocol from v4.4 remains active:
-  `E2.2`/`E3.2` are independent `3 x 30` memory sessions, while `E4*.2` and
-  `E5*.2` are independent `2 x 30` memory sessions.
+- The repeated-session fan evidence protocol from v4.4 remains the structural
+  model, but the active time-limited registry now defaults `E2.2`, `E3.2`,
+  `E4*.2`, and `E5*.2` to one 30-valid-throw memory session per command. The
+  second independent 30-throw memory session is collected by running the same
+  case again when time allows, not by chaining a default 60-throw command.
 
 ## Superseded E1 Dry-Air Workflow
 
-- The original v4.5 E1.0 open-loop neutral baseline has been replaced by redo
-  E1.0 session `20260607_124146`; see v4.6 for the current dry-air workflow
-  record.
+- The original v4.5 E1.0 open-loop neutral baseline was later replaced by redo
+  E1.0 session `20260607_124146`, which is itself superseded by the current
+  redo E1.0 session `20260607_190445`; see v4.9 for the current dry-air and E2
+  workflow record.
 - `E1.1` session `20260606_230007` is the dry-air closed-loop no-memory
   baseline: 30 valid throws, 16 rejected/timeout starts, 30/30 valid throws
   with active controller decisions, 10--12 controller decisions per valid throw,

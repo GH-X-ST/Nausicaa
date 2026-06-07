@@ -8,9 +8,10 @@ memory-null evidence. It is a real-flight workflow and documentation record, not
 a new R10/R11 validation, aerodynamic SysID refit, fan-flow validation,
 mission-success claim, hardware-autonomy claim, or memory-improvement claim.
 
-Superseded interpretation note: v4.7 keeps these E1 workflow numbers unchanged
-but adds the current simulation-replay, tracking-quality, and selected-score
-boundary for post-v4.6 post-analysis. Use v4.7 for replay/score interpretation.
+Superseded interpretation note: this v4.6 E1 workflow record is historical.
+v4.9 replaces the older redo E1.0 session `20260607_124146` with the current
+redo E1.0 session `20260607_190445`, adds the completed E2 workflow, and updates
+the replay boundary for measured-fan updraft replay.
 
 ## Current-Code Alignment
 
@@ -27,9 +28,9 @@ boundary for post-v4.6 post-analysis. Use v4.7 for replay/score interpretation.
   and the same geometry-first shortlisted spatial-memory selector contract
   documented in v4.5.
 
-## Current E1 Dry-Air Workflow
+## Historical E1 Dry-Air Workflow
 
-- Redo `E1.0` session `20260607_124146` is the current dry-air open-loop neutral
+- Redo `E1.0` session `20260607_124146` was the v4.6 dry-air open-loop neutral
   baseline: 10 valid throws, 4 launch-gate rejected starts, zero controller
   decisions, speed range 4.921--6.364 m/s, mean final observable specific energy
   1.516 m, 1 front-wall exit, and 9 floor exits.
@@ -46,7 +47,7 @@ boundary for post-v4.6 post-analysis. Use v4.7 for replay/score interpretation.
   specific energy 1.771 m, 21 front-wall exits, 9 floor exits, 297 final memory
   cells, and 339 memory updates over history buckets h0/h1-3/h4-10/h11-30 =
   1/3/7/19.
-- All three current dry-air records use active calibration profile hash
+- The three v4.6 dry-air records used active calibration profile hash
   `c4fca6c930dd4a9c9836c53fd3bb796ac14973d08c32796a1ecf0d155edd2d2f`, profile
   id
   `nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude`,
@@ -61,7 +62,7 @@ invalid starts as memory evidence. The dry-air memory result can support a
 safety/null-test argument, but the memory-improvement claim must come from fan
 or repeated-layout cases where persistent spatial flow exists.
 
-The E1.2 timing result supports real-flight workflow readiness for the current
+The E1.2 timing result supported real-flight workflow readiness for the then-current
 memory selector implementation: the first launch decision stayed within the
 0.040 s handoff window, every decision stayed within the 0.100 s primitive
 boundary, and rejected starts remained launch-gate quality filters rather than
@@ -70,7 +71,7 @@ no-memory baseline.
 
 ## Checks
 
-- Current E1 manifests and session posthoc CSVs were inspected for E1.0 redo,
+- E1 manifests and session posthoc CSVs were inspected for the v4.6 E1.0 redo,
   E1.1 retained baseline, and E1.2 completed memory-null evidence.
 - Controller-decision timing was audited from E1.1/E1.2
   `controller_decisions.csv` rows.

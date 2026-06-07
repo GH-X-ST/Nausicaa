@@ -1,0 +1,5 @@
+t_host_s,phase,fan_subject,visible,reason,x_w,y_w,z_w,visible_count,expected_count_ok
+232743.7919692,prelaunch,Fan_1,True,ok,4.162769380493738,2.428507837676192,0.37112750212302253,1,True
+232743.794143,prelaunch,Fan_2,False,fan_read_failed:DataStreamException,,,,1,True
+232743.7942597,prelaunch,Fan_3,False,fan_read_failed:DataStreamException,,,,1,True
+232743.7943096,prelaunch,Fan_4,False,fan_read_failed:DataStreamException,,,,1,True

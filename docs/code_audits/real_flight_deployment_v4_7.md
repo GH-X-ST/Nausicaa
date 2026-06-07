@@ -9,7 +9,12 @@ It is a plotting, replay-diagnostic, and documentation record, not a new
 R10/R11 validation, aerodynamic SysID refit, fan-flow validation,
 mission-success claim, hardware-autonomy claim, or memory-improvement claim.
 
-## Current-Code Alignment
+Superseded interpretation note: this v4.7 replay record is historical. v4.9
+updates the active replay script to `real_flight_sim_replay_measured_fan_updraft_v2`,
+replaces E1.0 redo session `20260607_124146` with `20260607_190445`, and adds
+the completed E2 measured-fan updraft replay workflow.
+
+## Historical Code Alignment
 
 - `04_Flight_Test/00_Plotting/run_real_flight_sim_replay_figures.py` now plots
   valid open-loop neutral throws even when `metrics/controller_decisions.csv` is
@@ -27,10 +32,10 @@ mission-success claim, hardware-autonomy claim, or memory-improvement claim.
 - The generated E1 random-sample replay root is
   `04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/`.
 
-## E1 Random-Sample Replay Set
+## Historical E1 Random-Sample Replay Set
 
-The deterministic random sample uses two valid throws from each current E1
-record:
+The deterministic v4.7 random sample used two valid throws from each then-current
+E1 record:
 
 - E1.0 redo `20260607_124146`: `throw_002`, `throw_010`.
 - E1.1 no-memory `20260606_230007`: `throw_005`, `throw_011`.
@@ -69,13 +74,13 @@ runtime/report-only accumulated selected-decision score from
 `controller_decisions.csv`; E1.0 has score zero because it has no selected
 controller decisions and is not directly comparable as a selected-score policy.
 
-For the current sessions, E1.1 has mean accumulated selected score
+For the v4.7 sessions, E1.1 had mean accumulated selected score
 `-1.2406162083333327`, while E1.2 has mean accumulated selected score
 `0.8705906510995837`. That supports the dry-air memory score-audit record, but
 it is not a real-vs-simulation score comparison. The replay figures should be
-used to state that open-loop dry-air exposes model mismatch and that closed-loop
-control remains robust enough to operate through that mismatch, not that the
-real flight generally scores higher than the simulation replay.
+used to state that open-loop dry-air exposed model mismatch and that closed-loop
+control remained robust enough to operate through that mismatch, not as a
+simulation-score ranking claim.
 
 ## Checks
 

@@ -107,44 +107,58 @@ selected score component fields; open-loop neutral still has zero controller
 decisions but an explicit posthoc row. These tables are report-only, use short
 GitHub-safe filenames, and stay outside the real-time controller compute
 boundary. Completed dry-air real-flight workflow records now include redo E1.0
-`20260607_124146`, the open-loop neutral baseline with 10 valid throws, 4
+`20260607_190445`, the open-loop neutral baseline with 10 valid throws, 6
 launch-gate rejected starts, zero controller decisions, speed range
-4.921--6.364 m/s, 1 front-wall exit, and 9 floor exits; E1.1
-`20260606_230007`, the closed-loop no-memory baseline with 30 valid throws, 16
-launch-gate rejected/timeout starts, active controller decisions on all valid
-throws, speed range 5.295--6.841 m/s, 28 front-wall exits, and 2 floor exits;
-and E1.2 `20260607_122640`, the dry-air memory null test with 30 valid throws,
-10 launch-gate rejected starts, active controller decisions on all valid throws,
-speed range 5.287--6.774 m/s, 21 front-wall exits, 9 floor exits, 297 final
-memory cells, and 339 memory updates. These are workflow and posthoc audit
-records; E1.2 is interpreted as a bounded dry-air memory null/safety test, not a
-fan-updraft memory-improvement claim.
+5.016--6.653 m/s, mean final observable specific energy 1.634 m, 3 front-wall
+exits, and 7 floor exits; E1.1 `20260606_230007`, the closed-loop no-memory
+baseline with 30 valid throws, 16 launch-gate rejected/timeout starts, active
+controller decisions on all valid throws, speed range 5.295--6.841 m/s, mean
+final observable specific energy 1.747 m, 28 front-wall exits, and 2 floor
+exits; and E1.2 `20260607_122640`, the dry-air memory null test with 30 valid
+throws, 10 launch-gate rejected starts, active controller decisions on all valid
+throws, speed range 5.287--6.774 m/s, mean final observable specific energy
+1.771 m, 21 front-wall exits, 9 floor exits, 297 final memory cells, and 339
+memory updates. These are workflow and posthoc audit records; E1.2 is
+interpreted as a bounded dry-air memory null/safety test, not a fan-updraft
+memory-improvement claim.
 
-Post-v4.6 replay diagnostics are stored under
-`04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/`. The sample
-set plots two valid throws per dry-air E1 record: E1.0 redo `20260607_124146`
-throws 002 and 010, E1.1 no-memory `20260606_230007` throws 005 and 011, and
-E1.2 memory `20260607_122640` throws 002 and 029. The plotting code accepts
-open-loop neutral throws without `controller_decisions.csv`; for those cases,
-the `sim_real_decisions` replay has an empty selected-primitive sequence and
-remains neutral after the measured 0.040 s handoff splice. The first-0.040 s
-state-splice residual audit has maximum `max_abs = 0` across the sample set.
-Replay figures are model-mismatch, timing, and decision-consistency diagnostics;
-they do not recompute a simulation-side mission score. The real selected-score
-audit remains runtime/posthoc-only: E1.1 mean accumulated selected score is
-`-1.2406162083333327`, E1.2 is `0.8705906510995837`, and E1.0 is `0.0` because
-open-loop has no selected decisions.
+Completed fixed single-fan E2 records now include E2.0 `20260607_163303`, the
+open-loop neutral baseline with 10 valid throws, 8 launch-gate rejected starts,
+speed range 5.626--6.260 m/s, mean final observable specific energy 1.506 m, 6
+front-wall exits, and 4 floor exits; E2.1 `20260607_165533`, the closed-loop
+no-memory run with 30 valid throws, 10 launch-gate rejected starts, active
+controller decisions on all valid throws, max decision time 0.03197 s, speed
+range 5.053--6.412 m/s, mean final observable specific energy 1.635 m, 24
+front-wall exits, and 6 floor exits; and E2.2 memory sessions
+`20260607_173345` plus `20260607_175359`, collected as two 30-valid-throw runs
+with 60 valid rows total, 19 rejected starts, max decision times 0.08695 s and
+0.07169 s, mean final observable specific energy 1.625 m, 44 front-wall exits,
+14 floor exits, and two blank terminal rows, one of which is the logged
+non-controlled launch-handoff abort
+`launch_handoff_abort:vicon_invalid:vicon_subject_occluded`. E2.2 memory rows
+retain positive selected and memory score components, but the raw
+E2.2-versus-E2.1 comparison is speed-confounded and remains a transfer and
+diagnostic record rather than a broad standalone memory-improvement proof.
 
-The current active-flight tracking quality is usable for post-analysis. E1.0
-active samples stayed at 200 Hz with average latency 16.4 ms, max active
-estimator gap 35 ms, 3.67 percent low-confidence/spike-rejected samples, and
-1.98 percent body-rate-limited samples. E1.2 active samples stayed at 200 Hz
-with average latency 16.4 ms, max active estimator gap 65 ms, 2.48 percent
-low-confidence/spike-rejected samples, and 0.98 percent body-rate-limited
-samples. These logs are acceptable for trajectory, launch-condition, timing,
-memory/no-memory, and replay diagnostics, but not for pristine raw body-rate
-claims. Large prelaunch frame gaps are expected when Vicon is intentionally
-inactive during cooldown/pre-arm neutral-hold periods.
+Current replay diagnostics are stored under
+`04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/` and
+`04_Flight_Test/A_figures/real_flight_sim_replay_E2_random_samples/`. The E1
+sample set plots E1.0 redo `20260607_190445` throws 005 and 010, E1.1
+no-memory `20260606_230007` throws 005 and 011, and E1.2 memory
+`20260607_122640` throws 002 and 029. The E2 sample set plots E2.0
+`20260607_163303` throws 001 and 002, E2.1 `20260607_165533` throws 016 and
+027, and two throws from each completed E2.2 memory session. The plotting code
+accepts open-loop neutral throws without `controller_decisions.csv`; for those
+cases, the `sim_real_decisions` replay has an empty selected-primitive sequence
+and remains neutral after the measured 0.040 s handoff splice. The first-0.040 s
+state-splice residual audit has maximum `max_abs = 0` across the sample sets.
+Replay version `real_flight_sim_replay_measured_fan_updraft_v2` uses W0 zero
+wind for no-visible-fan E1 samples and measured-fan W2 annular-GP updraft for
+E2 samples. Replay figures are model-mismatch, timing, and decision-consistency
+diagnostics; they do not recompute a simulation-side mission score. The real
+selected-score audit remains runtime/posthoc-only: E1.1 mean accumulated
+selected score is `-1.2406162083333327`, E1.2 is `0.8705906510995837`, and
+E1.0 is `0.0` because open-loop has no selected decisions.
 R9/R10/R11 also write a repeated-launch real-time scheduler profile: context
 construction, the cheap `geometry_only` candidate-path pre-pass, shortlisted
 spatial-belief queries, and compact-library selection are measured against

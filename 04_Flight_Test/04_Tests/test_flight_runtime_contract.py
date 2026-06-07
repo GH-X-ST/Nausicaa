@@ -1350,14 +1350,10 @@ def test_experiment_case_registry_contains_requested_cases() -> None:
     assert get_experiment_case("E2.2").memory_enabled is True
     assert get_experiment_case("E1.1").memory_enabled is False
     assert get_experiment_case("E3.0").controller_mode == "open_loop_neutral"
-    for case_id in ("E2.2", "E3.2"):
+    for case_id in ("E2.2", "E3.2", "E4a.2", "E4b.2", "E4c.2", "E5a.2", "E5b.2", "E5c.2", "E5d.2"):
         case = get_experiment_case(case_id)
         assert case.target_valid_throws == 30
-        assert case.target_session_repeats == 3
-    for case_id in ("E4a.2", "E4b.2", "E4c.2", "E5a.2", "E5b.2", "E5c.2", "E5d.2"):
-        case = get_experiment_case(case_id)
-        assert case.target_valid_throws == 30
-        assert case.target_session_repeats == 2
+        assert case.target_session_repeats == 1
 
 
 def test_replay_fan_tracker_handles_zero_one_and_four_subjects() -> None:

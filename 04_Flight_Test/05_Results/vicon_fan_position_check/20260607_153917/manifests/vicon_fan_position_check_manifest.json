@@ -1,0 +1,99 @@
+{
+  "calibration_mode": "single_fan",
+  "check_count": 2,
+  "current_attitude_offset_rad": [
+    0.0007439979282497512,
+    7.203523529364376e-05,
+    0.0006251279824196487
+  ],
+  "current_attitude_signs_phi_theta_psi": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "current_position_offset_m": [
+    3.855562304586611,
+    2.4518762988877687,
+    0.03760914985856823
+  ],
+  "current_yaw_alignment_deg": 0.0,
+  "elapsed_s": 10.036359699995955,
+  "error_axis": "xy",
+  "error_metric": "max_abs_xy_per_axis",
+  "latest_rows": [
+    {
+      "all_visible": true,
+      "all_within_tolerance": true,
+      "check_index": 2,
+      "dx_m": -0.044640899474210016,
+      "dy_m": 0.04186879704339663,
+      "dz_m": -0.3789713071257671,
+      "elapsed_s": 10.033898800000316,
+      "error_axis": "xy",
+      "error_m": 0.044640899474210016,
+      "fan_subject": "Fan_1",
+      "frame_number": 1666689,
+      "raw_x_m": 0.29979679593917946,
+      "raw_y_m": -0.0100075018443721,
+      "raw_z_m": 0.3334195430156647,
+      "reason": "ok",
+      "target_x_w_m": 4.2,
+      "target_y_w_m": 2.4,
+      "target_z_w_m": 0.75,
+      "visible": true,
+      "within_tolerance": true,
+      "x_w_m": 4.15535910052579,
+      "y_w_m": 2.4418687970433965,
+      "z_w_m": 0.3710286928742329
+    }
+  ],
+  "loaded_active_profile_hash": "2b54012a976f41aed257a3688085981d89872aab5e1ce86667510811db8e7610",
+  "loaded_active_profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+  "notes": "Fan check modes do not update calibration files. Live Vicon fan translations are transformed through the active arena transform before independent horizontal x/y comparison. Measured z is displayed and logged for operator awareness only; fan height is not part of the placement tolerance. The fixed simulation targets mirror 03_Control/04_Scenarios/updraft_models.py; runtime replay fan positions are listed separately because they are hardware-free placeholders, not the target for physical placement.",
+  "print_interval_s": 10.0,
+  "requested_error_axis": "xy",
+  "runtime_replay_fan_positions_m": {
+    "Fan_1": [
+      2.7,
+      1.6,
+      0.75
+    ],
+    "Fan_2": [
+      2.7,
+      2.8,
+      0.75
+    ],
+    "Fan_3": [
+      4.5,
+      1.6,
+      0.75
+    ],
+    "Fan_4": [
+      4.5,
+      2.8,
+      0.75
+    ]
+  },
+  "simulation_target_positions_m": {
+    "Fan_1": [
+      4.2,
+      2.4,
+      0.75
+    ]
+  },
+  "status": "within_tolerance",
+  "timeout_s": 0.0,
+  "tolerance_applies_per_axis": true,
+  "tolerance_m": 0.05,
+  "tracked_fan_subject_names": [
+    "Fan_1"
+  ],
+  "vicon_default_fan_subject_names": [
+    "Fan_1",
+    "Fan_2",
+    "Fan_3",
+    "Fan_4"
+  ],
+  "vicon_host": "192.168.0.100:801",
+  "z_display_only": true
+}

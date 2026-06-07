@@ -1,0 +1,12 @@
+# Vicon Fan Position Check Report
+- Status: `within_tolerance`
+- Calibration mode: `single_fan`
+- Error axis: `xy`
+- Error metric: `max_abs_xy_per_axis`
+- Tolerance applies per axis: `True`
+- Requested error axis: `xy`
+- Z display only: `True`
+- Tolerance (m): `0.05`
+- Simulation target positions (m): `{'Fan_1': (4.2, 2.4, 0.75)}`
+- Runtime replay fan positions for reference (m): `{'Fan_1': (2.7, 1.6, 0.75), 'Fan_2': (2.7, 2.8, 0.75), 'Fan_3': (4.5, 1.6, 0.75), 'Fan_4': (4.5, 2.8, 0.75)}`
+- Latest rows: `[{'check_index': 12, 'elapsed_s': 110.0485869999975, 'fan_subject': 'Fan_1', 'visible': True, 'reason': 'ok', 'frame_number': 2576363, 'target_x_w_m': 4.2, 'target_y_w_m': 2.4, 'target_z_w_m': 0.75, 'raw_x_m': 0.30937364729159395, 'raw_y_m': -0.0027815528806576168, 'raw_z_m': 0.33657377484850814, 'x_w_m': 4.1649359518782045, 'y_w_m': 2.4490947460071113, 'z_w_m': 0.37418292470707637, 'dx_m': -0.03506404812179564, 'dy_m': 0.04909474600711139, 'dz_m': -0.37581707529292363, 'error_axis': 'xy', 'error_m': 0.04909474600711139, 'within_tolerance': True, 'all_visible': True, 'all_within_tolerance': True}]`

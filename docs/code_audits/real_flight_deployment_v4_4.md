@@ -36,12 +36,16 @@ alignment record, not a new R10/R11 evidence claim.
   `execution_timing_audit.csv`, a manifest, and a Markdown report. Figures now
   include a bottom-left launch-condition block with launch state, speed,
   attitude, body velocity/rates, and handoff duration.
-- The real-flight memory case registry now encodes repeated independent
+- At v4.4, the real-flight memory case registry encoded repeated independent
   sessions instead of one long monolithic memory run for the fan evidence cases:
-  `E2.2` and `E3.2` are `3 x 30` valid throws, while `E4*.2` and `E5*.2` are
-  `2 x 30` valid throws. `run_experiment_sequence.py` exposes
-  `--repeat-sessions`; each repeat creates a separate session folder and starts
-  a new controller instance with empty memory.
+  `E2.2` and `E3.2` were `3 x 30` valid throws, while `E4*.2` and `E5*.2` were
+  `2 x 30` valid throws. This is now historical: the active time-limited
+  workflow defaults each memory invocation to one 30-valid-throw session for
+  `E2.2`, `E3.2`, `E4*.2`, and `E5*.2`, and the operator collects a second
+  independent 30-throw session manually if time allows. `run_experiment_sequence.py`
+  still exposes `--repeat-sessions` for explicit chained repeats; each repeat
+  creates a separate session folder and starts a new controller instance with
+  empty memory.
 
 ## Evidence Boundary
 

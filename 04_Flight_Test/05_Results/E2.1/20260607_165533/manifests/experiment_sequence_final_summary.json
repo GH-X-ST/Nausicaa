@@ -1,0 +1,102 @@
+{
+  "between_throw_policy": "pre_arm_and_cooldown_streamed_neutral_only_without_vicon_reads;each_throw_started_with_lazy_vicon_launch_gate_wait",
+  "calibration_profile": {
+    "body_rate_limit_rad_s": 6.0,
+    "body_rate_observer_window_frames": 7,
+    "derivative_cutoff_hz": 8.0,
+    "launch_gate_body_rate_limits_rad_s": [
+      1.2,
+      1.2,
+      1.8
+    ],
+    "launch_gate_rate_confidence_min": 0.65,
+    "launch_gate_required_consecutive_frames": 2,
+    "profile_hash": "c4fca6c930dd4a9c9836c53fd3bb796ac14973d08c32796a1ecf0d155edd2d2f",
+    "profile_id": "nausicaa_real_flight_vicon_calibration_20260606_192524_position+nausicaa_real_flight_vicon_calibration_20260604_125825_attitude",
+    "profile_version": "position:1.0;attitude:1.0",
+    "rejected_launch_attempt_min_speed_m_s": 2.0,
+    "requested_vicon_tracking_rate_hz": 200.0,
+    "vicon_attitude_offset_rad": [
+      0.0007439979282497512,
+      7.203523529364376e-05,
+      0.0006251279824196487
+    ],
+    "vicon_attitude_signs": [
+      1.0,
+      -1.0,
+      -1.0
+    ],
+    "vicon_position_offset_m": [
+      3.855562304586611,
+      2.4518762988877687,
+      0.03760914985856823
+    ],
+    "vicon_yaw_alignment_deg": 0.0
+  },
+  "case": {
+    "case_id": "E2.1",
+    "case_name": "Single fan fixed, no memory",
+    "controller_mode": "closed_loop",
+    "evidence_role": "real_flight_evidence",
+    "expected_visible_fan_max": 1,
+    "expected_visible_fan_min": 1,
+    "layout_id": "E2_single_fan_fixed",
+    "memory_enabled": false,
+    "target_session_repeats": 1,
+    "target_valid_throws": 30
+  },
+  "controller_memory": {
+    "memory_cell_count": 0,
+    "memory_enabled": false,
+    "memory_launch_index": 0,
+    "memory_policy": "disabled",
+    "memory_update_count": 0
+  },
+  "invalid_attempt_count": 10,
+  "launch_gate_body_rate_limits_policy": "formal_evidence_default",
+  "launch_gate_body_rate_limits_rad_s": [
+    1.2,
+    1.2,
+    1.8
+  ],
+  "posthoc_score_audit": {
+    "case_id": "E2.1",
+    "case_name": "Single fan fixed, no memory",
+    "claim_status": "real_flight_session_posthoc_score_audit_not_runtime_control",
+    "controller_mode": "closed_loop",
+    "h0_throw_count": 0,
+    "h11_30_plus_throw_count": 0,
+    "h1_3_throw_count": 0,
+    "h4_10_throw_count": 0,
+    "invalid_attempt_count": 10,
+    "layout_id": "E2_single_fan_fixed",
+    "mean_accumulated_selected_score": -2.0082172499999995,
+    "mean_executed_selected_decision_count": 12.566666666666666,
+    "mean_final_observable_specific_energy_m": 1.6350783424840223,
+    "memory_enabled": false,
+    "no_memory_throw_count": 30,
+    "open_loop_throw_count": 0,
+    "posthoc_score_source": "child_throw_runtime_summary_posthoc_fields",
+    "posthoc_throw_row_count": 40,
+    "valid_throw_count": 30
+  },
+  "pre_arm_vicon_inactive_delay_s": 3.0,
+  "protocol_repeat_count": 1,
+  "protocol_repeat_index": 1,
+  "protocol_repeat_policy": "independent_session_memory_reset_between_repeats",
+  "session_label": "20260607_165533",
+  "target_valid_throws": 30,
+  "valid_throw_count": 30,
+  "vicon_attitude_offset_rad_phi_theta_psi": [
+    0.0007439979282497512,
+    7.203523529364376e-05,
+    0.0006251279824196487
+  ],
+  "vicon_attitude_signs_phi_theta_psi": [
+    1.0,
+    -1.0,
+    -1.0
+  ],
+  "vicon_poll_period_s": 0.005,
+  "vicon_tracking_rate_hz": 200.0
+}

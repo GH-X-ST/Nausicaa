@@ -1,0 +1,3 @@
+check_index,elapsed_s,fan_subject,visible,reason,frame_number,target_x_w_m,target_y_w_m,target_z_w_m,raw_x_m,raw_y_m,raw_z_m,x_w_m,y_w_m,z_w_m,dx_m,dy_m,dz_m,error_axis,error_m,within_tolerance,all_visible,all_within_tolerance
+1,0.03091980001772754,Fan_1,False,fan_subject_occluded,408712,4.2,2.4,0.75,,,,,,,,,,xy,,False,False,False
+2,10.033898800000316,Fan_1,True,ok,1666689,4.2,2.4,0.75,0.29979679593917946,-0.0100075018443721,0.3334195430156647,4.15535910052579,2.4418687970433965,0.3710286928742329,-0.044640899474210016,0.04186879704339663,-0.3789713071257671,xy,0.044640899474210016,True,True,True

@@ -32,13 +32,24 @@ RUNTIME_ROOT = FLIGHT_ROOT / "01_Runtime"
 CONTROLLER_ROOT = FLIGHT_ROOT / "02_Controller"
 CONTROL_ROOT = ROOT / "03_Control"
 INNER_LOOP_ROOT = CONTROL_ROOT / "02_Inner_Loop"
+CONTROL_PRIMITIVES_ROOT = CONTROL_ROOT / "03_Primitives"
 CONTROL_PLOTTING_ROOT = CONTROL_ROOT / "01_Plotting"
+CONTROL_SCENARIOS_ROOT = CONTROL_ROOT / "04_Scenarios"
 
-for path in (RUNTIME_ROOT, CONTROLLER_ROOT, INNER_LOOP_ROOT, CONTROL_PLOTTING_ROOT):
+for path in (
+    RUNTIME_ROOT,
+    CONTROLLER_ROOT,
+    INNER_LOOP_ROOT,
+    CONTROL_PLOTTING_ROOT,
+    CONTROL_PRIMITIVES_ROOT,
+    CONTROL_SCENARIOS_ROOT,
+):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 from command_contract import normalised_command_to_surface_rad  # noqa: E402
+from env_ctx import EnvironmentMetadata  # noqa: E402
+from env_surrogate import resolve_surrogate_binding, wind_field_for_binding  # noqa: E402
 from exit_gate import evaluate_exit_gate  # noqa: E402
 from flight_config import FlightRuntimeConfig  # noqa: E402
 from flight_dynamics import adapt_glider, state_derivative  # noqa: E402
@@ -46,6 +57,13 @@ from frozen_flight_controller import FrozenFlightController  # noqa: E402
 from glider import build_nausicaa_glider  # noqa: E402
 from state_contract import STATE_INDEX, STATE_NAMES, STATE_SIZE, as_state_vector  # noqa: E402
 
+from run_r9_preflight_3d_figures import (  # noqa: E402
+    R9PreflightFigureConfig,
+    _build_alpha_cmap,
+    _draw_center_slices,
+    _draw_updraft_isosurfaces,
+    _sample_updraft_volume,
+)
 from run_thesis_3d_baseline_figure import (  # noqa: E402
     AXIS_EDGE_LW,
     FAN_OUTLET_ALPHA,
@@ -67,7 +85,7 @@ from run_thesis_3d_baseline_figure import (  # noqa: E402
 )
 
 
-FIGURE_RUN_VERSION = "real_flight_sim_replay_v1"
+FIGURE_RUN_VERSION = "real_flight_sim_replay_measured_fan_updraft_v2"
 DEFAULT_RESULT_ROOT = FLIGHT_ROOT / "05_Results"
 DEFAULT_OUTPUT_ROOT = FLIGHT_ROOT / "A_figures" / "real_flight_sim_replay"
 DEFAULT_LIBRARY_TIER = "balanced_cluster"
@@ -178,6 +196,14 @@ class ReplayResult:
     selected_variant_ids: list[str]
 
 
+@dataclass(frozen=True)
+class ReplayEnvironment:
+    wind_model: object | None
+    wind_mode: str
+    fan_positions_m: tuple[tuple[float, float], ...]
+    metadata: dict[str, Any]
+
+
 class CommandDelayBuffer:
     def __init__(self, *, delay_s: float, neutral_command_rad: np.ndarray) -> None:
         self.delay_s = max(0.0, float(delay_s))
@@ -222,9 +248,10 @@ def main() -> None:
     summary_rows: list[dict[str, Any]] = []
     state_error_rows: list[dict[str, Any]] = []
     timing_rows: list[dict[str, Any]] = []
+    environment_rows: list[dict[str, Any]] = []
     manifest_figures: list[str] = []
     for throw in throws:
-        traces, replay_rows = build_throw_replays(
+        traces, replay_rows, replay_environment = build_throw_replays(
             throw,
             replay_dt_s=float(args.replay_dt_s),
             library_tier=str(args.library_tier),
@@ -238,7 +265,22 @@ def main() -> None:
             / f"{safe_name(throw.throw_id)}_reality_vs_sim_replay.png"
         )
         figure_path.parent.mkdir(parents=True, exist_ok=True)
-        plot_throw_replay(throw, traces, output_path=figure_path)
+        updraft_plot_meta = plot_throw_replay(
+            throw,
+            traces,
+            output_path=figure_path,
+            replay_environment=replay_environment,
+        )
+        environment_rows.append(
+            {
+                "figure_run_version": FIGURE_RUN_VERSION,
+                "case_id": throw.case_id,
+                "session_id": throw.session_id,
+                "throw_id": throw.throw_id,
+                **replay_environment.metadata,
+                **updraft_plot_meta,
+            }
+        )
         trace_path = (
             output_root
             / "metrics"
@@ -274,6 +316,8 @@ def main() -> None:
     write_csv(state_error_path, state_error_rows, fieldnames=FIRST_WINDOW_STATE_ERROR_FIELDS)
     timing_path = output_root / "metrics" / "execution_timing_audit.csv"
     write_csv(timing_path, timing_rows, fieldnames=EXECUTION_TIMING_FIELDS)
+    environment_path = output_root / "metrics" / "replay_environment_summary.csv"
+    write_csv(environment_path, environment_rows)
     manifest = {
         "figure_run_version": FIGURE_RUN_VERSION,
         "status": "complete",
@@ -282,6 +326,12 @@ def main() -> None:
         "library_tier": str(args.library_tier),
         "replay_dt_s": float(args.replay_dt_s),
         "real_decision_timing": str(args.real_decision_timing),
+        "replay_environment_summary_path": environment_path.as_posix(),
+        "replay_environment_policy": (
+            "Each throw builds a W2 annular-GP wind field from measured fan_positions.csv xy positions, "
+            "using nominal fan power/width and active masks; dry-air is used only when no visible fan "
+            "position is available."
+        ),
         "launch_state_policy": (
             "approved launch-plane state from prelaunch_state_samples.csv when present; "
             "fallback to first active state sample; the 0.04 s launch handoff is copied from measured "
@@ -291,12 +341,14 @@ def main() -> None:
             "sim_self_governor": (
                 "measured-held-out 0.04 s handoff splice, then the frozen governor re-selects each primitive "
                 "from the simulated state using the runtime boundary-state predictor; "
-                "plant commands pass through the runtime surface_command_delay_s buffer before actuator lag"
+                "plant commands pass through the runtime surface_command_delay_s buffer before actuator lag; "
+                "plant dynamics use the measured-fan W2 annular-GP replay wind field"
             ),
             "sim_real_decisions": (
                 "measured-held-out 0.04 s handoff splice, then the simulator applies the real throw's selected "
                 "primitive_variant_id sequence and recomputes 50 Hz LQR slot commands from the simulated state; "
-                "plant commands pass through the runtime surface_command_delay_s buffer before actuator lag"
+                "plant commands pass through the runtime surface_command_delay_s buffer before actuator lag; "
+                "plant dynamics use the measured-fan W2 annular-GP replay wind field"
             ),
         },
         "figures": manifest_figures,
@@ -413,7 +465,7 @@ def build_throw_replays(
     replay_dt_s: float,
     library_tier: str,
     real_decision_timing: str,
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, ReplayResult]]:
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, ReplayResult], ReplayEnvironment]:
     launch_state, launch_host_t_s = launch_state_for_throw(throw.throw_root)
     real_trace = measured_trace(throw.throw_root, launch_state=launch_state, launch_host_t_s=launch_host_t_s)
     duration_s = max(
@@ -423,6 +475,7 @@ def build_throw_replays(
     if duration_s <= 0.0:
         duration_s = max(0.0, to_float(throw.summary.get("first_active_command_elapsed_s"), 0.0))
     config = runtime_config_from_manifest(throw.manifest, library_tier=library_tier)
+    replay_environment = replay_environment_for_throw(throw)
     handoff_state, handoff_trace = measured_handoff_state_and_trace(
         real_trace,
         handoff_s=float(config.launch_handoff_duration_s),
@@ -434,6 +487,7 @@ def build_throw_replays(
         config=config,
         duration_s=duration_s,
         replay_dt_s=replay_dt_s,
+        replay_environment=replay_environment,
     )
     sim_real = simulate_real_decision_reply(
         handoff_state,
@@ -443,6 +497,7 @@ def build_throw_replays(
         duration_s=duration_s,
         replay_dt_s=replay_dt_s,
         timing=real_decision_timing,
+        replay_environment=replay_environment,
     )
     real_replay = ReplayResult(
         trace=real_trace,
@@ -460,6 +515,79 @@ def build_throw_replays(
             "real": real_replay,
             "sim_self_governor": sim_self,
             "sim_real_decisions": sim_real,
+        },
+        replay_environment,
+    )
+
+
+def replay_environment_for_throw(throw: ThrowCase) -> ReplayEnvironment:
+    fan_positions = fan_positions_from_log(throw.throw_root)
+    if not fan_positions:
+        return ReplayEnvironment(
+            wind_model=None,
+            wind_mode="none",
+            fan_positions_m=(),
+            metadata={
+                "updraft_context_status": "no_visible_fan_position",
+                "W_layer": "W0",
+                "environment_mode": "dry_air",
+                "updraft_model_id": "dry_air_zero_wind",
+                "updraft_max_m_s": 0.0,
+            },
+        )
+    active_mask = tuple(True for _ in fan_positions)
+    fan_count = len(fan_positions)
+    model_id = "four_annular_gp_grid" if fan_count >= 4 else "single_annular_gp_grid"
+    environment_mode = "annular_gp_four" if fan_count >= 4 else "annular_gp_single"
+    metadata = EnvironmentMetadata(
+        environment_id=f"real_flight_{throw.case_id}_{throw.session_id}_{throw.throw_id}_measured_fan",
+        environment_instance_id=f"real_flight_{throw.case_id}_{throw.session_id}_{throw.throw_id}_measured_fan",
+        fan_count=int(fan_count),
+        fan_positions_m=fan_positions,
+        fan_power_scales=tuple(1.0 for _ in fan_positions),
+        active_fan_mask=active_mask,
+        updraft_model_id=model_id,
+        updraft_amplitude_scale=1.0,
+        updraft_width_scale=1.0,
+        updraft_centre_shift_m=(0.0, 0.0),
+        residual_field_id="real_flight_measured_fan_position_nominal_strength",
+        local_uncertainty_scale=1.0,
+        randomisation_seed=None,
+        model_source="real_flight_fan_positions_csv",
+        W_layer="W2",
+        wind_mode="panel",
+        environment_mode=environment_mode,
+        claim_status="real_flight_replay_measured_fan_position_uses_nominal_w2_annular_gp",
+    )
+    binding = resolve_surrogate_binding("W2", metadata, repo_root=ROOT)
+    wind_model = wind_field_for_binding(binding, repo_root=ROOT)
+    wind_mode = "panel" if wind_model is not None else "none"
+    return ReplayEnvironment(
+        wind_model=wind_model,
+        wind_mode=wind_mode,
+        fan_positions_m=tuple((float(x), float(y)) for x, y in fan_positions),
+        metadata={
+            "updraft_context_status": (
+                "measured_fan_w2_annular_gp"
+                if wind_model is not None
+                else f"no_ready_wind_field:{binding.blocked_reason}"
+            ),
+            "W_layer": binding.W_layer,
+            "environment_mode": binding.environment_mode,
+            "updraft_model_id": binding.updraft_model_id,
+            "surrogate_family": binding.surrogate_family,
+            "surrogate_role": binding.surrogate_role,
+            "surrogate_binding_status": binding.surrogate_binding_status,
+            "surrogate_blocked_reason": binding.blocked_reason,
+            "fan_count": int(binding.fan_count),
+            "active_fan_count": int(sum(bool(value) for value in binding.active_fan_mask)),
+            "fan_positions_m": json.dumps(binding.fan_positions_m),
+            "fan_power_scales": json.dumps(binding.fan_power_scales),
+            "active_fan_mask": ";".join("1" if value else "0" for value in binding.active_fan_mask),
+            "updraft_amplitude_scale": float(binding.updraft_amplitude_scale),
+            "updraft_width_scale": float(binding.updraft_width_scale),
+            "local_uncertainty_scale": float(binding.local_uncertainty_scale),
+            "wind_mode": wind_mode,
         },
     )
 
@@ -604,6 +732,7 @@ def simulate_self_governor_reply(
     config: FlightRuntimeConfig,
     duration_s: float,
     replay_dt_s: float,
+    replay_environment: ReplayEnvironment,
 ) -> ReplayResult:
     controller = FrozenFlightController(config)
     aircraft = adapt_glider(build_nausicaa_glider())
@@ -679,6 +808,8 @@ def simulate_self_governor_reply(
             aircraft=aircraft,
             actuator_tau_s=config.actuator_tau_s,
             dt_s=dt_s,
+            wind_model=replay_environment.wind_model,
+            wind_mode=replay_environment.wind_mode,
         )
         t_s += dt_s
         trace.append(trace_row_from_state(t_s, x, model_key="sim_self_governor", source="simulation"))
@@ -720,6 +851,7 @@ def simulate_real_decision_reply(
     duration_s: float,
     replay_dt_s: float,
     timing: str,
+    replay_environment: ReplayEnvironment,
 ) -> ReplayResult:
     controller = FrozenFlightController(config)
     aircraft = adapt_glider(build_nausicaa_glider())
@@ -784,6 +916,8 @@ def simulate_real_decision_reply(
             aircraft=aircraft,
             actuator_tau_s=config.actuator_tau_s,
             dt_s=dt_s,
+            wind_model=replay_environment.wind_model,
+            wind_mode=replay_environment.wind_mode,
         )
         t_s += dt_s
         trace.append(trace_row_from_state(t_s, x, model_key="sim_real_decisions", source="simulation"))
@@ -867,33 +1001,43 @@ def rk4_step(
     aircraft: object,
     actuator_tau_s: tuple[float, float, float],
     dt_s: float,
+    wind_model: object | None,
+    wind_mode: str,
 ) -> np.ndarray:
     dt = float(dt_s)
     command = np.asarray(command_rad, dtype=float).reshape(3)
-    k1 = state_derivative(x, command, aircraft, wind_model=None, actuator_tau_s=actuator_tau_s, wind_mode="panel")
+    wind_mode_value = str(wind_mode or "none") if wind_model is not None else "none"
+    k1 = state_derivative(
+        x,
+        command,
+        aircraft,
+        wind_model=wind_model,
+        actuator_tau_s=actuator_tau_s,
+        wind_mode=wind_mode_value,
+    )
     k2 = state_derivative(
         x + 0.5 * dt * k1,
         command,
         aircraft,
-        wind_model=None,
+        wind_model=wind_model,
         actuator_tau_s=actuator_tau_s,
-        wind_mode="panel",
+        wind_mode=wind_mode_value,
     )
     k3 = state_derivative(
         x + 0.5 * dt * k2,
         command,
         aircraft,
-        wind_model=None,
+        wind_model=wind_model,
         actuator_tau_s=actuator_tau_s,
-        wind_mode="panel",
+        wind_mode=wind_mode_value,
     )
     k4 = state_derivative(
         x + dt * k3,
         command,
         aircraft,
-        wind_model=None,
+        wind_model=wind_model,
         actuator_tau_s=actuator_tau_s,
-        wind_mode="panel",
+        wind_mode=wind_mode_value,
     )
     return as_state_vector(x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4))
 
@@ -943,7 +1087,8 @@ def plot_throw_replay(
     traces: dict[str, list[dict[str, Any]]],
     *,
     output_path: Path,
-) -> None:
+    replay_environment: ReplayEnvironment,
+) -> dict[str, Any]:
     fig = plt.figure(figsize=(15.4, 8.8))
     fig.patch.set_facecolor("white")
     grid = fig.add_gridspec(
@@ -967,7 +1112,7 @@ def plot_throw_replay(
         fig.add_subplot(grid[2, 2]),
     ]
     configure_r11_style_axis(ax3d)
-    draw_fan_positions(ax3d, fan_positions_from_log(throw.throw_root))
+    updraft_meta = draw_replay_updraft_context(ax3d, replay_environment=replay_environment)
 
     for model_key in TRACE_ORDER:
         trace = traces.get(model_key, [])
@@ -1032,6 +1177,70 @@ def plot_throw_replay(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=220, facecolor="white")
     plt.close(fig)
+    return updraft_meta
+
+
+def draw_replay_updraft_context(ax, *, replay_environment: ReplayEnvironment) -> dict[str, Any]:
+    fan_positions = replay_environment.fan_positions_m
+    wind = replay_environment.wind_model
+    if wind is None:
+        draw_fan_positions(ax, fan_positions)
+        return {
+            "updraft_plot_status": "dry_air_or_no_wind_field",
+            "updraft_max_m_s": 0.0,
+            "updraft_iso_surface_count": 0,
+        }
+    try:
+        config = R9PreflightFigureConfig()
+        x_vec, y_vec, z_vec, w_grid = _sample_updraft_volume(wind, config)
+        w_max = float(np.nanmax(w_grid)) if w_grid.size else 0.0
+        if w_max <= 1e-9:
+            draw_fan_positions(ax, fan_positions)
+            return {
+                "updraft_plot_status": "zero_updraft_volume",
+                "updraft_max_m_s": 0.0,
+                "updraft_grid_nx": int(config.updraft_nx),
+                "updraft_grid_ny": int(config.updraft_ny),
+                "updraft_grid_nz": int(config.updraft_nz),
+                "updraft_iso_surface_count": 0,
+            }
+        cmap_alpha = _build_alpha_cmap()
+        norm = matplotlib.colors.Normalize(vmin=0.0, vmax=8.0, clip=True)
+        _draw_center_slices(
+            ax,
+            x_vec=x_vec,
+            y_vec=y_vec,
+            z_vec=z_vec,
+            w_grid=w_grid,
+            fan_positions=fan_positions,
+            cmap_alpha=cmap_alpha,
+            norm=norm,
+        )
+        iso_count = _draw_updraft_isosurfaces(
+            ax,
+            x_vec=x_vec,
+            y_vec=y_vec,
+            z_vec=z_vec,
+            w_grid=w_grid,
+            cmap_alpha=cmap_alpha,
+            norm=norm,
+        )
+        draw_fan_positions(ax, fan_positions)
+        return {
+            "updraft_plot_status": "w2_annular_gp_3d_slices_and_isosurfaces",
+            "updraft_max_m_s": w_max,
+            "updraft_grid_nx": int(config.updraft_nx),
+            "updraft_grid_ny": int(config.updraft_ny),
+            "updraft_grid_nz": int(config.updraft_nz),
+            "updraft_iso_surface_count": int(iso_count),
+        }
+    except Exception as exc:
+        draw_fan_positions(ax, fan_positions)
+        return {
+            "updraft_plot_status": f"blocked:{type(exc).__name__}",
+            "updraft_max_m_s": 0.0,
+            "updraft_iso_surface_count": 0,
+        }
 
 
 def launch_condition_text(throw: ThrowCase, traces: dict[str, list[dict[str, Any]]]) -> str:
@@ -1447,6 +1656,8 @@ def write_report(
         f"- Library tier: `{manifest['library_tier']}`",
         f"- Replay dt (s): `{float(manifest['replay_dt_s']):.4f}`",
         f"- Real-decision timing: `{manifest['real_decision_timing']}`",
+        f"- Replay environment: `{manifest['replay_environment_summary_path']}`",
+        f"- Replay environment policy: {manifest['replay_environment_policy']}",
         f"- First-window state audit: `{manifest['first_window_state_audit']['summary_path']}`",
         f"- Execution timing audit: `{manifest['execution_timing_audit']['summary_path']}`",
         "",

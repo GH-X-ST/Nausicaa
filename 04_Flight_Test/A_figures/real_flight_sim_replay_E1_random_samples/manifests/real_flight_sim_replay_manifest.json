@@ -1,19 +1,21 @@
 {
-  "figure_run_version": "real_flight_sim_replay_v1",
+  "figure_run_version": "real_flight_sim_replay_measured_fan_updraft_v2",
   "status": "complete",
   "result_root": "C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results",
   "output_root": "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples",
   "library_tier": "balanced_cluster",
   "replay_dt_s": 0.005,
   "real_decision_timing": "logged",
+  "replay_environment_summary_path": "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/metrics/replay_environment_summary.csv",
+  "replay_environment_policy": "Each throw builds a W2 annular-GP wind field from measured fan_positions.csv xy positions, using nominal fan power/width and active masks; dry-air is used only when no visible fan position is available.",
   "launch_state_policy": "approved launch-plane state from prelaunch_state_samples.csv when present; fallback to first active state sample; the 0.04 s launch handoff is copied from measured state samples and simulation dynamics start from the measured post-handoff state",
   "simulation_reply_policy": {
-    "sim_self_governor": "measured-held-out 0.04 s handoff splice, then the frozen governor re-selects each primitive from the simulated state using the runtime boundary-state predictor; plant commands pass through the runtime surface_command_delay_s buffer before actuator lag",
-    "sim_real_decisions": "measured-held-out 0.04 s handoff splice, then the simulator applies the real throw's selected primitive_variant_id sequence and recomputes 50 Hz LQR slot commands from the simulated state; plant commands pass through the runtime surface_command_delay_s buffer before actuator lag"
+    "sim_self_governor": "measured-held-out 0.04 s handoff splice, then the frozen governor re-selects each primitive from the simulated state using the runtime boundary-state predictor; plant commands pass through the runtime surface_command_delay_s buffer before actuator lag; plant dynamics use the measured-fan W2 annular-GP replay wind field",
+    "sim_real_decisions": "measured-held-out 0.04 s handoff splice, then the simulator applies the real throw's selected primitive_variant_id sequence and recomputes 50 Hz LQR slot commands from the simulated state; plant commands pass through the runtime surface_command_delay_s buffer before actuator lag; plant dynamics use the measured-fan W2 annular-GP replay wind field"
   },
   "figures": [
-    "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.0/20260607_124146/throw_002_reality_vs_sim_replay.png",
-    "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.0/20260607_124146/throw_010_reality_vs_sim_replay.png",
+    "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.0/20260607_190445/throw_005_reality_vs_sim_replay.png",
+    "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.0/20260607_190445/throw_010_reality_vs_sim_replay.png",
     "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.1/20260606_230007/throw_005_reality_vs_sim_replay.png",
     "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.1/20260606_230007/throw_011_reality_vs_sim_replay.png",
     "04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/figures/E1.2/20260607_122640/throw_002_reality_vs_sim_replay.png",
