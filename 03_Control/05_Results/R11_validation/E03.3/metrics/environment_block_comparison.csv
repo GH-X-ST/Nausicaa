@@ -1,0 +1,9 @@
+environment_block_id,launch_count,safe_success_rate,full_safe_success_rate,claim_bearing_episode_rate,expected_low_energy_dry_air_sink_rate,mission_success_rate,front_wall_terminal_success_rate,wrong_wall_exit_rate,mean_launch_score
+r11_l0_dry_air_fixed,500,0.554,0.0,0.728,0.082,0.504,0.504,0.05,29.693724197096255
+r11_l1_single_fan_fixed_nominal,500,0.782,0.0,0.746,0.074,0.722,0.722,0.06,80.34579178587391
+r11_l2_four_fan_fixed_nominal,500,0.9,0.0,0.728,0.082,0.764,0.764,0.136,100.96797060575965
+r11_l3_fan_parameter_uncertainty,500,0.8,0.0,0.72,0.1,0.658,0.658,0.224,73.80766813859071
+r11_l4_local_fan_position_uncertainty,500,0.82,0.0,0.72,0.08,0.684,0.684,0.156,78.30700647973643
+r11_l5_active_fan_count_uncertainty,500,0.724,0.0,0.72,0.09,0.624,0.624,0.11,59.59067059747792
+r11_l6_environment_only_full_uncertainty,500,0.712,0.0,0.752,0.058,0.612,0.612,0.11,52.921886757292086
+r11_l7_full_domain_randomisation_arena_wide,500,0.602,0.0,0.72,0.1,0.462,0.462,0.14,23.124827435897828
