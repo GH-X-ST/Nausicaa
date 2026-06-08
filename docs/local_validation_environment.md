@@ -181,14 +181,31 @@ interpretation: open-loop is not reliable, closed-loop no-memory is the
 strongest E4a physical result, and memory is active but does not improve this
 speed-confounded run.
 
-The active remaining fan-layout real-flight sequence skips the old hard-shifted
-E4 diagnostic stage. After E3 fixed four-fan evidence, only `E4a` and `E4b` are
-active random-layout families; each has `.0` open-loop neutral, `.1`
-closed-loop no-memory, and `.2` closed-loop memory-enabled variants, expects one
-to four visible fans, and keeps the 30-valid-throw memory invocation with an
-optional second independent session when time allows. `E4c` and `E4d` are
-removed from the active registry for time, and old `E5a`--`E5d` names remain
-historical only.
+The completed fan-layout real-flight sequence skips the old hard-shifted E4
+diagnostic stage. Completed random-layout E4b records now include E4b.0
+`20260608_003841`, the four-visible-fan open-loop neutral baseline with 10
+valid throws, 12 rejected/invalid starts, speed range 5.101--6.350 m/s, mean
+speed 5.584 m/s, mean final observable specific energy 1.742 m, 2 front-wall
+exits, 7 floor exits, and 1 y-min exit; E4b.1, the closed-loop no-memory case
+combined from split sessions `20260608_004535` (20 valid throws) and
+`20260608_010525` (10 top-up valid throws), with 30 valid throws combined, 32
+rejected/invalid starts, speed range 5.015--6.256 m/s, mean speed 5.701 m/s,
+mean final observable specific energy 1.830 m, 28 front-wall exits, no floor
+exits, 2 y-min exits, and max decision time 0.0544 s; and E4b.2
+`20260608_013501`, the closed-loop memory run with 30 valid throws, 17
+rejected/invalid starts, speed range 4.900--6.188 m/s, mean speed 5.718 m/s,
+mean final observable specific energy 1.959 m, median final observable specific
+energy 1.839 m, 27 front-wall exits, 3 floor exits, and final memory state
+around 382 updated cells. E4b supports the bounded interpretation that open-loop
+is not a reliable mission baseline in the four-fan random layout, closed-loop
+no-memory is the strongest E4b reliability result, and memory remains
+operational but is slightly worse than no-memory on front-wall/floor reliability
+while producing one exceptional high-energy memory throw. The real-flight
+evidence-collection workflow is complete through E4b; remaining work is
+post-analysis, figure/table curation, thesis writing, and retrospective
+audit/documentation. Any further flight collection should be opened as an
+optional extension, not treated as required to complete the current workflow.
+`E4c`, `E4d`, and old `E5a`--`E5d` names remain historical only.
 
 Current replay diagnostics are stored under
 `04_Flight_Test/A_figures/real_flight_sim_replay_E1_random_samples/` and
@@ -209,6 +226,13 @@ E4a.0 throws 004/006, E4a.1 throws 004/010, and E4a.2 throws 024/027 with
 `balanced_cluster`, logged real-decision timing, exact first-0.040 s state
 splice, W2 measured-fan replay, `fan_count=3`, `active_fan_count=3`, nominal
 fan power/width, and zero first-splice residual across state and surface fields.
+The E4b representative replay audit is stored under
+`04_Flight_Test/A_figures/real_flight_sim_replay_E4b_representative/` and plots
+E4b.0 throws 004/010, E4b.1 throws 013/008 across the two split no-memory
+sessions, and E4b.2 throws 001/020 with `balanced_cluster`, logged
+real-decision timing, exact first-0.040 s state splice, W2 measured-fan
+four-annular-GP replay, `fan_count=4`, `active_fan_count=4`, nominal fan
+power/width, and zero first-splice residual across state and surface fields.
 The plotting code accepts open-loop neutral throws without
 `controller_decisions.csv`; for those cases, the `sim_real_decisions` replay has
 an empty selected-primitive sequence and remains neutral after the measured

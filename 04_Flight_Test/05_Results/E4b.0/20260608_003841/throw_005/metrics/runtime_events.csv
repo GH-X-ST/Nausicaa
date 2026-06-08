@@ -1,0 +1,10 @@
+t_host_s,event,details_json
+257160.6587581,launch_gate_approved_start_active_record,"{""approved"":true,""launch_gate_rate_confidence_min"":0.65,""launch_trigger_x_w_m"":1.2999999999999998,""p_rad_s"":0.13730286464635022,""phi_deg"":6.2386458962923745,""psi_deg"":-2.697455328274741,""q_rad_s"":0.3963230490480669,""r_rad_s"":0.05697276014274426,""rate_confidence"":0.95,""reason"":""approved_launch_gate"",""required_consecutive_frames"":2,""speed_m_s"":5.5580689904785325,""theta_deg"":3.4167226225660796,""trigger_policy"":""first_valid_r5_launch_window_with_interpolated_plane_fallback"",""trigger_source"":""valid_r5_launch_window"",""u_m_s"":5.468464873819742,""v_m_s"":0.7329282778121573,""w_m_s"":0.6714454306211327,""x_w_m"":1.3423823312890457,""y_w_m"":2.0885237016548843,""z_w_m"":1.5269691392795157}"
+257160.6594797,launch_handoff_start,"{""launch_handoff_duration_s"":0.04,""launch_handoff_policy_version"":""launch_gate_neutral_handoff_0p040s_v1""}"
+257160.7697079,launch_handoff_complete,"{""launch_handoff_duration_s"":0.04,""neutral_packet_count"":2}"
+257160.7741781,first_active_command,"{""controller_mode"":""open_loop_neutral"",""elapsed_s"":0.044303900009253994,""source_event"":""active_open_loop_neutral_packet""}"
+257162.2576377,active_vicon_tracking_loss_started,"{""elapsed_s"":1.5277838000038173,""reason"":""vicon_subject_occluded""}"
+257162.2577886,vicon_invalid_neutral_command,"{""continuous_invalid_s"":0.0,""reason"":""vicon_subject_occluded""}"
+257162.2611787,active_vicon_tracking_recovered,"{""continuous_invalid_s"":0.0035367000091355294,""elapsed_s"":1.5313205000129528,""first_invalid_reason"":""vicon_subject_occluded"",""recovered_reason"":""ok""}"
+257162.6192032,post_exit_neutral_tail_sent,"{""neutral_packet_count"":15,""post_exit_neutral_tail_s"":0.3,""reason"":""exit_gate_floor""}"
+257162.6192586,exit_gate_terminate_active_record,"{""ceiling_margin_m"":3.1192051784663404,""floor_margin_m"":-0.01920517846634051,""inside"":false,""min_margin_m"":-0.01920517846634051,""reason"":""exit_gate_floor"",""x_w_m"":6.145921729910253,""y_w_m"":2.1448664397996993,""z_w_m"":0.3807948215336595}"

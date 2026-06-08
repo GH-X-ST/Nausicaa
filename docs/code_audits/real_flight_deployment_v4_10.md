@@ -69,8 +69,9 @@ claim.
 
 - `04_Flight_Test/01_Runtime/experiment_cases.py` removes the old hard-shifted
   E4 diagnostic stage from the active real-flight registry.
-- The former random-layout E5 family is promoted into the active E4 family, but
-  the time-limited active registry now keeps only `E4a` and `E4b`.
+- At the v4.10 checkpoint, the former random-layout E5 family had been promoted
+  into the active E4 family, while the time-limited active registry kept only
+  `E4a` and `E4b`; this schedule was later completed and closed by v4.12.
 - Each random-layout family keeps the same suffix contract:
   `.0` open-loop neutral baseline, `.1` closed-loop no-memory, and `.2`
   closed-loop memory enabled.
@@ -80,7 +81,7 @@ claim.
 - Old `E5a`--`E5d` names are no longer active registry entries. Existing result
   folders, if any, remain historical and are not renamed by this workflow note.
 
-## Active Random-Layout Cases
+## Then-Active Random-Layout Cases
 
 - `E4a.0`, `E4a.1`, `E4a.2`: random layout 1.
 - `E4b.0`, `E4b.1`, `E4b.2`: random layout 2.
@@ -94,9 +95,10 @@ claim.
   the measured-fan W2 four-fan representative replay outputs.
 - `docs/local_validation_environment.md` now carries the same E3 workflow and
   replay boundary in its local validation summary.
-- The active case-name text still records that the old hard-shifted E4
-  diagnostic stage is retired, that active random-layout testing is narrowed to
-  E4a/E4b, and that E4c/E4d are not active schedule entries.
+- The v4.10 case-name text recorded that the old hard-shifted E4 diagnostic
+  stage was retired, that random-layout testing was narrowed to E4a/E4b, and
+  that E4c/E4d were not active schedule entries. Current docs supersede this
+  with the completed-through-E4b, post-analysis-only boundary.
 
 ## Checks
 

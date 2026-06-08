@@ -4,7 +4,7 @@
 
 This note aligns documentation with the post-v4.10 real-flight state: the
 completed E4a random-layout workflow, the E4a measured-fan simulation-replay
-figures, the narrowed active random-layout schedule, and the runtime validity
+figures, the then-narrowed random-layout schedule, and the runtime validity
 boundary for Vicon loss and launch-handoff aborts. It is a real-flight workflow,
 plotting, replay-diagnostic, runtime-validity, and documentation record, not a
 new R10/R11 validation, aerodynamic SysID refit, fan-flow validation,
@@ -82,14 +82,16 @@ claim.
 - `04_Flight_Test/01_Runtime/run_real_flight.py` marks launch-handoff Vicon,
   safety, and exit aborts non-valid, and also marks sustained active Vicon
   tracking loss non-valid before returning to the sequencer.
-- `04_Flight_Test/01_Runtime/experiment_cases.py` keeps only `E4a` and `E4b` as
-  active random-layout families after E3 fixed four-fan evidence.
+- At the v4.11 checkpoint, `04_Flight_Test/01_Runtime/experiment_cases.py` kept
+  only `E4a` and `E4b` as random-layout families after E3 fixed four-fan
+  evidence; this was later completed and closed by v4.12.
 - `E4c` and `E4d` are no longer active schedule entries. Old `E5a`--`E5d` names
   remain historical only.
 - `04_Flight_Test/REAL_FLIGHT_EXPERIMENT_INSTRUCTIONS.txt` and the repeated
-  bigmap docs now describe E4a/E4b as the active remaining random-layout
-  workflow and frame old E2/E3/E4a archived abort rows against current v4.11
-  validity logic.
+  bigmap docs described E4a/E4b as the then-remaining random-layout workflow and
+  framed old E2/E3/E4a archived abort rows against v4.11 validity logic. Current
+  docs supersede this with the completed-through-E4b, post-analysis-only
+  boundary.
 
 ## Documentation Alignment
 

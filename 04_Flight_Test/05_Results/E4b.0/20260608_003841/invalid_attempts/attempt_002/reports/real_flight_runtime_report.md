@@ -1,0 +1,39 @@
+# Real Flight Runtime Report
+- Mode: `armed`
+- Run root: `C:/Users/GH-X-ST/OneDrive - Imperial College London/Year 4/Final Year Project/01 - Github/Nausicaa/04_Flight_Test/05_Results/E4b.0/20260608_003841/throw_003`
+- Experiment case: `E4b.0`
+- Controller mode: `open_loop_neutral`
+- Valid throw: `False`
+- Launch gate approved: `True`
+- Launch handoff policy: `launch_gate_neutral_handoff_0p040s_v1`
+- Launch handoff duration (s): `0.040`
+- Launch handoff completed: `True`
+- Launch handoff neutral packets: `2`
+- First active command elapsed (s): `0.043`
+- Launch speed (m/s): `5.604`
+- Flight cancelled: `True`
+- Cancellation reason: `active_vicon_tracking_lost:vicon_subject_occluded`
+- Exit gate triggered: `False`
+- Termination reason: `active_vicon_tracking_lost:vicon_subject_occluded`
+- State samples: `151`
+- Controller decisions: `0`
+- Packets sent: `450`
+- Neutral failsafe commands: `389`
+- Open-loop neutral packets: `58`
+- Closed-loop slot command updates: `0`
+- Active metric logging policy: `buffer_active_rows_flush_after_active_record`
+- Active metric buffered rows: `200`
+- Active fan logging policy: `single_prelaunch_snapshot_only`
+- Active runtime wake-ahead (s): `0.002`
+- Serial write errors: `0`
+- Serial write timeouts: `0`
+- Post-exit neutral packets: `15`
+- Latest visible fan count: `4`
+- Fan expected count OK: `True`
+- Memory update observations: `0`
+- Memory cells: `0`
+- Max decision time (s): `0.000000`
+- Posthoc accumulated selected score: `0.000000`
+- Posthoc executed selected decisions: `0`
+- Posthoc memory history bucket: `open_loop`
+- Posthoc score source: `open_loop_neutral_zero_controller_decisions`
