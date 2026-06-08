@@ -1,0 +1,11 @@
+launch_role,termination_cause,row_count
+final_heldout,floor_margin_stop,677
+final_heldout,no_viable_continuation_primitive,286
+final_heldout,wall_boundary_exit_retained,2950
+final_heldout,wall_boundary_exit_uncontrolled,87
+history,ceiling_margin_stop,6
+history,floor_margin_stop,7118
+history,no_viable_continuation_primitive,2800
+history,physically_impossible_initial_state,10
+history,wall_boundary_exit_retained,23980
+history,wall_boundary_exit_uncontrolled,486
