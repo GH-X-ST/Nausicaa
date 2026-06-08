@@ -1,0 +1,20 @@
+{
+  "diagnostic_version": "r11_balanced_true_neutral_intervention_diagnostic_v1",
+  "status": "complete",
+  "run_label": "E03_6",
+  "r11_root": "03_Control/05_Results/R11_validation/E03.6",
+  "output_root": "03_Control/A_figures/R11_E03.6_balanced_neutral_baseline",
+  "library_size_case_id": "balanced_cluster",
+  "paired_start_condition_index": 36,
+  "policy_ids": [
+    "no_memory_baseline",
+    "spatial_flow_belief_memory_h3",
+    "spatial_flow_belief_memory_h10",
+    "spatial_flow_belief_memory_h30"
+  ],
+  "neutral_policy_id": "true_neutral_open_loop",
+  "r11_open_loop_layer_scope": "one true-neutral rollout per unique R11 final outer case; library tiers and memory policies share the same final launch state inside an outer case, so duplicate neutral reruns are intentionally not repeated",
+  "neutral_rollout": "zero aggregate command, same plant/wind/implementation seed, same actuator lag and surface implementation perturbation",
+  "summary_case_count": 160,
+  "figure_count": 8
+}
