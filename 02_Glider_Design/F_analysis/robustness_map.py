@@ -60,22 +60,19 @@ METRIC_ORDER = [
     "nom_cl_margin_to_cap",
     "nom_util_e",
     "nom_roll_tau_s",
-    "nom_lateral_residual",
 ]
 # Metrics outside this set are margins, so larger values are safer.
 LOWER_IS_BETTER = {
     "nom_sink_rate_mps",
     "nom_util_e",
     "nom_roll_tau_s",
-    "nom_lateral_residual",
 }
 METRIC_LABEL_MAP = {
-    "nom_sink_rate_mps": "sink rate",
-    "nom_alpha_margin_deg": "alpha margin",
-    "nom_cl_margin_to_cap": "CL margin",
-    "nom_util_e": "elevator util.",
-    "nom_roll_tau_s": "roll tau",
-    "nom_lateral_residual": "lat. residual",
+    "nom_sink_rate_mps": r"$V_{\mathrm{sink}}$",
+    "nom_alpha_margin_deg": r"$\Delta\alpha_{\mathrm{trim}}$",
+    "nom_cl_margin_to_cap": r"$\Delta C_L$",
+    "nom_util_e": r"$u_e$",
+    "nom_roll_tau_s": r"$\tau_{\mathrm{roll}}$",
 }
 TAG_BASE_COLORS = [
     "#7f3c8d",
@@ -89,11 +86,36 @@ AXIS_EDGE_LW = 0.80
 CBAR_EDGE_LW = AXIS_EDGE_LW
 CELL_EDGE_LW = 0.30
 LEGEND_FONT_SIZE = 8.4
+DISPLAY_SCENARIO_TAG_ORDER = (
+    "mild_build",
+    "harsh_build",
+    "gusty_only",
+    "mild_compound",
+    "harsh_compound",
+)
+DISPLAY_SCENARIO_TAG_LABELS = {
+    "mild_build": "mild\nmanufacture",
+    "harsh_build": "harsh\nmanufacture",
+    "gusty_only": "updraft\nonly",
+    "mild_compound": "mild\ncompound",
+    "harsh_compound": "harsh\ncompound",
+}
 
 
 # =============================================================================
 # 2) Scenario Summary and Workbook Loading
 # =============================================================================
+
+def _sort_display_scenario_tags(tags: pd.Series) -> list[str]:
+    unique_tags = list(dict.fromkeys(pd.Series(tags).dropna().astype(str)))
+    order_map = {
+        tag: index for index, tag in enumerate(DISPLAY_SCENARIO_TAG_ORDER)
+    }
+    return sorted(
+        unique_tags,
+        key=lambda tag: (order_map.get(tag, len(DISPLAY_SCENARIO_TAG_ORDER)), tag),
+    )
+
 
 def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, float | str]] = []
@@ -134,7 +156,7 @@ def _aggregate_tag_summary(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     if summary_df.empty:
         return summary_df
 
-    tag_order = sort_scenario_tags(summary_df["scenario_tag"])
+    tag_order = _sort_display_scenario_tags(summary_df["scenario_tag"])
     summary_df["tag_sort"] = summary_df["scenario_tag"].map(
         {tag: idx for idx, tag in enumerate(tag_order)}
     ).fillna(len(tag_order))
@@ -175,7 +197,7 @@ def get_selected_candidate_id(
 def sort_selected_scenarios(selected_scenarios_df: pd.DataFrame) -> pd.DataFrame:
     sorted_df = selected_scenarios_df.copy()
     # Stable tag ordering keeps scenario-family comparisons reproducible.
-    tag_order = sort_scenario_tags(sorted_df["scenario_tag"])
+    tag_order = _sort_display_scenario_tags(sorted_df["scenario_tag"])
     sorted_df["tag_sort"] = sorted_df["scenario_tag"].map(
         {tag: idx for idx, tag in enumerate(tag_order)}
     ).fillna(len(tag_order))
@@ -279,7 +301,7 @@ def _prepare_summary_by_tag(
             errors="coerce",
         )
 
-    tag_order = sort_scenario_tags(summary_df["scenario_tag"])
+    tag_order = _sort_display_scenario_tags(summary_df["scenario_tag"])
     summary_df["tag_sort"] = summary_df["scenario_tag"].map(
         {tag: idx for idx, tag in enumerate(tag_order)}
     ).fillna(len(tag_order))
@@ -305,7 +327,7 @@ def _style_axes(ax: plt.Axes) -> None:
 
 
 def _format_tag_label(tag: str) -> str:
-    return tag.replace("_", "\n")
+    return DISPLAY_SCENARIO_TAG_LABELS.get(tag, tag.replace("_", "\n"))
 
 
 def _scenario_family_positions(
@@ -355,16 +377,7 @@ def make_robustness_map(
 
     metric_matrix = build_metric_matrix(selected_scenarios_df)
     risk_map = compute_rowwise_risk_map(metric_matrix)
-    summary_df = _prepare_summary_by_tag(
-        summary_by_tag_df=summary_by_tag_df,
-        selected_candidate_id=selected_candidate_id,
-        selected_scenarios_df=selected_scenarios_df,
-    )
-
-    fig = plt.figure(figsize=(9.4, 4.6), dpi=600)
-    grid = fig.add_gridspec(1, 2, width_ratios=[2.9, 1.2], wspace=0.42)
-    heatmap_ax = fig.add_subplot(grid[0, 0])
-    summary_ax = fig.add_subplot(grid[0, 1])
+    fig, heatmap_ax = plt.subplots(figsize=(5.0, 3.85), dpi=600)
 
     x_centers = np.arange(len(metric_matrix.columns), dtype=float)
     y_centers = np.arange(len(metric_matrix.index), dtype=float)
@@ -387,14 +400,20 @@ def make_robustness_map(
         linewidth=CELL_EDGE_LW,
     )
 
-    heatmap_ax.set_title(f"Robustness heat map: candidate {selected_candidate_id}")
-    heatmap_ax.set_xlabel("Scenario family ordering")
+    heatmap_ax.set_xlabel("Scenario family")
     heatmap_ax.set_ylabel("Metric")
     heatmap_ax.set_yticks(
         y_centers,
         labels=[METRIC_LABEL_MAP.get(name, name) for name in metric_matrix.index],
     )
     heatmap_ax.set_xticks(family_tick_positions, labels=family_tick_labels)
+    heatmap_ax.tick_params(axis="x", which="major", labelsize=8, pad=10.0)
+    for tick_label in heatmap_ax.get_xticklabels():
+        tick_label.set_rotation(-20)
+        tick_label.set_horizontalalignment("center")
+        tick_label.set_multialignment("left")
+        tick_label.set_verticalalignment("top")
+        tick_label.set_rotation_mode("anchor")
     heatmap_ax.set_xlim(x_edges[0], x_edges[-1])
     heatmap_ax.set_ylim(y_edges[0], y_edges[-1])
     heatmap_ax.invert_yaxis()
@@ -422,15 +441,26 @@ def make_robustness_map(
         spine.set_edgecolor("black")
         spine.set_linewidth(CBAR_EDGE_LW)
 
+    scenario_tick_values = np.arange(0, len(metric_matrix.columns) + 1, 20, dtype=int)
+    if scenario_tick_values[-1] != len(metric_matrix.columns):
+        scenario_tick_values = np.append(scenario_tick_values, len(metric_matrix.columns))
+    scenario_tick_positions = np.clip(
+        scenario_tick_values.astype(float) - 0.5,
+        x_edges[0],
+        x_edges[-1],
+    )
     selection_id_ax = heatmap_ax.secondary_xaxis("top")
-    selection_id_ax.set_xticks(x_centers, labels=metric_matrix.columns.tolist())
-    selection_id_ax.set_xlabel("Selection ID")
+    selection_id_ax.set_xticks(
+        scenario_tick_positions,
+        labels=[str(value) for value in scenario_tick_values],
+    )
+    selection_id_ax.set_xlabel("Scenario index")
     selection_id_ax.tick_params(
         axis="x",
         which="major",
         length=2.0,
         width=0.6,
-        labelsize=6,
+        labelsize=8,
         pad=1.5,
     )
     selection_id_ax.spines["top"].set_linewidth(AXIS_EDGE_LW)
@@ -439,98 +469,8 @@ def make_robustness_map(
     selection_id_ax.spines["left"].set_visible(False)
     selection_id_ax.spines["right"].set_visible(False)
 
-    if summary_df.empty:
-        summary_ax.text(
-            0.5,
-            0.5,
-            "No scenario-family summary available",
-            ha="center",
-            va="center",
-        )
-        summary_ax.set_axis_off()
-    else:
-        tag_metric_col = resolve_tail_metric_name(summary_df)
-        tail_label = (
-            "Tail-risk sink"
-            if tag_metric_col == "nom_sink_tail_mean_k"
-            else "Tail-risk sink (CVaR 20%)"
-        )
-        tag_labels = summary_df["scenario_tag"].astype(str).tolist()
-        x = np.arange(len(tag_labels), dtype=float)
-        color_map = _tag_color_map(tag_labels)
-        bar_colors = [color_map[tag] for tag in tag_labels]
-
-        summary_ax.bar(
-            x,
-            pd.to_numeric(summary_df[tag_metric_col], errors="coerce"),
-            color=bar_colors,
-            edgecolor="black",
-            linewidth=0.45,
-            width=0.72,
-        )
-        summary_ax.set_title("Scenario-family summary")
-        summary_ax.set_ylabel(f"{tail_label} [m/s]")
-        summary_ax.set_xticks(x, labels=[_format_tag_label(tag) for tag in tag_labels])
-        summary_ax.tick_params(axis="x", rotation=25)
-        summary_ax.grid(True, axis="y", alpha=0.20, linewidth=0.45)
-        _style_axes(summary_ax)
-
-        success_ax = summary_ax.twinx()
-        success_ax.plot(
-            x,
-            pd.to_numeric(
-                summary_df["failure_rate"]
-                if "failure_rate" in summary_df.columns
-                else 1.0 - pd.to_numeric(summary_df["success_rate"], errors="coerce"),
-                errors="coerce",
-            ),
-            color="#1f1f1f",
-            linewidth=1.2,
-            marker="o",
-            markersize=3.8,
-            zorder=4,
-        )
-        success_ax.set_ylabel("Failure rate")
-        success_ax.set_ylim(0.0, 1.05)
-        success_ax.tick_params(axis="y", which="major", length=2.0, width=0.6, labelsize=9)
-        for spine in success_ax.spines.values():
-            spine.set_linewidth(AXIS_EDGE_LW)
-            spine.set_edgecolor("black")
-
-        legend_handles = [
-            Line2D(
-                [0],
-                [0],
-                color="#808080",
-                linewidth=0.0,
-                marker="s",
-                markerfacecolor="#808080",
-                markeredgecolor="black",
-                markersize=7,
-                label="Tail-risk sink",
-            ),
-            Line2D(
-                [0],
-                [0],
-                color="#1f1f1f",
-                linewidth=1.2,
-                marker="o",
-                markersize=4,
-                label="Failure rate",
-            ),
-        ]
-        summary_ax.legend(
-            handles=legend_handles,
-            loc="upper left",
-            frameon=True,
-            framealpha=1.0,
-            edgecolor="black",
-            fontsize=LEGEND_FONT_SIZE,
-            handlelength=1.5,
-            borderpad=0.5,
-            labelspacing=0.2,
-        )
-
+    fig.tight_layout()
+    fig.subplots_adjust(left=0.18, bottom=0.26)
     fig.savefig(
         FIGURE_PATH,
         dpi=600,
