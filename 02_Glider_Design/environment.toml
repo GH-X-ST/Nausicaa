@@ -1,0 +1,11 @@
+name: nausicaa-design
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - aerosandbox>=4.2,<5
+  - numpy
+  - pandas
+  - matplotlib
+  - openpyxl
+  - cmocean
