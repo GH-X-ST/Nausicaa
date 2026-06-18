@@ -1,0 +1,131 @@
+Nausicaa flight-test implementation sequence
+============================================
+
+Environment
+-----------
+conda env create -f 04_Flight_Test\environment.toml
+conda activate nausicaa-flight
+
+Default hardware/configuration:
+- Vicon host: 192.168.0.100:801
+- Vicon glider rigid body: Nausicaa
+- Optional fan rigid bodies: Fan_1, Fan_2, Fan_3, Fan_4
+- Serial port: COM11
+- Vicon rate: 200 Hz
+- Controller period: 0.100 s
+- Serial command repeat: 0.020 s
+- Direct armed closed-loop runs require --calibration-profile active and matching frozen deployment evidence.
+
+Preflight sequence
+------------------
+1. Run runtime contract tests.
+
+python -m pytest 04_Flight_Test\04_Tests
+
+2. Run a hardware-free dry run.
+
+python 04_Flight_Test\01_Runtime\run_real_flight.py --mode dry-run --duration-s 2 --run-label F_dry_run
+
+3. Calibrate the Vicon arena frame. Edit KNOWN_ARENA_POINT_M in the script before running if the known physical point changed. Start later runtime scripts as a new process so they reload the updated active calibration profile.
+
+python 04_Flight_Test\01_Runtime\run_vicon_frame_calibration.py
+
+4. Check Vicon orientation and rate signs. Continue only if pitch-up gives +theta/+q, right-roll gives +p, nose-right gives +psi/+r, the SO(3) rate confidence is acceptable, and the stream rate is close to 200 Hz.
+
+python 04_Flight_Test\01_Runtime\run_vicon_orientation_check.py
+
+5. Run live smoke tests.
+
+python 04_Flight_Test\01_Runtime\run_real_flight.py --mode vicon-smoke --calibration-profile active --duration-s 5 --run-label F_vicon_smoke
+python 04_Flight_Test\01_Runtime\run_real_flight.py --mode packet-smoke --serial-port COM11 --run-label F_packet_smoke
+
+6. Verify servo signs and receiver-channel order. Stop immediately if any surface moves the wrong way. Positive elevator is nose-up, positive rudder is nose-right, and positive aileron gives positive roll convention.
+
+python 04_Flight_Test\01_Runtime\run_surface_sign_check.py --mode armed --serial-port COM11
+
+Dry-air calibration/sysID collection
+------------------------------------
+Use this only when collecting data for model calibration before regenerating controller evidence. These runs use the same Vicon state adapter, launch gate, 20 percent command lattice, Arduino packet path, and result logger as the real-flight runtime, but they do not call the governor, memory, primitive selector, or LQR controller.
+
+Run neutral open-loop throws first:
+
+python 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block neutral_30 --target-valid-throws 30
+
+Then run only the single-axis pulse ladders needed for control-effect checks:
+
+python 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_elevator_30
+python 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_aileron_30
+python 04_Flight_Test\01_Runtime\run_glider_calibration_sequence.py --block pulse_ladder_rudder_30
+
+Pulse blocks use one sustained single-axis command at a time on the 0.2 command lattice. Invalid launch-gate attempts do not count. Results are stored under 04_Flight_Test\05_Results\cal\<block>\<session>\...
+
+Manual stop rules for calibration:
+- roll beyond 45 deg
+- pitch above +35 deg or below -25 deg
+- yaw snap beyond 45 deg in about 0.5 s
+- rapid floor trajectory
+- visible loss of control
+- tracking loss that prevents interpretation
+
+If the airframe is physically adjusted between blocks, treat later throws as a new physical-build condition. Do not silently pool pre-fix and post-fix data during SysID. After collecting calibration data, update the model in 03_Control and regenerate/freeze controller evidence before relying on closed-loop flight.
+
+Armed experiment sequence
+-------------------------
+Edit the top constants in 04_Flight_Test\01_Runtime\run_experiment_sequence.py before running:
+
+CURRENT_EXPERIMENT_CASE = "E4b.2"
+CURRENT_SESSION_LABEL = ""
+SERIAL_PORT = "COM11"
+VICON_HOST = "192.168.0.100:801"
+MODE = "armed"
+
+Then run:
+
+python 04_Flight_Test\01_Runtime\run_experiment_sequence.py
+
+Experiment suffixes:
+- .0 = open-loop neutral baseline
+- .1 = closed-loop controller, no memory
+- .2 = closed-loop controller, case-local memory enabled
+
+The launcher holds neutral before each throw, tracks the Vicon launch gate, records one valid throw after gate approval, sends neutral after exit, waits for cooldown, and re-arms. Failed launch starts are stored under invalid_attempts; they do not count as valid throws and do not update memory.
+
+Launch gate
+-----------
+Active control starts only after 2 consecutive approved frames with SO(3) body-rate observer confidence >= 0.65 and the full R5 launch window:
+
+- x_w in [1.2, 1.4] m
+- y_w in [1.8, 2.2] m
+- z_w in [1.3, 1.8] m
+- roll within +/-20 deg
+- pitch in [-10, +20] deg
+- yaw within +/-20 deg
+- u in [4.0, 8.0] m/s
+- v in [-1.5, +1.5] m/s
+- w in [-0.9, +0.9] m/s
+- p in [-1.2, +1.2] rad/s
+- q in [-1.2, +1.2] rad/s
+- r in [-1.8, +1.8] rad/s
+
+The runtime also audits fast crossings at the interpolated x_w = 1.3 m launch plane. If the launch gate times out or a fast crossing fails the formal gate, the attempt is invalid and the controller does not update memory.
+
+Exit/safety rule
+----------------
+The active record terminates at the first exit from the validated operational region:
+
+- x_w in [1.2, 6.6] m
+- y_w in [0.0, 4.4] m
+- z_w in [0.4, 3.5] m
+
+After exit, the runtime sends neutral commands for the post-exit tail and closes the record. It does not attempt a recovery controller.
+
+Fan and result rules
+--------------------
+Never move fan positions during one flight or within one memory episode. Move fans only between separate layout episodes. Fan positions are logged for evidence and sanity checking; they do not create fan-layout-specific controller branches.
+
+Main result locations:
+- 04_Flight_Test\05_Results\<case_id>\<session_label>\throw_001
+- 04_Flight_Test\05_Results\<case_id>\<session_label>\invalid_attempts\attempt_001
+- 04_Flight_Test\05_Results\cal\<block>\<session>\...
+
+Use the case-level experiment_sequence_summary.csv for a quick run overview. Use each throw folder for detailed state, fan, command, controller, memory, manifest, and event logs.
