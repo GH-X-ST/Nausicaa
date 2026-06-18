@@ -1,0 +1,93 @@
+Nausicaa latency-test implementation sequence
+=============================================
+
+Run location
+------------
+Run the MATLAB and Python scripts from inside B_Test_Lantency because they use local paths such as B_See_Vicon, C_Arduino_Test, D_Transmitter_Test, and A_figures.
+
+cd B_Test_Lantency
+conda env create -f environment.toml
+conda activate nausicaa-latency
+
+External tools needed for live capture:
+- MATLAB for the .m acquisition scripts.
+- Arduino IDE or Arduino CLI for the logger/transmitter sketches.
+- Vicon DataStream SDK for Vicon checks.
+- PulseView/sigrok-cli for logic-analyser captures used by E2E latency runs.
+
+Notation
+--------
+{seed} = integer run seed, typically 1 to 5
+{controller_logger} = C_Arduino_Test\Seed_{seed}_Controller_ArduinoLogger
+{transmitter_logger} = D_Transmitter_Test\Seed_{seed}_Transmitter_TransmitterLogger
+{nano_logger} = D_Transmitter_Test\Seed_{seed}_Nano_Transmitter_TransmitterLogger
+
+Vicon visibility check
+----------------------
+Live acquisition:
+
+matlab -batch "See_Vicon"
+
+Plot the exported workbook. Edit WORKBOOK_XLSX in Plot_Vicon.py if plotting a different Vicon workbook from the default checked-in one.
+
+python Plot_Vicon.py
+
+Direct controller-to-servo E2E latency
+--------------------------------------
+Live hardware capture with MATLAB, Arduino logger, and logic analyser:
+
+matlab -batch "Arduino_Test_E2E(struct('seed',{seed}))"
+
+Offline regeneration from an existing logger folder:
+
+python Arduino_Test_E2E_Post.py --seed {seed}
+python Plot_Arduino_Test_E2E.py --seed {seed}
+
+The post-processor writes event, alignment, latency, integrity, and surface-summary CSVs into {controller_logger}. The plotter writes summary figures under C_Arduino_Test\A_figures.
+
+Transmitter PPM-to-receiver E2E latency
+---------------------------------------
+Uno/transmitter live capture:
+
+matlab -batch "Transmitter_Test_E2E(struct('seed',{seed}))"
+
+Uno/transmitter offline regeneration:
+
+python Transmitter_Test_E2E_Post.py --seed {seed}
+python Plot_Transmitter_Test_E2E.py --seed {seed}
+
+Nano 33 IoT transmitter live capture:
+
+matlab -batch "Transmitter_Test_Nano_E2E(struct('seed',{seed},'printSummary',true))"
+
+Nano 33 IoT offline regeneration. Use the MATLAB wrapper so Nano clock repair and Python post-processing stay in the same path:
+
+matlab -batch "Transmitter_Test_Nano_E2E(struct('runHardware',false,'seed',{seed},'forceReprocess',true,'printSummary',true))"
+python Plot_Transmitter_Test_Nano_E2E.py --seed {seed}
+
+The post-processor writes shared-clock, anchor-to-PPM, anchor-to-receiver, matched-event, transition, and surface-summary CSVs into the selected transmitter logger folder. The plotters write summary figures under D_Transmitter_Test\A_figures.
+
+Representative logic-analyser figures
+-------------------------------------
+Build the final direct-PWM and PPM-to-receiver trace figures from selected logger folders:
+
+python Plot_Logic_Analyzer_Traces.py --direct-logger {controller_logger} --transmitter-logger {nano_logger}
+
+Use --direct-sequence or --ppm-sequence only when a specific command_sequence must be shown.
+
+Firmware/sketch provenance
+--------------------------
+Keep the sketches used for capture with the measured data:
+- E_Nano33IoT_Echo_Logger: Nano echo logger/transmitter sketches.
+- F_Nano_Echo_Logger: Uno/Nano echo and PPM test sketches.
+- G_Firmware_Test: firmware timing and logic-analyser captures.
+
+Outputs
+-------
+Primary generated artifacts are under:
+- B_See_Vicon
+- C_Arduino_Test
+- D_Transmitter_Test
+- G_Firmware_Test
+
+Treat raw .mat, .xlsx, .sr, .pvs, logger CSV, and firmware/sketch files as evidence inputs. Treat regenerated A_figures plots and post-processing summary CSVs as removable only when their source logger/capture files and scripts are kept.
