@@ -1,0 +1,103 @@
+Nausicaa thermal implementation sequence
+========================================
+
+Run location
+------------
+Run these scripts from inside 01_Thermal because the scripts use local paths such as S01.xlsx, S02.xlsx, A_figures, and B_results.
+
+cd 01_Thermal
+conda env create -f environment.yml
+conda activate nausicaa-thermal
+
+Notation
+--------
+Use these substitutions to avoid repeating the same workflow.
+
+{fan} = single | four
+{workbook} = S01.xlsx for single, S02.xlsx for four
+{param_model} = gaussian_var | annular_gaussian_var | annular_gaussian_bemt
+{gp_plot} = heat_map | heat_map_main | 3D
+{annular_gp_plot} = heat_map | heat_map_main | heat_map_main_appendix | fluc_heat_map | fluc_heat_map_main | fluc_heat_map_main_appendix | std_heat_map | std_heat_map_main | std_heat_map_main_appendix | total_fluc_heat_map | total_fluc_heat_map_main | total_fluc_heat_map_main_appendix | 3D
+
+Raw data and reference plots
+----------------------------
+For {fan} in {single, four}, generate the measured heat maps:
+
+python {fan}_fan_heat_map.py
+python {fan}_fan_heat_map_main.py
+
+Generate the direct analytic reference models:
+
+python single_fan_analytic.py
+python four_fan_analytic.py
+
+Generate the measurement/support figures:
+
+python single_fan_mode.py
+python single_fan_ground_effect.py
+python four_fan_time_series.py
+
+Annuli preprocessing
+--------------------
+For {fan} in {single, four}, build annular radial profiles before running annular or annuli-based models:
+
+python {fan}_fan_annuli_cut.py
+python {fan}_fan_annuli_heat_map.py
+python {fan}_fan_annuli_heat_map_main.py
+
+Plain GP workflow
+-----------------
+For {fan} in {single, four}, train the plain GP model and then generate its plots:
+
+python {fan}_fan_gp.py
+python {fan}_fan_gp_{gp_plot}.py
+
+Parametric model workflow
+-------------------------
+For each {fan} in {single, four} and each {param_model} in {gaussian_var, annular_gaussian_var, annular_gaussian_bemt}, use the same model sequence:
+
+python {fan}_fan_{param_model}.py
+python {fan}_fan_{param_model}_fit.py
+python {fan}_fan_{param_model}_analysis.py
+python {fan}_fan_{param_model}_heat_map.py
+python {fan}_fan_{param_model}_heat_map_main.py
+python {fan}_fan_{param_model}_heat_map_main_appendix.py
+python {fan}_fan_{param_model}_3D.py
+
+Optional BEMT solver tuning, run only when updating the annular BEMT fitting assumptions:
+
+python {fan}_fan_annular_gaussian_bemt_tune.py
+
+Single-fan average annular Gaussian workflow
+-------------------------------------------
+This model exists only for the single-fan data:
+
+python single_fan_annular_gaussian_avg.py
+python single_fan_annular_gaussian_avg_fit.py
+python single_fan_annular_gaussian_avg_analysis.py
+python single_fan_annular_gaussian_avg_heat_map.py
+python single_fan_annular_gaussian_avg_heat_map_main.py
+python single_fan_annular_gaussian_avg_heat_map_main_appendix.py
+python single_fan_annular_gaussian_avg_3D.py
+
+Annular GP workflow
+-------------------
+For {fan} in {single, four}, run this after annular_gaussian_bemt and annular_gaussian_bemt_fit, because the annular GP uses the fitted BEMT mean model:
+
+python {fan}_fan_annular_gp.py
+python {fan}_fan_annular_gp_{annular_gp_plot}.py
+
+Model comparison
+----------------
+For {fan} in {single, four}, summarize fitted-model errors after the model analysis workbooks exist:
+
+python {fan}_fan_fitting_analysis.py
+
+Outputs
+-------
+Primary generated artifacts are written under:
+
+B_results
+A_figures
+
+Keep S01.xlsx, S02.xlsx, and Tape Position.xlsx as measurement/source inputs. Treat A_figures and B_results as regenerated outputs unless a figure or result is explicitly used in the final report.
