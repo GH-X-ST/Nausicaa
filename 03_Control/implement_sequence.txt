@@ -1,0 +1,9 @@
+python 03_Control\02_Inner_Loop\run_real_glider_calibration_prep.py
+python 03_Control\02_Inner_Loop\run_fit_neutral_aero_residual_calibration.py --session-root 04_Flight_Test\05_Results\cal\n30 --run-label n30_joint_pareto_040_heavy_v1 --heldout-count 14 --heldout-seed 606 --joint-pareto-profile heavy --joint-pareto-top-longitudinal 6 --joint-pareto-top-lateral 10 --joint-pareto-max-lateral-order 3 --joint-pareto-top-triples 80 --joint-pareto-max-candidates 900 --joint-pareto-selected-limit 8
+python 03_Control\02_Inner_Loop\run_neutral_aero_residual_local_pareto_audit.py
+python 03_Control\02_Inner_Loop\run_control_surface_effectiveness_study.py
+python 03_Control\02_Inner_Loop\run_control_surface_effectiveness_study.py --stage-wise-fit
+python 03_Control\02_Inner_Loop\run_control_surface_effectiveness_study.py --constrained-stage-schedule
+python 03_Control\04_Scenarios\run_active_contract_audit.py
+python 03_Control\04_Scenarios\run_r5_r10_pipeline.py --run-label E03 --stage-run-label E03 --stop-after-stage R11
+python 03_Control\01_Plotting\plot_real_flight_replay_composites.py

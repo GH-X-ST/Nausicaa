@@ -1,8 +1,0 @@
-{
-  "run_manifest": ".codex_run_logs/r5_smoke/936/manifests/run_manifest.json",
-  "run_root": ".codex_run_logs/r5_smoke/936",
-  "status": "complete",
-  "table_manifest": ".codex_run_logs/r5_smoke/936/manifests/table_manifest.json",
-  "variant_registry_csv": ".codex_run_logs/r5_smoke/936/metrics/primitive_variant_registry.csv",
-  "variant_registry_json": ".codex_run_logs/r5_smoke/936/manifests/primitive_variant_registry.json"
-}
