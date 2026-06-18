@@ -1,0 +1,91 @@
+Nausicaa overall-latency implementation sequence
+================================================
+
+Run location
+------------
+Run the MATLAB scripts from the repository root unless a command explicitly changes directory. The scripts use repository-relative paths such as C_Overall_Latency, B_Test_Lantency, and C_Overall_Latency\02_Results.
+
+conda env create -f C_Overall_Latency\environment.toml
+conda activate nausicaa-overall-latency
+
+External tools needed for live capture:
+- MATLAB with serialport support.
+- Vicon DataStream SDK .NET DLL from B_Test_Lantency\A_Vicon_Example\dotNET.
+- Nano33 IoT transmitter firmware in C_Overall_Latency\Nano33IoT_Transmitter.
+- Vicon rigid bodies named for the test mode.
+
+Default hardware/configuration:
+- Serial port: COM11
+- Baud rate: 1000000
+- Vicon host: 192.168.0.100:801
+- Command period: 0.020 s
+- Surface order: Aileron_L, Aileron_R, Rudder, Elevator
+- Receiver-channel physical order: Aileron_R, Aileron_L, Rudder, Elevator
+- Servo signs: [1, -1, 1, -1]
+- Normal command limit for latency tests: 0.70
+
+Smoke checks
+------------
+Check the Nano serial path:
+
+matlab -batch "run('C_Overall_Latency/Run_Nano_Smoke_Test.m')"
+
+Characterize the Nausicaa rigid-body Vicon pose/filter behaviour:
+
+matlab -batch "run('C_Overall_Latency/Run_Nausicaa_Vicon_Motion_Test.m')"
+
+This writes raw pose, processed pose, phase summary, filter candidates, and a .mat result under C_Overall_Latency\02_Results\vicon_characterization in the final result layout.
+
+Deflection calibration
+----------------------
+Run one short deflection scenario first:
+
+matlab -batch "run('C_Overall_Latency/Run_Deflection_Single_Test.m')"
+
+Then run the full five-scenario deflection batch:
+
+matlab -batch "run('C_Overall_Latency/Run_Deflection_Test.m')"
+
+For offline re-analysis of the latest raw deflection run:
+
+matlab -batch "run('C_Overall_Latency/Run_Deflection_Post_Analysis.m')"
+
+Deflection outputs:
+- raw run logs: C_Overall_Latency\02_Results\raw\<timestamp>_deflection_*
+- processed calibration: C_Overall_Latency\02_Results\processed\<timestamp>_deflection_*
+- batch summaries: C_Overall_Latency\02_Results\processed\<timestamp>_deflection_batch
+
+Keep surface_calibration.mat, surface_calibration.csv, surface_calibration_lookup.csv, and implementation_error.csv when they support the final latency model.
+
+Latency run
+-----------
+After a valid deflection calibration exists, run the Vicon-corrected bang-bang latency test:
+
+matlab -batch "run('C_Overall_Latency/Run_Latency_Test.m')"
+
+For offline re-analysis of the latest raw latency run:
+
+matlab -batch "run('C_Overall_Latency/Run_Latency_Post_Analysis.m')"
+
+Latency outputs:
+- raw run logs: C_Overall_Latency\02_Results\raw\<timestamp>_latency_*
+- processed latency evidence: C_Overall_Latency\02_Results\processed\<timestamp>_latency_*
+- key files: latency_result.mat, latency_events.csv, latency_summary.csv, rejected_latency_events.csv
+
+Manual/custom entry point
+-------------------------
+Use Latency_Test(cfg) directly only when changing the profile. The profile mode selects the command generator:
+
+cfg = defaultOverallLatencyConfig("deflection");
+runData = Latency_Test(cfg);
+result = Post_Analysis("deflection", runData.outputFiles.runDataMat);
+
+cfg = defaultOverallLatencyConfig("latency");
+runData = Latency_Test(cfg);
+result = Post_Analysis("latency", runData.outputFiles.runDataMat, analysisConfig);
+
+Output and cleanup rule
+-----------------------
+Treat .mat raw run files, command_log.csv, event_table.csv, serial_telemetry_raw.csv, vicon_raw_log.csv, and vicon_state_log.csv as primary evidence. Treat processed CSV summaries as regenerated evidence only if the matching raw run_data.mat and MATLAB scripts are kept.
+
+The final repository layout uses C_Overall_Latency\02_Results. If a legacy script run creates C_Overall_Latency\data, move or configure the output roots before committing so the final folder stays consistent.
