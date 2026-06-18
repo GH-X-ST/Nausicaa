@@ -1,2 +1,0 @@
--r requirements-control-dev.txt
--r requirements-design.txt
