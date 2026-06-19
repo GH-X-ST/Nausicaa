@@ -6,7 +6,7 @@
   <sub>Imperial College London</sub><br>
 </p>
 
-![Cover](Cover.jpg)
+![Cover](Cover.png)
 
 ## About
 Stay tuned...
