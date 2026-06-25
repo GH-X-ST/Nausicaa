@@ -1,3 +1,4 @@
+
 <p align="center">
   <sub>A thesis submitted to the Department of Aeronautics</sub><br>
   <sub>in partial fulfilment of the requirements for the degree of</sub><br>
@@ -19,6 +20,19 @@ assets/readme/glider_hardware.png           # manufactured fifth iteration glide
 assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
 assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
 -->
+
+<!--
+Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
+
+assets/readme/overview.png                  # thesis roadmap, similar to Fig. 1.1
+assets/readme/flight_arena_system.png       # Vicon / command / glider system architecture, similar to Fig. 3.4
+assets/readme/updraft_surrogate.png         # measured and fitted updraft fields, similar to Figs. 4.8-4.10
+assets/readme/glider_hardware.png           # manufactured fifth iteration glider, similar to Fig. 5.3
+assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
+assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
+-->
+
+<br>
 
 <p align="center">
   <a href="LICENSE">
@@ -50,42 +64,63 @@ assets/readme/random_layout_replay.png      # representative random fan layout r
   </picture>
 </p>
 
-<!--
-Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
-
-assets/readme/overview.png                  # thesis roadmap, similar to Fig. 1.1
-assets/readme/flight_arena_system.png       # Vicon / command / glider system architecture, similar to Fig. 3.4
-assets/readme/updraft_surrogate.png         # measured and fitted updraft fields, similar to Figs. 4.8-4.10
-assets/readme/glider_hardware.png           # manufactured fifth iteration glider, similar to Fig. 5.3
-assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
-assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
--->
-
 <br>
 
 ## Overview
 
-Nausicaa is a reproducible research repository for an indoor fixed wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
+Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain fan-generated updrafts.
 
-The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated, replayed, and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
-
-The repository accompanies the thesis:
+The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated, replayed, and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard-failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
+![Example](assets/readme/Example.jpg)
+<p align="center">
+  <sup><em>Example result: the controller keeps the glider flying through a real uncertain updraft, while a comparable open-loop launch fails and the simulation replay shows visible reality gap.</em></sup>
+</p>
+This repository accompanies the thesis:
 
 ```text
 Hanchen Li. Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts.
 MEng thesis, Department of Aeronautics, Imperial College London, 2026.
-```
+````
+Nausicaa is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproducibility instructions for the thesis figures, tables, and experiments.
 
-The repository is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproducibility instructions for the thesis figures, tables, and experiments.
 
 ## Highlights
 
-- Indoor fixed wing sim-to-real workflow using Vicon motion capture, offboard control, measured command latency, fan-generated updrafts, and a manufactured foam/carbon glider.
-- Updraft characterisation from spatially scanned hot-wire anemometer measurements, followed by harmonic annular Gaussian and residual Gaussian-process surrogate modelling.
-- Control-oriented 6-DoF glider model with panelwise aerodynamic loading, compact residual calibration, actuator timing, and domain randomisation.
-- Short-horizon primitive library with finite-horizon LQR stabilisation and validation-based admissibility checks.
-- Medoid library compression that preserves validated primitive objects rather than creating synthetic controllers.
-- Real flight transfer tests across still air, fixed fan layouts, and randomised three-fan / four-fan challenge layouts.
+- **A repeatable indoor flight problem.**  
+  The project turns uncertain outdoor lift exploitation into a controlled laboratory experiment. A small hand-launched glider must cross a bounded indoor flight volume while fan-generated updrafts can either help it stay aloft or push it toward failure.
+
+- **A complete experimental workflow, not just a controller.**  
+  The repository includes the pieces needed to make the flight tests repeatable: Vicon motion capture, offboard computation, a radio-control command path, measured sensing and actuator delays, a safety-bounded arena, and the manufactured foam/carbon glider.
+
+![Example](assets/readme/3.2.2.jpg)
+<p align="center">
+  <sup><em>Example result: the controller keeps the glider flying through a real uncertain updraft, while a comparable open-loop launch fails and the simulation replay shows visible reality gap.</em></sup>
+</p>
+
+![Example](assets/readme/e4a_matched_reality_replay_openloop_composite.png)
+<p align="center">
+  <sup><em>Example result: the controller keeps the glider flying through a real uncertain updraft, while a comparable open-loop launch fails and the simulation replay shows visible reality gap.</em></sup>
+</p>
+
+
+- **A measured but imperfect updraft model.**  
+  The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one perfect flow map.
+
+- **A real glider model connected to the hardware.**  
+  The simulation model is built around the manufactured aircraft rather than an abstract vehicle. It uses measured mass properties, centre of gravity, actuator timing, flight calibration data, and panelwise aerodynamic loading to capture the main behaviour of the glider while remaining fast enough for large validation runs.
+
+- **Control by short tested manoeuvres.**  
+  Instead of planning one long trajectory through an uncertain flow field, the controller repeatedly chooses short `0.10 s` manoeuvre primitives. Each primitive has already been simulated and labelled with its entry conditions, likely exit outcome, failure risk, safety margin, lift exposure, energy change, and timing cost.
+
+- **A flight-ready controller library.**  
+  The dense primitive library is compressed into a smaller set of representative validated manoeuvres. This keeps the online controller fast enough for real flight while avoiding the creation of synthetic controllers that were never tested.
+
+- **Real flight transfer beyond the validation cases.**  
+  The final tests compare open-loop and closed-loop flight in still air, fixed fan layouts, and randomised fan layouts. In the random layouts that were not used during controller validation, closed-loop control substantially improves mission success over open-loop flight.
+
+- **A clear limit on what did not help much.**  
+  The repository also includes the spatial memory component and its logs, but the evidence shows that memory is not the main reason the system transfers. The main reusable result is the measured workflow plus the viability-guided primitive controller.
+
 
 ## Main results
 
