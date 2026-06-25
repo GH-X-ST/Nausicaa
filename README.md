@@ -70,10 +70,10 @@ assets/readme/random_layout_replay.png      # representative random fan layout r
 
 Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain fan-generated updrafts.
 
-The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated, replayed, and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard-failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
+The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard-failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
 <p align="center">
   <img src="assets/readme/Example.jpg" alt="Example result: closed-loop flight through an uncertain updraft" width="100%"><br>
-  <sup><em>Example result: closed-loop control keeps the glider flying through the uncertain updrafts, while the open-loop case fails and the simulation replay shows a visible reality gap.</em></sup>
+  <sup><em>Closed-loop control helps the glider flying through the uncertain updrafts, while the open-loop case fails and the simulation replay shows a visible reality gap.</em></sup>
 </p>
 This repository accompanies the thesis:
 
@@ -81,7 +81,7 @@ This repository accompanies the thesis:
 Hanchen Li. Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts.
 MEng thesis, Department of Aeronautics, Imperial College London, 2026.
 ````
-Nausicaa is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproducibility instructions for the thesis figures, tables, and experiments.
+Nausicaa is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproduce instructions.
 
 
 ## Highlights
