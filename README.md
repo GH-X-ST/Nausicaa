@@ -71,9 +71,9 @@ assets/readme/random_layout_replay.png      # representative random fan layout r
 Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain fan-generated updrafts.
 
 The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated, replayed, and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard-failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
-![Example](assets/readme/Example.jpg)
 <p align="center">
-  <sup><em>Example result: the controller keeps the glider flying through a real uncertain updraft, while a comparable open-loop launch fails and the simulation replay shows visible reality gap.</em></sup>
+  <img src="assets/readme/Example.jpg" alt="Example result: closed-loop flight through an uncertain updraft" width="100%"><br>
+  <sup><em>Example result: closed-loop control keeps the glider flying through the uncertain updrafts, while the open-loop case fails and the simulation replay shows a visible reality gap.</em></sup>
 </p>
 This repository accompanies the thesis:
 
@@ -91,17 +91,14 @@ Nausicaa is organised as a workflow archive. It contains source code, configurat
 
 - **A complete experimental workflow, not just a controller.**  
   The repository includes the pieces needed to make the flight tests repeatable: Vicon motion capture, offboard computation, a radio-control command path, measured sensing and actuator delays, a safety-bounded arena, and the manufactured foam/carbon glider.
-
-![Example](assets/readme/3.2.2.jpg)
 <p align="center">
-  <sup><em>Example result: the controller keeps the glider flying through a real uncertain updraft, while a comparable open-loop launch fails and the simulation replay shows visible reality gap.</em></sup>
+  <img src="assets/readme/3.2.2.jpg" alt="System architecture" width="100%"><br>
+  <sup><em>Selected flight test sensing, computation, and command architecture.</em></sup>
 </p>
-
-![Example](assets/readme/e4a_matched_reality_replay_openloop_composite.png)
 <p align="center">
-  <sup><em>Example result: the controller keeps the glider flying through a real uncertain updraft, while a comparable open-loop launch fails and the simulation replay shows visible reality gap.</em></sup>
+  <img src="assets/readme/5.3.2.jpg" alt="Manufactured glider" width="100%"><br>
+  <sup><em>Manufactured fifth iteration glider and key assembly details.</em></sup>
 </p>
-
 
 - **A measured but imperfect updraft model.**  
   The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one perfect flow map.
