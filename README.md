@@ -97,7 +97,7 @@ Nausicaa is organised as a workflow archive. It contains source code, configurat
   The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one perfect flow map.
 <p align="center">
   <img src="assets/readme/Time-lapse.jpg" alt="Time-lapse" width="100%"><br>
-  <sup><em>Time-lapse composite of anemometer measurements and residual annular Gaussian process surrogate.</em></sup>
+  <sup><em>Time-lapse composite of anemometer measurements and harmonic annular Gaussian model with GP residual correction.</em></sup>
 </p>
 
 - **A real glider model connected to the hardware.**  
