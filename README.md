@@ -53,11 +53,6 @@ assets/readme/random_layout_replay.png      # representative random fan layout r
     <img src="https://img.shields.io/badge/MATLAB-R2026a-7b1fa2?style=for-the-badge&labelColor=ffffff" alt="MATLAB R2026a">
   </picture>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Arduino%20IDE-2.3.8-00979D?style=for-the-badge&labelColor=0d1117">
-    <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Arduino%20IDE-2.3.8-00979D?style=for-the-badge&labelColor=ffffff">
-    <img src="https://img.shields.io/badge/MATLAB-R2026a-7b1fa2?style=for-the-badge&labelColor=ffffff" alt="MATLAB R2026a">
-  </picture>
-  <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Status-Thesis%20Release-ffff00?style=for-the-badge&labelColor=0d1117">
     <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Status-Thesis%20Release-0000cd?style=for-the-badge&labelColor=ffffff">
     <img src="https://img.shields.io/badge/Status-Thesis%20Release-6e7781?style=for-the-badge&labelColor=ffffff" alt="Status: thesis release">
@@ -83,6 +78,7 @@ MEng thesis, Department of Aeronautics, Imperial College London, 2026.
 ````
 Nausicaa is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproduce instructions.
 
+---
 
 ## Highlights
 
@@ -118,6 +114,7 @@ Nausicaa is organised as a workflow archive. It contains source code, configurat
 - **A clear limit on what did not help much.**  
   The repository also includes the spatial memory component and its logs, but the evidence shows that memory is not the main reason the system transfers. The main reusable result is the measured workflow plus the viability-guided primitive controller.
 
+---
 
 ## Main results
 
