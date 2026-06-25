@@ -68,7 +68,7 @@ Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-r
 The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard-failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
 <p align="center">
   <img src="assets/readme/Example.jpg" alt="Example result: closed-loop flight through an uncertain updraft" width="100%"><br>
-  <sup><em>Closed-loop control helps the glider flying through the uncertain updrafts, while the open-loop case fails and the simulation replay shows a visible reality gap.</em></sup>
+  <sup><em>Example result: closed-loop control keeps the glider flying through uncertain updrafts, while a comparable open-loop launch fails.</em></sup>
 </p>
 This repository accompanies the thesis:
 
@@ -79,6 +79,7 @@ MEng thesis, Department of Aeronautics, Imperial College London, 2026.
 Nausicaa is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproduce instructions.
 
 ---
+
 
 ## Highlights
 
@@ -91,16 +92,20 @@ Nausicaa is organised as a workflow archive. It contains source code, configurat
   <img src="assets/readme/3.2.2.jpg" alt="System architecture" width="100%"><br>
   <sup><em>Selected flight test sensing, computation, and command architecture.</em></sup>
 </p>
+
+- **A measured but imperfect updraft model.**  
+  The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one perfect flow map.
+<p align="center">
+  <img src="assets/readme/Time-lapse.jpg" alt="Time-lapse" width="100%"><br>
+  <sup><em>Time-lapse composite of anemometer measurements and residual annular Gaussian process surrogate.</em></sup>
+</p>
+
+- **A real glider model connected to the hardware.**  
+  The simulation model is built around the manufactured aircraft. It uses measured mass properties, centre of gravity, actuator timing, flight calibration data, and panelwise aerodynamic loading to capture the main behaviour of the glider while remaining fast enough for large validation runs.
 <p align="center">
   <img src="assets/readme/5.3.2.jpg" alt="Manufactured glider" width="100%"><br>
   <sup><em>Manufactured fifth iteration glider and key assembly details.</em></sup>
 </p>
-
-- **A measured but imperfect updraft model.**  
-  The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one perfect flow map.
-
-- **A real glider model connected to the hardware.**  
-  The simulation model is built around the manufactured aircraft rather than an abstract vehicle. It uses measured mass properties, centre of gravity, actuator timing, flight calibration data, and panelwise aerodynamic loading to capture the main behaviour of the glider while remaining fast enough for large validation runs.
 
 - **Control by short tested manoeuvres.**  
   Instead of planning one long trajectory through an uncertain flow field, the controller repeatedly chooses short `0.10 s` manoeuvre primitives. Each primitive has already been simulated and labelled with its entry conditions, likely exit outcome, failure risk, safety margin, lift exposure, energy change, and timing cost.
