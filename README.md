@@ -6,12 +6,369 @@
   <sub>Imperial College London</sub><br>
 </p>
 
-![Cover](Cover.png)
+![Cover light](assets/readme/Cover.png#gh-light-mode-only)
+![Cover dark](assets/readme/Cover_dark.png#gh-dark-mode-only)
 
-## About
-Stay tuned...
+<!--
+Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
+
+assets/readme/overview.png                  # thesis roadmap, similar to Fig. 1.1
+assets/readme/flight_arena_system.png       # Vicon / command / glider system architecture, similar to Fig. 3.4
+assets/readme/updraft_surrogate.png         # measured and fitted updraft fields, similar to Figs. 4.8-4.10
+assets/readme/glider_hardware.png           # manufactured fifth iteration glider, similar to Fig. 5.3
+assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
+assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
+-->
+
+<p align="center">
+  <a href="LICENSE">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/License-MIT-ff1423?style=for-the-badge&labelColor=0d1117">
+      <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/License-MIT-750014?style=for-the-badge&labelColor=ffffff">
+      <img src="https://img.shields.io/badge/License-MIT-2ea043?style=for-the-badge&labelColor=ffffff" alt="License: MIT">
+    </picture>
+  </a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Python-3.12-FFE873?style=for-the-badge&labelColor=0d1117">
+    <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Python-3.12-306998?style=for-the-badge&labelColor=ffffff">
+    <img src="https://img.shields.io/badge/Python-3.12-3776ab?style=for-the-badge&labelColor=ffffff" alt="Python 3.12">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/MATLAB-R2026a-fd8000?style=for-the-badge&labelColor=0d1117">
+    <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/MATLAB-R2026a-006da8?style=for-the-badge&labelColor=ffffff">
+    <img src="https://img.shields.io/badge/MATLAB-R2026a-7b1fa2?style=for-the-badge&labelColor=ffffff" alt="MATLAB R2026a">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Arduino%20IDE-2.3.8-00979D?style=for-the-badge&labelColor=0d1117">
+    <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Arduino%20IDE-2.3.8-00979D?style=for-the-badge&labelColor=ffffff">
+    <img src="https://img.shields.io/badge/MATLAB-R2026a-7b1fa2?style=for-the-badge&labelColor=ffffff" alt="MATLAB R2026a">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Status-Thesis%20Release-ffff00?style=for-the-badge&labelColor=0d1117">
+    <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Status-Thesis%20Release-0000cd?style=for-the-badge&labelColor=ffffff">
+    <img src="https://img.shields.io/badge/Status-Thesis%20Release-6e7781?style=for-the-badge&labelColor=ffffff" alt="Status: thesis release">
+  </picture>
+</p>
+
+<!--
+Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
+
+assets/readme/overview.png                  # thesis roadmap, similar to Fig. 1.1
+assets/readme/flight_arena_system.png       # Vicon / command / glider system architecture, similar to Fig. 3.4
+assets/readme/updraft_surrogate.png         # measured and fitted updraft fields, similar to Figs. 4.8-4.10
+assets/readme/glider_hardware.png           # manufactured fifth iteration glider, similar to Fig. 5.3
+assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
+assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
+-->
+
+<br>
+
+## Overview
+
+Nausicaa is a reproducible research repository for an indoor fixed wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
+
+The controller is built around **viability-guided manoeuvre primitive selection**. Instead of tracking one long planned trajectory through an uncertain flow field, the glider selects short stabilised manoeuvre primitives every `0.10 s`. Each primitive is generated, replayed, and validated offline. Online selection then uses stored evidence about entry compatibility, continuation probability, hard failure risk, safety margin, useful lift exposure, energy change, and timing feasibility.
+
+The repository accompanies the thesis:
+
+```text
+Hanchen Li. Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts.
+MEng thesis, Department of Aeronautics, Imperial College London, 2026.
+```
+
+The repository is organised as a workflow archive. It contains source code, configuration files, processed datasets, calibration artefacts, frozen controller inputs, plotting scripts, measurement logs, and reproducibility instructions for the thesis figures, tables, and experiments.
+
+## Highlights
+
+- Indoor fixed wing sim-to-real workflow using Vicon motion capture, offboard control, measured command latency, fan-generated updrafts, and a manufactured foam/carbon glider.
+- Updraft characterisation from spatially scanned hot-wire anemometer measurements, followed by harmonic annular Gaussian and residual Gaussian-process surrogate modelling.
+- Control-oriented 6-DoF glider model with panelwise aerodynamic loading, compact residual calibration, actuator timing, and domain randomisation.
+- Short-horizon primitive library with finite-horizon LQR stabilisation and validation-based admissibility checks.
+- Medoid library compression that preserves validated primitive objects rather than creating synthetic controllers.
+- Real flight transfer tests across still air, fixed fan layouts, and randomised three-fan / four-fan challenge layouts.
+
+## Main results
+
+| Result | Value |
+|---|---:|
+| Final mission simulations | 36,000 runs |
+| Executed simulated primitive segments | 384,795 segments |
+| Dense speed-bin primitive variants | 1,605 |
+| Held-out primitive validation replays | 256,800 replays |
+| Balanced deployment library size | 112 primitive variants |
+| Mean candidates evaluated by balanced library | 7.0 candidates |
+| Mean selector time for balanced library | 50.9 ms |
+| Balanced decisions within 0.100 s primitive horizon | 85.2% |
+| Real flight attempts completed by the glider platform | 1,042 launch attempts |
+
+The strongest transfer evidence comes from random fan layouts that were not included in the held-out simulation validation ladder:
+
+| Layout | Open-loop exit-face rate | Closed-loop exit-face rate | Closed-loop with memory |
+|---|---:|---:|---:|
+| Random three-fan layout | 30.0% | 86.7% | 70.0% |
+| Random four-fan layout | 20.0% | 93.3% | 90.0% |
+
+Spatial memory should be interpreted carefully. In this experiment it is a bounded diagnostic / architectural component rather than the main transfer mechanism. In simulation it changed fewer than 10% of selections and gave little aggregate benefit; in real flight it did not form a separate success case and sometimes reduced exit-face reliability.
+
+## What you can do with this repository
+
+| Task | Where to start |
+|---|---|
+| Inspect the thesis workflow and project context | `README.md`, thesis PDF / arXiv record, folder-level notes |
+| Reproduce or inspect updraft characterisation and surrogate fits | `01_Thermal/` |
+| Inspect glider sizing, optimisation, manufacture, and mass properties | `02_Glider_Design/` |
+| Reproduce controller development, validation, compression, and plotting | `03_Control/` |
+| Inspect real flight logs, replay diagnostics, and post-processing | `04_Flight_Test/` |
+| Inspect component and end-to-end latency tests | `B_Test_Lantency/`, `C_Overall_Latency/` |
+| Review project documentation and release notes | `docs/` |
+
+## Repository layout
+
+```text
+Nausicaa/
+├── 01_Thermal/                 # fan updraft measurement, processing, and surrogate modelling
+├── 02_Glider_Design/           # glider sizing, optimisation, CAD-style design records, and manufacture data
+├── 03_Control/                 # glider model, SysID, primitive library, validation ladder, governor, and plotting
+├── 04_Flight_Test/             # real flight runtime records, flight logs, replay diagnostics, and figures
+├── A_Miscellaneous/            # supplementary and supporting project material
+├── B_Test_Lantency/            # component latency tests; spelling retained from repository history
+├── C_Overall_Latency/          # command path and end-to-end timing analysis
+├── docs/                       # project notes, release notes, and supporting documentation
+├── requirements.txt            # base Python dependencies
+├── requirements-design.txt     # design-side Python dependencies
+├── requirements-control.txt    # control-side Python dependencies
+├── requirements-control-dev.txt # control validation and development dependencies
+├── requirements-dev.txt        # broader development dependencies
+├── LICENSE                     # MIT license for released software code
+└── README.md
+```
+
+Each major workflow folder may also include local files such as:
+
+```text
+environment.toml        # local software / tool requirements for that workflow
+implement_sequence.txt  # execution order used to generate or analyse the corresponding results
+```
+
+These folder-level files are the authoritative reproduction entry points for detailed reruns.
+
+## Installation
+
+The thesis release was tested on:
+
+| Tool | Tested version |
+|---|---|
+| Operating system | Windows 11 25H2 |
+| Python | 3.12.11 |
+| MATLAB | R2026a |
+| Arduino IDE | 2.3.8 |
+| Vicon Tracker | 3.9 |
+
+Some analysis scripts may run on other platforms, but the full thesis workflow was not validated outside this environment.
+
+### Clone
+
+The repository can be large because it includes experimental logs, processed data, plots, and reproducibility artefacts. For a full local copy:
+
+```powershell
+git clone https://github.com/GH-X-ST/Nausicaa.git
+cd Nausicaa
+```
+
+For a lighter inspection clone, use partial clone and sparse checkout:
+
+```powershell
+git clone --filter=blob:none --sparse https://github.com/GH-X-ST/Nausicaa.git
+cd Nausicaa
+git sparse-checkout set README.md 03_Control 04_Flight_Test
+```
+
+Adjust the final line depending on the workflow you want to inspect.
+
+### Python environment
+
+A standard virtual environment is sufficient for most Python-side analysis:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+For the full development environment:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
+
+For targeted workflows:
+
+```powershell
+# Glider design / optimisation
+python -m pip install -r requirements-design.txt
+
+# Control development and validation
+python -m pip install -r requirements-control-dev.txt
+```
+
+If PowerShell blocks virtual-environment activation, either allow local script execution for the current shell or call the interpreter directly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### MATLAB, Arduino, and Vicon
+
+The Python scripts cover most modelling, simulation, validation, and plotting work. Some components depend on external tools:
+
+- MATLAB R2026a for MATLAB-side data processing and plotting scripts.
+- Arduino IDE 2.3.8 for firmware and command-interface tests.
+- Vicon Tracker 3.9 and the Flight Arena setup for original real flight data collection.
+
+Real flight experiments cannot be regenerated deterministically from software alone.
+
+## Reproducing the thesis results
+
+Start from the folder-level instructions rather than running scripts blindly. The repository is staged because the project includes hardware measurements, optimisation, large simulation sweeps, controller validation, and real flight post-processing.
+
+To find local workflow entry points:
+
+```powershell
+Get-ChildItem -Recurse -Filter "environment.toml"
+Get-ChildItem -Recurse -Filter "implement_sequence.txt"
+```
+
+A typical inspection path is:
+
+1. Read the thesis section or appendix corresponding to the result.
+2. Enter the corresponding workflow folder.
+3. Read `environment.toml` and `implement_sequence.txt` if present.
+4. Install the matching dependencies.
+5. Run the plotting or summary script for the already supplied processed data.
+6. Only rerun dense simulations or calibration sweeps if you deliberately want to regenerate large artefacts.
+
+### Suggested workflow by thesis chapter
+
+| Thesis component | Repository workflow |
+|---|---|
+| Chapter 3: system architecture and timing | `B_Test_Lantency/`, `C_Overall_Latency/`, relevant `04_Flight_Test/` logs |
+| Chapter 4: updraft characterisation and surrogate modelling | `01_Thermal/` |
+| Chapter 5: glider design and optimisation | `02_Glider_Design/` |
+| Chapter 6: primitive controller and validation ladder | `03_Control/` |
+| Chapter 7: real flight transfer and replay | `04_Flight_Test/`, `03_Control/A_figures/`, `04_Flight_Test/A_figures/` |
+| Appendix A: reproducibility and version record | this README plus folder-level manifests |
+| Appendices B-G: supplementary tables and figures | corresponding workflow folders above |
+
+### Control-side smoke test
+
+For control development, a lightweight check is:
+
+```powershell
+$files = Get-ChildItem -Path 03_Control/02_Inner_Loop,03_Control/03_Primitives,03_Control/04_Scenarios -Filter *.py -File | ForEach-Object { $_.FullName }
+.\.venv\Scripts\python.exe -m py_compile @files
+.\.venv\Scripts\python.exe -m pytest -q 03_Control/tests --basetemp .codex_run_logs\pytest_tmp -o cache_dir=.codex_run_logs\pytest_cache
+```
+
+Slow integration tests, dense validation sweeps, and archive regeneration should be run only when explicitly needed.
+
+## Data and reproducibility notes
+
+This repository is intended to make the reported thesis evidence inspectable and reproducible where possible. It includes:
+
+- source code for modelling, simulation, optimisation, analysis, and plotting;
+- configuration files used to generate the reported results;
+- processed datasets behind figures, tables, validation summaries, and heat maps;
+- calibration records and frozen controller inputs;
+- measurement logs and preprocessing scripts for experimental results;
+- editable sources for author-designed schematics and diagrams where permitted.
+
+Computational results based on simulation, modelling, optimisation, system identification, and post-processing can be rerun using the supplied scripts and configurations. Some stochastic methods use fixed random seeds. Minor numerical differences may still occur because of platform, solver, and library version differences.
+
+Physical experimental results in the Flight Arena cannot be regenerated exactly without the same hardware, firmware, calibration state, fan placement, launch conditions, and Vicon setup. The repository therefore supports verification through released logs, preprocessing scripts, calibration records, frozen controller inputs, and plotting code rather than deterministic re-execution of the original physical experiment.
+
+## Safety and hardware notice
+
+This repository includes code and records from a real flight-control experiment. Do not run hardware-facing scripts on a physical aircraft without:
+
+- a controlled flight arena or equivalent protected test volume;
+- a calibrated state-estimation system;
+- a validated command path and actuator mapping;
+- a safety observer and physical intervention method;
+- prior open-loop and closed-loop dry-run checks.
+
+The released code is a research artefact, not a certified flight-control system.
+
+## Media
+
+The current repository cover image is `Cover.jpg`. For a more polished release page, add additional figures under:
+
+```text
+assets/readme/
+```
+
+Recommended images:
+
+| Suggested file | Source figure / content |
+|---|---|
+| `assets/readme/overview.png` | thesis roadmap / project evidence chain |
+| `assets/readme/flight_arena_system.png` | Vicon, ground computer, RC command path, and glider system architecture |
+| `assets/readme/updraft_surrogate.png` | measured and fitted updraft field visualisation |
+| `assets/readme/glider_hardware.png` | manufactured glider and hardware details |
+| `assets/readme/mission_geometry.png` | launch gate, admissible volume, exit face, floor and wall boundaries |
+| `assets/readme/random_layout_replay.png` | representative random layout real-flight replay comparison |
+
+After adding the files, update this README to insert the corresponding images in the Overview, Main results, and Reproducing the thesis results sections.
+
+## Citation
+
+Please cite the thesis if this repository is useful in academic work:
+
+```bibtex
+@mastersthesis{li2026nausicaa,
+  title  = {Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts},
+  author = {Li, Hanchen},
+  school = {Imperial College London},
+  year   = {2026},
+  type   = {MEng thesis},
+  note   = {Department of Aeronautics}
+}
+```
+
+For the software and data archive, cite the versioned Zenodo record once assigned:
+
+```bibtex
+@software{li2026nausicaa_repository,
+  title   = {Nausicaa: Reproducibility package for viability-guided sim-to-real fixed-wing glider flight},
+  author  = {Li, Hanchen},
+  year    = {2026},
+  version = {v2026.06-thesis},
+  url     = {https://github.com/GH-X-ST/Nausicaa},
+  doi     = {TBA}
+}
+```
+
+## License
+
+The released software code is distributed under the MIT License. See [`LICENSE`](LICENSE).
+
+The thesis manuscript, media, experimental data, third-party material, and generated figures may be subject to separate copyright or repository notices. Do not assume that the MIT License applies to every non-code artefact unless that artefact is explicitly released under the same license.
+
+## Acknowledgements
+
+This work was carried out as an MEng thesis in the Department of Aeronautics at Imperial College London, supervised by Dr Urban Fasel. The experiments used Imperial College London's Brahmal Vasudevan Multi Terrain Aerial Robotics Arena.
+
+The project also uses and acknowledges open-source scientific tools across Python, MATLAB, Arduino, optimisation, plotting, and aerospace modelling workflows.
+
+## Project status
+
+This repository is a thesis release archive. It is intended for inspection, reproduction of reported results, and follow-up research development. APIs, paths, and scripts may not be stable across future paper-oriented extensions.
 
 ---
+
+<p align="center">
+  <sub>If you use this project or find it helpful, please cite the thesis or the versioned repository archive.</sub>
+</p>
 
 ## Stargazers Over Time
 [![Stargazers over time light](https://starchart.cc/GH-X-ST/Nausicaa.svg?background=%2300000000&axis=%230a1219&line=%2310bcff)](https://starchart.cc/GH-X-ST/Nausicaa#gh-light-mode-only)
