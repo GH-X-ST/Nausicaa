@@ -9,28 +9,6 @@
 ![Cover light](A_Miscellaneous/A_Readme/Cover.png#gh-light-mode-only)
 ![Cover dark](A_Miscellaneous/A_Readme/Cover_dark.png#gh-dark-mode-only)
 
-<!--
-Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
-
-assets/readme/overview.png                  # thesis roadmap, similar to Fig. 1.1
-assets/readme/flight_arena_system.png       # Vicon / command / glider system architecture, similar to Fig. 3.4
-assets/readme/updraft_surrogate.png         # measured and fitted updraft fields, similar to Figs. 4.8-4.10
-assets/readme/glider_hardware.png           # manufactured fifth iteration glider, similar to Fig. 5.3
-assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
-assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
--->
-
-<!--
-Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
-
-assets/readme/overview.png                  # thesis roadmap, similar to Fig. 1.1
-assets/readme/flight_arena_system.png       # Vicon / command / glider system architecture, similar to Fig. 3.4
-assets/readme/updraft_surrogate.png         # measured and fitted updraft fields, similar to Figs. 4.8-4.10
-assets/readme/glider_hardware.png           # manufactured fifth iteration glider, similar to Fig. 5.3
-assets/readme/mission_geometry.png          # launch gate, safe volume, and exit face, similar to Fig. 6.1
-assets/readme/random_layout_replay.png      # representative random fan layout replay, similar to Figs. 7.3-7.4
--->
-
 <br>
 
 <p align="center">
