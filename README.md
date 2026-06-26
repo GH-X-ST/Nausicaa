@@ -115,6 +115,11 @@ Nausicaa is organised as a workflow archive. It contains source code, configurat
 
 - **Real flight transfer beyond the validation cases.**  
   The final tests compare open-loop and closed-loop flight in still air, fixed fan layouts, and randomised fan layouts. In the random layouts that were not used during controller validation, closed-loop control substantially improves mission success over open-loop flight.
+<div align="center">
+  <video src="assets/readme/four-fan.mp4" controls preload="metadata" width="100%"></video><br>
+  <sup><em>Flying glider through four-fan updraft.</em></sup>
+</div>
+
 
 - **A clear limit on what did not help much.**  
   The repository also includes the spatial memory component and its logs, but the evidence shows that memory is not the main reason the system transfers. The main reusable result is the measured workflow plus the viability-guided primitive controller.
