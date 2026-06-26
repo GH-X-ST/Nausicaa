@@ -256,7 +256,7 @@ Do not run dense simulations, archive regeneration, or hardware-facing scripts u
 
 ### License
 
-The released software code is distributed under the MIT License. See [`LICENSE`](LICENSE).
+The released software code is distributed under the MIT License. See [LICENSE](LICENSE) for details.
 
 The thesis manuscript, media, experimental data, third-party material, and generated figures may be subject to separate copyright or repository notices. Do not assume that the MIT License applies to every non-code artefact unless it is explicitly released under the same license.
 
