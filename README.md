@@ -62,7 +62,7 @@ assets/readme/random_layout_replay.png      # representative random fan layout r
 
 ## About
 
-Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain fan-generated updrafts.
+Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
 
 The controller uses **viability-guided manoeuvre primitive selection**: instead of tracking one preplanned trajectory, the glider repeatedly chooses short validated manoeuvres every `0.10 s` that keep the flight state viable under uncertain lift.
 
@@ -100,7 +100,7 @@ For academic citation, please cite the latest version on arXiv:
 }
 ```
 
-For the software, datasets, and reproducibility materials, cite the versioned Zenodo archive once assigned:
+For the software, datasets, and reproducibility materials, please cite the Zenodo archive:
 
 ```bibtex
 @software{li2026nausicaa_repository,
