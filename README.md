@@ -67,7 +67,7 @@ Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-r
 The controller uses **viability-guided manoeuvre primitive selection**: instead of tracking one preplanned trajectory, the glider repeatedly chooses short validated manoeuvres every `0.10 s` that keep the flight state viable under uncertain lift.
 
 <p align="center">
-  <img src="assets/readme/Example.jpg" alt="Example result: closed-loop flight through an uncertain updraft" width="100%"><br>
+  <img src="A_Miscellaneous/A_Readme/Example.jpg" alt="Example result: closed-loop flight through an uncertain updraft" width="100%"><br>
   <sup><em>Example result: closed-loop control keeps the glider flying through uncertain updrafts, while a comparable open-loop launch fails.</em></sup>
 </p>
 
@@ -122,21 +122,21 @@ For the software, datasets, and reproducibility materials, cite the versioned Ze
 - **A complete experimental workflow, not just a controller.**  
   The repository includes the pieces needed to make the flight tests repeatable: Vicon motion capture, offboard computation, a radio-control command path, measured sensing and actuator delays, a safety-bounded arena, and the manufactured glider.
 <p align="center">
-  <img src="assets/readme/3.2.2.jpg" alt="System architecture" width="100%"><br>
+  <img src="A_Miscellaneous/A_Readme/3.2.2.jpg" alt="System architecture" width="100%"><br>
   <sup><em>Selected flight test sensing, computation, and command architecture.</em></sup>
 </p>
 
 - **A measured but imperfect updraft model.**  
   The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one specific flow map.
 <p align="center">
-  <img src="assets/readme/Time-lapse.jpg" alt="Time-lapse" width="100%"><br>
+  <img src="A_Miscellaneous/A_Readme/Time-lapse.jpg" alt="Time-lapse" width="100%"><br>
   <sup><em>Time-lapse composite of anemometer measurements and harmonic annular Gaussian model with GP residual correction.</em></sup>
 </p>
 
 - **A real glider model connected to the hardware.**  
   The simulation model is built around the manufactured aircraft. It uses measured mass properties, centre of gravity, actuator timing, flight calibration data, and panelwise aerodynamic loading to capture the main behaviour of the glider while remaining fast enough for large validation runs.
 <p align="center">
-  <img src="assets/readme/5.3.2.jpg" alt="Manufactured glider" width="100%"><br>
+  <img src="A_Miscellaneous/A_Readme/5.3.2.jpg" alt="Manufactured glider" width="100%"><br>
   <sup><em>Manufactured fifth iteration glider and key assembly details.</em></sup>
 </p>
 
@@ -151,17 +151,17 @@ For the software, datasets, and reproducibility materials, cite the versioned Ze
 
 <p align="center">
   <a href="https://github.com/user-attachments/assets/d4a86b25-39f0-4fcc-bbba-5313a1fb1c9b">
-    <img src="assets/readme/four-fan-thumbnail.jpg"
+    <img src="A_Miscellaneous/A_Readme/four-fan-thumbnail.jpg"
          width="100%"
          alt="Four-fan representative flight-test case">
   </a>
   <a href="https://github.com/user-attachments/assets/89417fed-ad15-4e5b-b527-6ba1ec1c0ea1">
-    <img src="assets/readme/rand-three-fan-thumbnail.jpg"
+    <img src="A_Miscellaneous/A_Readme/rand-three-fan-thumbnail.jpg"
          width="100%"
          alt="Random three-fan representative flight-test case">
   </a>
   <a href="https://github.com/user-attachments/assets/73b79e11-a070-430c-9abe-ae00ba1c4b7a">
-    <img src="assets/readme/rand-four-fan-thumbnail.jpg"
+    <img src="A_Miscellaneous/A_Readme/rand-four-fan-thumbnail.jpg"
          width="100%"
          alt="Random four-fan representative flight-test case">
   </a>
@@ -171,7 +171,7 @@ For the software, datasets, and reproducibility materials, cite the versioned Ze
 - **A clear limit on what did not help much.**  
   The repository also includes the spatial memory component and its logs, but the evidence shows that memory is not the main reason the system transfers. The main reusable result is the measured workflow plus the viability-guided primitive controller.
 <p align="center">
-  <img src="assets/readme/Memory.jpg" alt="Example result: memory component has limited effect" width="100%"><br>
+  <img src="A_Miscellaneous/A_Readme/Memory.jpg" alt="Example result: memory component has limited effect" width="100%"><br>
   <sup><em>Example result: both the memory and no-memory flights survive and exploit the updrafts; the memory component has limited effect.</em></sup>
 </p>
 
