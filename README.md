@@ -120,14 +120,14 @@ For the software, datasets, and reproducibility materials, cite the versioned Ze
   The project turns uncertain outdoor lift exploitation into a controlled laboratory experiment. A small hand-launched glider must cross a bounded indoor flight volume while fan-generated updrafts can either help it stay aloft or push it toward failure.
 
 - **A complete experimental workflow, not just a controller.**  
-  The repository includes the pieces needed to make the flight tests repeatable: Vicon motion capture, offboard computation, a radio-control command path, measured sensing and actuator delays, a safety-bounded arena, and the manufactured foam/carbon glider.
+  The repository includes the pieces needed to make the flight tests repeatable: Vicon motion capture, offboard computation, a radio-control command path, measured sensing and actuator delays, a safety-bounded arena, and the manufactured glider.
 <p align="center">
   <img src="assets/readme/3.2.2.jpg" alt="System architecture" width="100%"><br>
   <sup><em>Selected flight test sensing, computation, and command architecture.</em></sup>
 </p>
 
 - **A measured but imperfect updraft model.**  
-  The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one perfect flow map.
+  The indoor flow is not assumed to be an ideal wind field. Fan-generated updrafts are measured with a scanned hot-wire anemometer, fitted with compact surrogate models, and then randomised during controller development so the final controller is not tuned to one specific flow map.
 <p align="center">
   <img src="assets/readme/Time-lapse.jpg" alt="Time-lapse" width="100%"><br>
   <sup><em>Time-lapse composite of anemometer measurements and harmonic annular Gaussian model with GP residual correction.</em></sup>
@@ -168,8 +168,6 @@ For the software, datasets, and reproducibility materials, cite the versioned Ze
   <sup><em>Representative flight-test cases. Click each image to open the video.</em></sup>
 </p>
 
-<br>
-
 - **A clear limit on what did not help much.**  
   The repository also includes the spatial memory component and its logs, but the evidence shows that memory is not the main reason the system transfers. The main reusable result is the measured workflow plus the viability-guided primitive controller.
 <p align="center">
@@ -179,21 +177,90 @@ For the software, datasets, and reproducibility materials, cite the versioned Ze
 
 ---
 
+## Setup and Reproducibility
 
+This repository is a workflow archive for the thesis. The folders correspond to the main parts of the experiment: updraft modelling, glider design, controller validation, timing tests, and simulation replay of the flight tests.
 
----
+### Tested environment
 
-## License
+| Tool | Tested version |
+|---|---|
+| Windows | 11 25H2 |
+| Python | 3.12.11 |
+| MATLAB | R2026a |
+| Arduino IDE | 2.3.8 |
+| Vicon Tracker | 3.9 |
+
+### Clone
+
+Full clone:
+
+```powershell
+git clone https://github.com/GH-X-ST/Nausicaa.git
+cd Nausicaa
+```
+
+Please use partial clone and sparse checkout for lighter inspection. For example, to inspect only the controller and flight-test folders:
+
+```powershell
+git clone --filter=blob:none --sparse https://github.com/GH-X-ST/Nausicaa.git
+cd Nausicaa
+git sparse-checkout set README.md 03_Control 04_Flight_Test
+```
+
+Change the final `git sparse-checkout set ...` line to select other folders.
+
+### Local environment
+
+This repository does not currently provide a single root dependency file for the whole workflow. Therefore, you have to create a local Python environment first, then install only the packages required by the scripts you intend to run.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
+
+If PowerShell blocks virtual environment activation, call the environment interpreter directly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+```
+
+MATLAB, Arduino IDE, Vicon Tracker, and Flight Arena hardware are only needed for the workflows that depend on them. Most readers should start by inspecting the released data, figures, logs, and scripts before attempting any rerun.
+
+### Workflow entry points
+
+Use the thesis chapter or appendix to choose the relevant repository folder:
+
+| Thesis part | Repository folder |
+|---|---|
+| Chapter 3: system architecture and timing | `B_Test_Lantency/`, `C_Overall_Latency/`, `04_Flight_Test/` |
+| Chapter 4: updraft characterisation and modelling | `01_Thermal/` |
+| Chapter 5: glider design and manufacture | `02_Glider_Design/` |
+| Chapter 6: controller design and validation | `03_Control/` |
+| Chapter 7: real-flight transfer and replay | `04_Flight_Test/` |
+| Appendix A: reproducibility and version record | this README |
+| Appendices B-G: supplementary results | Corresponding workflow folders above |
+
+### Reproducibility boundary
+
+| Evidence type | Repository folder | Boundary |
+|---|---|---|
+| Updraft modelling | `01_Thermal/` | Repeating the physical flow measurement requires the fan and anemometer setup. |
+| Glider design | `02_Glider_Design/` | The physical aircraft depends on manufacturing tolerances and assembly. |
+| Controller validation | `03_Control/` | Dense simulation and validation sweeps may be computationally expensive. |
+| Real-flight transfer | `04_Flight_Test/` | Physical experiments cannot be exactly repeated from software alone. |
+| Timing tests | `B_Test_Lantency/`, `C_Overall_Latency/` | Repeating the measurements requires the corresponding hardware setup. |
+
+Do not run dense simulations, archive regeneration, or hardware-facing scripts unless you want to regenerate those artefacts.
+
+### License
 
 The released software code is distributed under the MIT License. See [`LICENSE`](LICENSE).
 
-The thesis manuscript, media, experimental data, third-party material, and generated figures may be subject to separate copyright or repository notices. Do not assume that the MIT License applies to every non-code artefact unless that artefact is explicitly released under the same license.
+The thesis manuscript, media, experimental data, third-party material, and generated figures may be subject to separate copyright or repository notices. Do not assume that the MIT License applies to every non-code artefact unless it is explicitly released under the same license.
 
 ---
-
-<p align="center">
-  <sub>If you use this project or find it helpful, please cite the thesis or the versioned repository archive.</sub>
-</p>
 
 ## Stargazers Over Time
 [![Stargazers over time light](https://starchart.cc/GH-X-ST/Nausicaa.svg?background=%2300000000&axis=%230a1219&line=%2310bcff)](https://starchart.cc/GH-X-ST/Nausicaa#gh-light-mode-only)
