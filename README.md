@@ -1,3 +1,4 @@
+<!-- README media draft -->
 
 <p align="center">
   <sub>A thesis submitted to the Department of Aeronautics</sub><br>
