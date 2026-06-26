@@ -1,5 +1,3 @@
-<!-- README media draft -->
-
 <p align="center">
   <sub>A thesis submitted to the Department of Aeronautics</sub><br>
   <sub>in partial fulfilment of the requirements for the degree of</sub><br>
@@ -116,11 +114,32 @@ Nausicaa is organised as a workflow archive. It contains source code, configurat
 
 - **Real flight transfer beyond the validation cases.**  
   The final tests compare open-loop and closed-loop flight in still air, fixed fan layouts, and randomised fan layouts. In the random layouts that were not used during controller validation, closed-loop control substantially improves mission success over open-loop flight.
-<div align="center">
-  <video src="assets/readme/four-fan.mp4" controls preload="metadata" width="100%"></video><br>
-  <sup><em>Flying glider through four-fan updraft.</em></sup>
-</div>
 
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/d4a86b25-39f0-4fcc-bbba-5313a1fb1c9b"
+         width="70%"
+         controls
+         preload="metadata"
+         muted
+         playsinline>
+  </video>
+  <video src="https://github.com/user-attachments/assets/89417fed-ad15-4e5b-b527-6ba1ec1c0ea1"
+         width="70%"
+         controls
+         preload="metadata"
+         muted
+         playsinline>
+  </video>
+  <video src="https://github.com/user-attachments/assets/73b79e11-a070-430c-9abe-ae00ba1c4b7a"
+         width="70%"
+         controls
+         preload="metadata"
+         muted
+         playsinline>
+  </video>
+  <sup><em>Representative flight-test cases.</em></sup>
+</div>
+<br>
 
 - **A clear limit on what did not help much.**  
   The repository also includes the spatial memory component and its logs, but the evidence shows that memory is not the main reason the system transfers. The main reusable result is the measured workflow plus the viability-guided primitive controller.
