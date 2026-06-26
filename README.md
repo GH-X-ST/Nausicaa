@@ -82,12 +82,12 @@ For the software, datasets, and reproducibility materials, please cite the Zenod
 
 ```bibtex
 @software{li2026nausicaa_repository,
-  title   = {Nausicaa: Reproducibility Package for Viability-Guided Sim-to-Real Fixed-Wing Glider Flight},
+  title   = {Nausicaa: Reproducibility Package for Viability-Guided Sim-to-Real Fixed-Wing Glider in Uncertain Indoor Updrafts},
   author  = {Li, Hanchen},
   year    = {2026},
   version = {v2026.06-thesis},
   url     = {https://github.com/GH-X-ST/Nausicaa},
-  doi     = {TBA}
+  doi     = {10.5281/zenodo.20927007}
 }
 ```
 ---
