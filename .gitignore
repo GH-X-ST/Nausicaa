@@ -1,24 +1,2 @@
 # Project documents
 docs/
-
-# Python/cache artifacts
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-
-# Local validation scratch folders
-.codex_run_logs/
-.codex_tmp/
-_tmp_*/
-
-# Private local instruction/context files shared with the assistant, not publication artifacts.
-CODEX_*.md
-docs/CODEX_*.md
-!docs/CODEX_R9_launch_gate_coverage_repair_guidance.md
-
-# Temporary generated artifacts stay local. Dense evidence/result logs are
-# trackable when intentionally added; oversized logs use .gitattributes/LFS.
-!03_Control/05_Results/.gitkeep
-03_Control/05_Results/**/*.tmp
