@@ -6,8 +6,8 @@
   <sub>Imperial College London</sub><br>
 </p>
 
-![Cover light](assets/readme/Cover.png#gh-light-mode-only)
-![Cover dark](assets/readme/Cover_dark.png#gh-dark-mode-only)
+![Cover light](A_Miscellaneous/A_Readme/Cover.png#gh-light-mode-only)
+![Cover dark](A_Miscellaneous/A_Readme/Cover_dark.png#gh-dark-mode-only)
 
 <!--
 Suggested optional README image assets. Add these later if desired, then uncomment the image blocks in the relevant sections.
