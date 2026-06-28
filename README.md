@@ -78,7 +78,7 @@ For academic citation, please cite the latest version on arXiv:
 }
 ```
 
-For the archived software, datasets, logs, and reproducibility materials, please cite the Zenodo record:
+For the archived software, datasets, logs, and reproducibility materials, please cite the [Zenodo record](https://doi.org/10.5281/zenodo.20927007):
 
 ```bibtex
 @misc{li2026nausicaa_materials,
