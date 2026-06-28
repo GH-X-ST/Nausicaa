@@ -78,16 +78,17 @@ For academic citation, please cite the latest version on arXiv:
 }
 ```
 
-For the software, datasets, and reproducibility materials, please cite the Zenodo archive:
+For the archived software, datasets, logs, and reproducibility materials, please cite the Zenodo record:
 
 ```bibtex
-@software{li2026nausicaa_repository,
-  title   = {Nausicaa: Reproducibility Package for Viability-Guided Sim-to-Real Fixed-Wing Glider in Uncertain Indoor Updrafts},
-  author  = {Li, Hanchen},
-  year    = {2026},
-  version = {v2026.06-thesis},
-  url     = {https://github.com/GH-X-ST/Nausicaa},
-  doi     = {10.5281/zenodo.20927007}
+@misc{li2026nausicaa_materials,
+  title     = {Nausicaa: Project Materials for Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts},
+  author    = {Li, Hanchen},
+  year      = {2026},
+  publisher = {Zenodo},
+  version   = {v2026.06-thesis},
+  doi       = {10.5281/zenodo.20927007},
+  url       = {https://doi.org/10.5281/zenodo.20927007}
 }
 ```
 ---
