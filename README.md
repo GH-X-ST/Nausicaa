@@ -36,7 +36,9 @@
 
 ## About
 
-Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
+Nausicaa is the project materials repository for the thesis [**Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts**](https://gh-x-st.github.io/Nausicaa-Thesis/).
+
+The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
 
 The controller uses **viability-guided manoeuvre primitive selection**: instead of tracking one preplanned trajectory, the glider repeatedly chooses short validated manoeuvres every `0.10 s` that keep the flight state viable under uncertain lift.
 
