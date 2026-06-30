@@ -1,5 +1,6 @@
 <p align="center">
-  <sub>A thesis submitted to the Department of Aeronautics</sub><br>
+  <sub> Reproducible research materials for a sim-to-real experiment</sub><br>
+  <sub> submitted alongside the thesis to the Department of Aeronautics</sub><br>
   <sub>in partial fulfilment of the requirements for the degree of</sub><br>
   <sub>Master of Engineering (MEng) in Aeronautical Engineering</sub><br>
   <sub>at</sub><br>
@@ -28,11 +29,6 @@
     <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/MATLAB-R2026a-fd8000?style=for-the-badge&labelColor=0d1117">
     <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/MATLAB-R2026a-006da8?style=for-the-badge&labelColor=ffffff">
     <img src="https://img.shields.io/badge/MATLAB-R2026a-7b1fa2?style=for-the-badge&labelColor=ffffff" alt="MATLAB R2026a">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Status-Thesis%20Release-ffff00?style=for-the-badge&labelColor=0d1117">
-    <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Status-Thesis%20Release-0000cd?style=for-the-badge&labelColor=ffffff">
-    <img src="https://img.shields.io/badge/Status-Thesis%20Release-6e7781?style=for-the-badge&labelColor=ffffff" alt="Status: thesis release">
   </picture>
 </p>
 
