@@ -1,4 +1,13 @@
 <p align="center">
+  <a href="https://gh-x-st.github.io/Nausicaa-Thesis/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Read-Thesis-ffffff?style=for-the-badge&labelColor=0d1117">
+      <source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/Read-Thesis-000000?style=for-the-badge&labelColor=ffffff">
+      <img src="https://img.shields.io/badge/Read-Thesis-6e7781?style=for-the-badge&labelColor=ffffff" alt="Read thesis">
+    </picture>
+  </a>
+
+<p align="center">
   <sub> Reproducible research materials for a sim-to-real experiment</sub><br>
   <sub> submitted alongside the thesis to the Department of Aeronautics</sub><br>
   <sub>in partial fulfilment of the requirements for the degree of</sub><br>
@@ -36,9 +45,7 @@
 
 ## About
 
-Nausicaa is the project materials repository for the thesis [**Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts**](https://gh-x-st.github.io/Nausicaa-Thesis/).
-
-The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
+Nausicaa is a reproducible research repository for an indoor fixed-wing sim-to-real flight experiment. The project studies whether a small hand-launched glider can use a controller developed in simulation to repeatedly cross an indoor flight volume containing uncertain updrafts.
 
 The controller uses **viability-guided manoeuvre primitive selection**: instead of tracking one preplanned trajectory, the glider repeatedly chooses short validated manoeuvres every `0.10 s` that keep the flight state viable under uncertain lift.
 
