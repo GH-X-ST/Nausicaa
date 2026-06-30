@@ -51,17 +51,18 @@ The controller uses **viability-guided manoeuvre primitive selection**: instead 
 
 The repository links the measured flight arena, manufactured glider, updraft models, controller development ladder, frozen controller inputs, real-flight logs, and simulation replay diagnostics behind the thesis.
 
-For academic citation, please cite the latest version on arXiv:
+For academic citation, please cite the public thesis manuscript:
 
 ```bibtex
-@misc{li2026nausicaa,
-  title         = {Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts},
-  author        = {Li, Hanchen},
-  year          = {2026},
-  eprint        = {TBA},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.RO},
-  note          = {Public thesis manuscript; MEng thesis, Department of Aeronautics, Imperial College London}
+@mastersthesis{li2026nausicaa_thesis,
+  title  = {Viability-Guided Sim-to-Real Transfer for a Small Fixed-Wing Glider in Uncertain Indoor Updrafts},
+  author = {Li, Hanchen},
+  school = {Imperial College London},
+  year   = {2026},
+  type   = {MEng thesis},
+  note   = {Department of Aeronautics},
+  doi    = {10.5281/zenodo.21083555},
+  url    = {https://doi.org/10.5281/zenodo.21083555}
 }
 ````
 
