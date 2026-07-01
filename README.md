@@ -56,7 +56,7 @@ The controller uses **viability-guided manoeuvre primitive selection**: instead 
 
 The repository links the measured flight arena, manufactured glider, updraft models, controller development ladder, frozen controller inputs, real-flight logs, and simulation replay diagnostics behind the thesis.
 
-For academic citation, please cite the public thesis manuscript:
+For academic citation, please cite the [public thesis manuscript](https://doi.org/10.5281/zenodo.21083555):
 
 ```bibtex
 @mastersthesis{li2026nausicaa_thesis,
